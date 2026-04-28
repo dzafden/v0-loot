@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { Check, Plus, Star } from 'lucide-react'
-import { LootShow, RARITIES, Rarity } from '@/lib/loot'
+import { LootShow } from '@/lib/loot'
 import { getPosterUrl } from '@/lib/tmdb'
 import { cn } from '@/lib/utils'
 
@@ -25,7 +25,6 @@ export function ShowCard({
   actionType = 'add',
   className,
 }: ShowCardProps) {
-  const rarity = RARITIES[show.rarity as Rarity]
   const [tilt, setTilt] = useState({ x: 0, y: 0 })
   const [flashing, setFlashing] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -56,7 +55,7 @@ export function ShowCard({
       ref={cardRef}
       className={cn(
         'relative group cursor-pointer w-full z-10 transition-transform duration-150 active:scale-95',
-        compact ? 'aspect-square' : 'aspect-[3/4]',
+        compact ? 'aspect-[2/3]' : 'aspect-[2/3]',
         className
       )}
       onMouseMove={handleMouseMove}
@@ -71,88 +70,72 @@ export function ShowCard({
       {/* Card shell */}
       <div
         className={cn(
-          'absolute inset-0 rounded-2xl ring-2 ring-inset overflow-hidden flex flex-col',
-          'bg-[#0f0f14]',
-          rarity.ring,
-          !compact && show.rarity === 'legendary' && 'legendary-pulse',
-          !compact && show.rarity !== 'legendary' && rarity.glow,
+          'absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/10 overflow-hidden flex flex-col bg-[#0f0f14]',
           flashing && 'animate-pulse brightness-150'
         )}
       >
         {/* Shine sweep overlay */}
         {!compact && (
           <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-2xl">
-            <div className="absolute top-0 -left-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/15 to-transparent skew-x-[-20deg] animate-shine" />
+            <div className="absolute top-0 -left-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-[-20deg] animate-shine" />
           </div>
         )}
 
-        {/* Rarity gradient at top */}
-        <div className={cn(
-          'absolute top-0 inset-x-0 h-1/3 bg-gradient-to-b pointer-events-none z-10',
-          rarity.gradient
-        )} />
-
         {/* Poster */}
-        <div className={cn('relative overflow-hidden bg-black', compact ? 'h-full w-full' : 'h-[74%] w-full flex-shrink-0')}>
+        <div className="relative overflow-hidden bg-black h-full w-full">
           <img
-            src={posterUrl}
+            src={posterUrl || '/placeholder-poster.jpg'}
             alt={show.title}
             className="w-full h-full object-cover"
             loading="lazy"
           />
-          {/* Rarity badge */}
+
+          {/* Rating pill — top right */}
           {!compact && (
-            <div className={cn(
-              'absolute top-2.5 left-2.5 z-20 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest',
-              rarity.badge
-            )}>
-              {rarity.name}
-            </div>
-          )}
-          {/* Rating pill */}
-          {!compact && (
-            <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1 bg-black/60 backdrop-blur px-2 py-0.5 rounded-full">
+            <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1 bg-black/70 backdrop-blur px-2 py-0.5 rounded-full">
               <Star size={10} className="text-yellow-400 fill-yellow-400" />
               <span className="text-white text-[10px] font-black">{show.rating.toFixed(1)}</span>
             </div>
           )}
-        </div>
 
-        {/* Info panel (full card only) */}
-        {!compact && (
-          <div className="relative flex-1 flex flex-col justify-center px-3 bg-[#0c0c10] border-t border-white/5 z-10">
-            <div className="flex items-center justify-between gap-2 w-full">
-              <div className="flex flex-col overflow-hidden min-w-0">
-                <h3 className="font-black text-white text-base leading-tight uppercase tracking-tight truncate">
-                  {show.title}
-                </h3>
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">
-                  {show.year} &bull; {show.genre}
-                </span>
-              </div>
-
-              {actionType === 'add' && (
-                <button
-                  aria-label={isOwned ? 'Already in collection' : `Add ${show.title}`}
-                  className={cn(
-                    'flex-shrink-0 w-9 h-9 rounded-xl font-black transition-all duration-200 flex items-center justify-center',
-                    isOwned
-                      ? 'bg-white/5 text-white/30 cursor-default'
-                      : 'bg-primary text-primary-foreground hover:brightness-110 hover:scale-105 active:scale-95 shadow-lg'
-                  )}
-                  onClick={handleAdd}
-                >
-                  {isOwned ? <Check size={16} strokeWidth={3} /> : <Plus size={20} strokeWidth={3} />}
-                </button>
-              )}
+          {/* Owned checkmark */}
+          {isOwned && !compact && (
+            <div className="absolute top-2.5 left-2.5 z-20 w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow-lg">
+              <Check size={12} strokeWidth={3} className="text-primary-foreground" />
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Compact rarity bar */}
-        {compact && (
-          <div className={cn('absolute bottom-0 inset-x-0 h-[3px] z-20', rarity.bg)} />
-        )}
+          {/* Bottom info overlay (full card only) */}
+          {!compact && (
+            <div className="absolute bottom-0 inset-x-0 z-10 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 pb-3 px-3">
+              <div className="flex items-end justify-between gap-2">
+                <div className="flex flex-col overflow-hidden min-w-0">
+                  <h3 className="font-black text-white text-sm leading-tight uppercase tracking-tight line-clamp-2 text-balance">
+                    {show.title}
+                  </h3>
+                  <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5 truncate">
+                    {show.year} &bull; {show.genre}
+                  </span>
+                </div>
+
+                {actionType === 'add' && (
+                  <button
+                    aria-label={isOwned ? 'Already in collection' : `Add ${show.title}`}
+                    className={cn(
+                      'flex-shrink-0 w-8 h-8 rounded-xl font-black transition-all duration-200 flex items-center justify-center',
+                      isOwned
+                        ? 'bg-white/10 text-white/40 cursor-default'
+                        : 'bg-primary text-primary-foreground hover:brightness-110 hover:scale-105 active:scale-95 shadow-lg'
+                    )}
+                    onClick={handleAdd}
+                  >
+                    {isOwned ? <Check size={14} strokeWidth={3} /> : <Plus size={18} strokeWidth={3} />}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

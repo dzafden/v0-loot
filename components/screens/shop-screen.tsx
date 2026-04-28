@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, X, Flame, TrendingUp, Star, ChevronRight, Zap } from 'lucide-react'
+import { Search, X, Flame, TrendingUp, Star, ChevronRight } from 'lucide-react'
 import useSWR from 'swr'
-import { LootShow, RARITIES } from '@/lib/loot'
+import { LootShow } from '@/lib/loot'
 import { getBackdropUrl, getPosterUrl } from '@/lib/tmdb'
 import { ShowCard } from '@/components/show-card'
 import { ShowDetailModal } from '@/components/show-detail-modal'
@@ -20,55 +20,44 @@ type Tab = 'trending' | 'top' | 'popular'
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'trending', label: 'Trending', icon: Flame },
-  { id: 'top', label: 'Top Rated', icon: Star },
-  { id: 'popular', label: 'Popular', icon: TrendingUp },
+  { id: 'top',      label: 'Top Rated', icon: Star },
+  { id: 'popular',  label: 'Popular',   icon: TrendingUp },
 ]
 
 function HeroCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boolean; onAdd: (id: number) => void }) {
-  const rarity = RARITIES[show.rarity]
   const backdrop = getBackdropUrl(show.backdropPath, 'w1280')
-  const poster = getPosterUrl(show.posterPath, 'w342')
+  const poster   = getPosterUrl(show.posterPath, 'w342')
 
   return (
-    <div className={cn(
-      'relative w-full overflow-hidden rounded-3xl border border-white/10',
-      rarity.glow,
-      show.rarity === 'legendary' && 'legendary-pulse'
-    )} style={{ aspectRatio: '16/9' }}>
-      {/* Background */}
+    <div
+      className="relative w-full overflow-hidden rounded-3xl border border-white/10"
+      style={{ aspectRatio: '16/9' }}
+    >
       {backdrop ? (
         <img src={backdrop} alt="" className="absolute inset-0 w-full h-full object-cover" aria-hidden />
       ) : (
-        <img src={poster} alt="" className="absolute inset-0 w-full h-full object-cover scale-110 blur-sm" aria-hidden />
+        <img src={poster || '/placeholder-poster.jpg'} alt="" className="absolute inset-0 w-full h-full object-cover scale-110 blur-sm" aria-hidden />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
-      <div className={cn('absolute inset-0 bg-gradient-to-r to-transparent opacity-40', rarity.gradient)} />
 
-      {/* Content */}
       <div className="absolute inset-0 flex flex-col justify-end p-5 gap-3">
         <div className="flex items-end gap-3">
           <img
-            src={poster}
+            src={poster || '/placeholder-poster.jpg'}
             alt={show.title}
-            className={cn('w-16 h-24 object-cover rounded-xl border-2 flex-shrink-0', rarity.border)}
+            className="w-16 h-24 object-cover rounded-xl border border-white/20 flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
-            <div className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest mb-1.5', rarity.badge)}>
-              <Zap size={9} />
-              {rarity.name}
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Star size={11} className="text-yellow-400 fill-yellow-400" />
+              <span className="text-[11px] font-black text-yellow-400">{show.rating.toFixed(1)}</span>
+              <span className="text-zinc-600 text-[10px]">&bull;</span>
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{show.genre}</span>
             </div>
             <h2 className="font-black text-white text-xl leading-tight uppercase tracking-tight text-balance line-clamp-2">
               {show.title}
             </h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">
-                {show.year} &bull; {show.genre}
-              </span>
-              <div className="flex items-center gap-1">
-                <Star size={10} className="text-yellow-400 fill-yellow-400" />
-                <span className="text-[11px] font-black text-yellow-400">{show.rating.toFixed(1)}</span>
-              </div>
-            </div>
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{show.year}</span>
           </div>
         </div>
 
@@ -78,7 +67,7 @@ function HeroCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boolean; 
             'w-full py-3 rounded-2xl font-black text-sm uppercase tracking-widest transition-all duration-200',
             isOwned
               ? 'bg-white/10 text-white/50 cursor-default'
-              : 'bg-primary text-primary-foreground hover:brightness-110 active:scale-98 shadow-lg'
+              : 'bg-primary text-primary-foreground hover:brightness-110 active:scale-[.98] shadow-lg shadow-primary/30'
           )}
           disabled={isOwned}
         >
@@ -121,7 +110,10 @@ function SearchModal({ onClose, onAdd, ownedIds, onCardClick }: {
           placeholder="Search any show..."
           className="flex-1 bg-transparent text-white text-lg font-bold placeholder:text-zinc-600 outline-none uppercase tracking-tight"
         />
-        <button onClick={onClose} className="p-2 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all flex-shrink-0">
+        <button
+          onClick={onClose}
+          className="p-2 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all flex-shrink-0"
+        >
           <X size={20} className="text-white" />
         </button>
       </div>
@@ -144,41 +136,41 @@ function SearchModal({ onClose, onAdd, ownedIds, onCardClick }: {
             <p className="font-black uppercase tracking-widest text-sm">Type to search</p>
           </div>
         )}
-          {results.length > 0 && (
-            <div className="grid grid-cols-3 gap-3">
-              {results.map(show => (
-                <ShowCard
-                  key={show.id}
-                  show={show}
-                  isOwned={ownedIds.includes(show.id)}
-                  onAdd={onAdd}
-                  onCardClick={onCardClick}
-                  actionType="add"
-                />
-              ))}
-            </div>
-          )}
+        {results.length > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            {results.map(show => (
+              <ShowCard
+                key={show.id}
+                show={show}
+                isOwned={ownedIds.includes(show.id)}
+                onAdd={onAdd}
+                onCardClick={onCardClick}
+                actionType="add"
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('trending')
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [activeTab, setActiveTab]     = useState<Tab>('trending')
+  const [searchOpen, setSearchOpen]   = useState(false)
   const [selectedShow, setSelectedShow] = useState<LootShow | null>(null)
 
   const { data, isLoading } = useSWR('/api/trending', fetcher)
 
   const tabShows: Record<Tab, LootShow[]> = {
     trending: data?.trending ?? [],
-    top: data?.topRated ?? [],
-    popular: data?.popular ?? [],
+    top:      data?.topRated ?? [],
+    popular:  data?.popular  ?? [],
   }
 
   const shows = tabShows[activeTab]
-  const hero = shows[0]
-  const grid = shows.slice(1)
+  const hero  = shows[0]
+  const grid  = shows.slice(1)
 
   return (
     <>
@@ -186,9 +178,7 @@ export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-10 pb-4">
           <div>
-            <h1 className="text-4xl font-black uppercase tracking-tighter text-white leading-none">
-              LOOT
-            </h1>
+            <h1 className="text-4xl font-black uppercase tracking-tighter text-white leading-none">LOOT</h1>
             <p className="text-[11px] font-bold text-primary uppercase tracking-[0.2em] mt-0.5">
               Drop Season Active
             </p>
@@ -235,25 +225,21 @@ export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
         <div className="flex-1 px-4 pb-6 flex flex-col gap-6">
           {isLoading ? (
             <>
-              {/* Skeleton hero */}
               <div className="w-full rounded-3xl bg-surface-raised animate-pulse" style={{ aspectRatio: '16/9' }} />
-              {/* Skeleton grid */}
               <div className="grid grid-cols-2 gap-4">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="aspect-[3/4] rounded-2xl bg-surface-raised animate-pulse" />
+                  <div key={i} className="aspect-[2/3] rounded-2xl bg-surface-raised animate-pulse" />
                 ))}
               </div>
             </>
           ) : (
             <>
-              {/* Hero card */}
               {hero && (
                 <div onClick={() => setSelectedShow(hero)} className="cursor-pointer">
                   <HeroCard show={hero} isOwned={ownedIds.includes(hero.id)} onAdd={onAdd} />
                 </div>
               )}
 
-              {/* Section label */}
               <div className="flex items-center justify-between">
                 <h2 className="font-black text-white uppercase tracking-tight text-lg">
                   {activeTab === 'trending' ? 'This Week' : activeTab === 'top' ? 'All Time' : 'Most Watched'}
@@ -263,7 +249,6 @@ export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
                 </span>
               </div>
 
-              {/* Trending grid */}
               <div className="grid grid-cols-2 gap-4">
                 {grid.map((show) => (
                   <ShowCard

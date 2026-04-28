@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Trophy, Plus, X, Check, User, Zap, Star, Shield } from 'lucide-react'
-import { LootShow, RARITIES, Rarity } from '@/lib/loot'
+import { Trophy, Plus, X, Check, User, Star, Shield, BarChart2 } from 'lucide-react'
+import { LootShow } from '@/lib/loot'
 import { ShowCard } from '@/components/show-card'
-import { getPosterUrl } from '@/lib/tmdb'
 import { cn } from '@/lib/utils'
 
 interface ProfileScreenProps {
@@ -48,7 +47,7 @@ function SlotPickerModal({
                 className="relative group cursor-pointer"
                 onClick={() => onSelect(show.id)}
               >
-                <ShowCard show={show} compact actionType="none" />
+                <ShowCard show={show} actionType="none" />
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl flex items-center justify-center">
                   <Check size={28} className="text-primary" />
                 </div>
@@ -79,20 +78,14 @@ function StatBadge({ label, value, icon: Icon, color }: {
 export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProps) {
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null)
 
-  const level = Math.floor(ownedShows.length / 3) + 1
-  const xpPct = ((ownedShows.length % 3) / 3) * 100
-
-  const counts: Record<Rarity, number> = { legendary: 0, epic: 0, rare: 0, common: 0 }
-  ownedShows.forEach(s => counts[s.rarity]++)
+  const level  = Math.floor(ownedShows.length / 3) + 1
+  const xpPct  = ((ownedShows.length % 3) / 3) * 100
 
   const avgRating = ownedShows.length
     ? (ownedShows.reduce((acc, s) => acc + s.rating, 0) / ownedShows.length).toFixed(1)
     : '—'
 
-  const topRarity: Rarity =
-    counts.legendary > 0 ? 'legendary' :
-    counts.epic > 0 ? 'epic' :
-    counts.rare > 0 ? 'rare' : 'common'
+  const topShow = [...ownedShows].sort((a, b) => b.rating - a.rating)[0]
 
   return (
     <>
@@ -105,16 +98,13 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
 
           {/* Player card */}
           <div className="relative bg-surface-raised rounded-3xl border border-white/10 overflow-hidden mb-4">
-            {/* Background glow */}
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-primary/5 pointer-events-none" />
-
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-blue-500/5 pointer-events-none" />
             <div className="relative p-4 flex items-center gap-4">
               {/* Avatar */}
               <div className="relative flex-shrink-0">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-purple-600 to-blue-500 flex items-center justify-center shadow-[0_0_24px_rgba(168,85,247,0.45)]">
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-primary/80 to-blue-500 flex items-center justify-center">
                   <User size={36} className="text-white" />
                 </div>
-                {/* Level badge */}
                 <div className="absolute -bottom-1.5 -right-1.5 bg-primary text-primary-foreground text-[10px] font-black rounded-full w-7 h-7 flex items-center justify-center shadow-lg">
                   {level}
                 </div>
@@ -122,11 +112,9 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
 
               <div className="flex-1 min-w-0">
                 <h2 className="font-black text-white text-2xl uppercase tracking-tight leading-none">Player One</h2>
-                <div className={cn('text-[11px] font-black uppercase tracking-widest mt-0.5', RARITIES[topRarity].text)}>
-                  {RARITIES[topRarity].name} Collector
+                <div className="text-[11px] font-black uppercase tracking-widest mt-0.5 text-primary">
+                  {ownedShows.length === 0 ? 'New Collector' : ownedShows.length < 5 ? 'Rising Star' : ownedShows.length < 15 ? 'Series Addict' : 'Binge Master'}
                 </div>
-
-                {/* XP bar */}
                 <div className="mt-2.5">
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Level {level}</span>
@@ -145,10 +133,10 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
 
           {/* Stats row */}
           <div className="flex gap-3">
-            <StatBadge label="Collected" value={ownedShows.length} icon={Trophy} color="text-primary" />
-            <StatBadge label="Legendary" value={counts.legendary} icon={Zap} color="text-yellow-400" />
-            <StatBadge label="Avg Rating" value={avgRating} icon={Star} color="text-blue-400" />
-            <StatBadge label="Level" value={level} icon={Shield} color="text-purple-400" />
+            <StatBadge label="Collected" value={ownedShows.length} icon={Trophy}    color="text-primary" />
+            <StatBadge label="Avg Rating" value={avgRating}        icon={Star}      color="text-yellow-400" />
+            <StatBadge label="Ranked"     value={Object.values({S:[],A:[],B:[],C:[],D:[]}).flat().length} icon={BarChart2} color="text-blue-400" />
+            <StatBadge label="Level"      value={level}            icon={Shield}    color="text-zinc-300" />
           </div>
         </div>
 
@@ -169,7 +157,7 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
                 <div
                   key={index}
                   className={cn(
-                    'aspect-square rounded-2xl relative cursor-pointer overflow-hidden transition-all active:scale-95 group',
+                    'aspect-[2/3] rounded-2xl relative cursor-pointer overflow-hidden transition-all active:scale-95 group',
                     !show && 'border-2 border-dashed border-white/15 bg-surface-raised hover:bg-surface-overlay hover:border-white/30'
                   )}
                   onClick={() => {
@@ -182,13 +170,12 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
                 >
                   {!show ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                      <Plus size={22} className="text-white/25 group-hover:text-white/60 transition-colors" />
+                      <Plus size={20} className="text-white/25 group-hover:text-white/60 transition-colors" />
                       <span className="text-[9px] font-black text-white/15 uppercase tracking-widest">#{index + 1}</span>
                     </div>
                   ) : (
                     <>
-                      <ShowCard show={show} compact actionType="none" />
-                      {/* Rank badge */}
+                      <ShowCard show={show} actionType="none" />
                       <div className="absolute top-1 left-1 z-30 w-5 h-5 rounded-md bg-black/80 flex items-center justify-center">
                         <span className="text-[9px] font-black text-white">#{index + 1}</span>
                       </div>
@@ -207,7 +194,6 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
               Tap a slot to fill it with a show
             </p>
           )}
-
           {ownedShows.length === 0 && (
             <p className="text-center text-zinc-600 text-[11px] font-bold uppercase tracking-widest mt-4">
               Claim shows from the Shop to fill your Top 8
