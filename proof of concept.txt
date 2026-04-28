@@ -1,0 +1,498 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { Home, Package, Trophy, User, Zap, Check, Plus, X, Star, Sparkles, ChevronRight, Play } from 'lucide-react';
+
+// --- MOCK DATA (TMDB Style) ---
+const RARITIES = {
+  legendary: { id: 'legendary', name: 'Legendary', border: 'border-yellow-400', ring: 'ring-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-400', glow: 'shadow-[0_0_20px_rgba(250,204,21,0.6)]', gradient: 'from-yellow-400/20 to-transparent' },
+  epic: { id: 'epic', name: 'Epic', border: 'border-purple-500', ring: 'ring-purple-500', text: 'text-purple-400', bg: 'bg-purple-500', glow: 'shadow-[0_0_20px_rgba(168,85,247,0.6)]', gradient: 'from-purple-500/20 to-transparent' },
+  rare: { id: 'rare', name: 'Rare', border: 'border-blue-400', ring: 'ring-blue-400', text: 'text-blue-400', bg: 'bg-blue-400', glow: 'shadow-[0_0_20px_rgba(96,165,250,0.6)]', gradient: 'from-blue-400/20 to-transparent' },
+  common: { id: 'common', name: 'Common', border: 'border-gray-400', ring: 'ring-gray-400', text: 'text-gray-300', bg: 'bg-gray-400', glow: 'shadow-[0_0_15px_rgba(156,163,175,0.4)]', gradient: 'from-gray-400/20 to-transparent' },
+};
+
+const TIER_COLORS = {
+  S: 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.5)]',
+  A: 'bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.5)]',
+  B: 'bg-yellow-500 text-black shadow-[0_0_15px_rgba(234,179,8,0.5)]',
+  C: 'bg-green-500 text-black shadow-[0_0_15px_rgba(34,197,94,0.5)]',
+  D: 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]'
+};
+
+const MOCK_SHOWS = [
+  { id: 1, title: "Arcane", rarity: "legendary", image: "https://image.tmdb.org/t/p/w500/fqldf2t8ztc9aiwn3k6mlX3tvRT.jpg", year: "2021", genre: "Animation" },
+  { id: 2, title: "Stranger Things", rarity: "epic", image: "https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8RFCvdTW4.jpg", year: "2016", genre: "Sci-Fi" },
+  { id: 3, title: "Squid Game", rarity: "legendary", image: "https://image.tmdb.org/t/p/w500/dDlEmu3EZ0Pgg93K2SVNLCjCSvE.jpg", year: "2021", genre: "Thriller" },
+  { id: 4, title: "The Mandalorian", rarity: "epic", image: "https://image.tmdb.org/t/p/w500/eU1i6eHXlzMOlEq0ku1Rzq7Y4wA.jpg", year: "2019", genre: "Sci-Fi" },
+  { id: 5, title: "Wednesday", rarity: "rare", image: "https://image.tmdb.org/t/p/w500/9PFonBhy4cQy7Jz20NpMygczOoO.jpg", year: "2022", genre: "Fantasy" },
+  { id: 6, title: "The Boys", rarity: "legendary", image: "https://image.tmdb.org/t/p/w500/stTEycfG9928RWa4EvqT9eJk4L3.jpg", year: "2019", genre: "Action" },
+  { id: 7, title: "Breaking Bad", rarity: "legendary", image: "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg", year: "2008", genre: "Drama" },
+  { id: 8, title: "Rick and Morty", rarity: "epic", image: "https://image.tmdb.org/t/p/w500/cvhNj9eoRCElWgwCWdC804EijRo.jpg", year: "2013", genre: "Animation" },
+  { id: 9, title: "Game of Thrones", rarity: "legendary", image: "https://image.tmdb.org/t/p/w500/1XS1oqL89opfnbLl8WnZY1O1uJx.jpg", year: "2011", genre: "Fantasy" },
+  { id: 10, title: "Cyberpunk", rarity: "epic", image: "https://image.tmdb.org/t/p/w500/7aVQ7X7zQ9w2e28vR0S93xH8dF5.jpg", year: "2022", genre: "Animation" },
+  { id: 11, title: "Invincible", rarity: "rare", image: "https://image.tmdb.org/t/p/w500/ywyZbR0E6wS7rL0F9y6S5xQ7iKz.jpg", year: "2021", genre: "Animation" },
+  { id: 12, title: "The Office", rarity: "common", image: "https://image.tmdb.org/t/p/w500/qWnJzyZwidYtPBKHzTj4wAI7Zf0.jpg", year: "2005", genre: "Comedy" },
+  { id: 13, title: "Better Call Saul", rarity: "epic", image: "https://image.tmdb.org/t/p/w500/fC2HDm5t0kHlAMOINtDpWA68c8a.jpg", year: "2015", genre: "Drama" },
+  { id: 14, title: "Avatar: ATLA", rarity: "epic", image: "https://image.tmdb.org/t/p/w500/cye2eeihXpCZZL63v6K36t8Xo7k.jpg", year: "2005", genre: "Animation" },
+  { id: 15, title: "SpongeBob", rarity: "common", image: "https://image.tmdb.org/t/p/w500/xndWFsBlClOJFRdhStHQYiaA16Y.jpg", year: "1999", genre: "Animation" }
+];
+
+// --- COMPONENTS ---
+
+const Card = ({ show, isOwned, onAction, actionType = 'buy', compact = false }) => {
+  const rarity = RARITIES[show.rarity];
+  const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const [isFlashing, setIsFlashing] = useState(false);
+
+  const handleMouseMove = (e) => {
+    if (compact) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const xRotate = 10 * ((y - rect.height / 2) / (rect.height / 2));
+    const yRotate = -10 * ((x - rect.width / 2) / (rect.width / 2));
+    setTilt({ x: xRotate, y: yRotate });
+  };
+
+  const handleClick = (e) => {
+    if (!isOwned && actionType === 'buy') {
+      setIsFlashing(true);
+      setTimeout(() => setIsFlashing(false), 400);
+    }
+    if (onAction) onAction(show.id);
+  };
+
+  return (
+    <div 
+      className={`relative group cursor-pointer w-full ${compact ? 'aspect-square' : 'aspect-[3/4]'} rounded-[20px] z-10 transition-transform duration-150 active:scale-95`}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setTilt({ x: 0, y: 0 })}
+      onClick={handleClick}
+      style={{
+        transform: compact ? 'none' : `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+      }}
+    >
+      <div className={`absolute inset-0 rounded-[20px] ring-4 ring-inset ${rarity.ring} ${isOwned ? '' : rarity.glow} overflow-hidden bg-[#1a1a24] flex flex-col ${isFlashing ? 'animate-pulse bg-white' : ''}`}>
+        
+        {/* Shiny Effect Overlay */}
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-[20px]">
+          <div className="absolute top-0 -left-[100%] w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-20deg] group-hover:animate-shine" />
+        </div>
+
+        {/* Image */}
+        <div className={`relative ${compact ? 'h-full' : 'h-[75%]'} w-full overflow-hidden bg-black`}>
+          <img src={show.image} alt={show.title} className="w-full h-full object-cover" />
+        </div>
+
+        {/* Info Area (Hidden if compact) */}
+        {!compact && (
+          <div className="relative h-[25%] flex flex-col justify-center px-4 bg-[#121216] border-t border-white/5 z-10">
+            <div className="flex justify-between items-center w-full">
+              <div className="flex flex-col overflow-hidden pr-2">
+                <h3 className="font-black text-white text-lg leading-tight uppercase tracking-tight truncate">{show.title}</h3>
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest truncate mt-0.5">
+                  {show.year} • {show.genre}
+                </span>
+              </div>
+              
+              {actionType === 'buy' && (
+                <button 
+                  className={`flex-shrink-0 w-10 h-10 rounded-xl font-black transition-all duration-200 flex items-center justify-center
+                    ${isOwned 
+                      ? 'bg-white/5 text-white/30 cursor-default' 
+                      : 'bg-[#4ade80] text-black hover:bg-[#22c55e] hover:scale-105 active:scale-95 shadow-lg'
+                    }`}
+                  onClick={(e) => { e.stopPropagation(); handleClick(e); }}
+                >
+                  {isOwned ? <Check size={20} strokeWidth={3} /> : <Plus size={24} strokeWidth={4} />}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Compact Overlay for selected state or rarity indicator */}
+        {compact && (
+           <div className={`absolute bottom-0 inset-x-0 h-1 ${rarity.bg}`} />
+        )}
+      </div>
+    </div>
+  );
+};
+
+const SorterGame = ({ unsortedShows, onSort, onFinish }) => {
+  const currentShow = unsortedShows[0];
+  const [animatingOut, setAnimatingOut] = useState(false);
+
+  if (!currentShow) return null;
+
+  const handleTierClick = (tier) => {
+    if (animatingOut) return;
+    setAnimatingOut(true);
+    setTimeout(() => {
+      onSort(currentShow.id, tier);
+      setAnimatingOut(false);
+    }, 300);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-6">
+      <div className="absolute top-8 right-8 cursor-pointer p-2 bg-white/10 rounded-full hover:bg-white/20" onClick={onFinish}>
+        <X size={24} className="text-white" />
+      </div>
+      
+      <h2 className="text-3xl font-black uppercase tracking-widest text-white mb-8 text-center animate-pulse">
+        Sort Your Loot!
+      </h2>
+
+      <div className={`w-full max-w-[280px] transition-all duration-300 ${animatingOut ? 'scale-50 opacity-0 -translate-y-20' : 'scale-100 opacity-100'}`}>
+        <Card show={currentShow} actionType="none" />
+      </div>
+
+      <div className="mt-12 flex flex-wrap justify-center gap-4 w-full max-w-sm">
+        {Object.keys(TIER_COLORS).map(tier => (
+          <button
+            key={tier}
+            onClick={() => handleTierClick(tier)}
+            className={`w-16 h-16 rounded-2xl font-black text-3xl flex items-center justify-center transition-transform active:scale-90 shadow-xl ${TIER_COLORS[tier]}`}
+          >
+            {tier}
+          </button>
+        ))}
+      </div>
+      <p className="mt-8 text-gray-400 font-bold tracking-widest text-sm uppercase">
+        {unsortedShows.length} Remaining
+      </p>
+    </div>
+  );
+};
+
+const SelectionModal = ({ shows, onSelect, onClose, title = "SELECT ITEM" }) => (
+  <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col p-4 animate-in fade-in zoom-in-95 duration-200">
+    <div className="flex justify-between items-center mb-6 mt-4 px-2">
+      <h2 className="text-2xl font-black text-white tracking-widest">{title}</h2>
+      <button onClick={onClose} className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all">
+        <X size={24} className="text-white" />
+      </button>
+    </div>
+    <div className="flex-1 overflow-y-auto pb-24">
+      {shows.length === 0 ? (
+        <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-4">
+          <Package size={48} className="opacity-50" />
+          <p className="font-bold uppercase tracking-widest">No Items Available</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-3 px-2">
+          {shows.map(show => (
+            <div key={show.id} className="relative group cursor-pointer" onClick={() => onSelect(show.id)}>
+              <Card show={show} compact={true} actionType="none" />
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl flex items-center justify-center">
+                <Check size={32} className="text-[#4ade80]" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// --- MAIN APP COMPONENT ---
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('shop');
+  const [ownedIds, setOwnedIds] = useState([]);
+  const [tierData, setTierData] = useState({ S: [], A: [], B: [], C: [], D: [] });
+  const [top8, setTop8] = useState(Array(8).fill(null));
+  
+  // Modal States
+  const [isSorting, setIsSorting] = useState(false);
+  const [selectingForSlot, setSelectingForSlot] = useState(null); // index 0-7
+
+  // Derived Data
+  const ownedShows = useMemo(() => MOCK_SHOWS.filter(s => ownedIds.includes(s.id)), [ownedIds]);
+  const unsortedLoot = useMemo(() => {
+    const sortedIds = Object.values(tierData).flat();
+    return ownedShows.filter(s => !sortedIds.includes(s.id));
+  }, [ownedShows, tierData]);
+
+  // Actions
+  const handleClaim = (id) => {
+    if (!ownedIds.includes(id)) {
+      setOwnedIds([...ownedIds, id]);
+    }
+  };
+
+  const handleSortShow = (showId, tier) => {
+    setTierData(prev => {
+      const newData = { ...prev };
+      // Remove from any existing tier first just in case
+      Object.keys(newData).forEach(k => {
+        newData[k] = newData[k].filter(id => id !== showId);
+      });
+      newData[tier] = [...newData[tier], showId];
+      return newData;
+    });
+  };
+
+  const handleRemoveFromTier = (showId, currentTier) => {
+    setTierData(prev => ({
+      ...prev,
+      [currentTier]: prev[currentTier].filter(id => id !== showId)
+    }));
+  };
+
+  const handleAssignTop8 = (showId) => {
+    if (selectingForSlot !== null) {
+      setTop8(prev => {
+        const newTop8 = [...prev];
+        // If show is already in another slot, swap or just don't allow duplicates. Let's just overwrite for simplicity.
+        const existingIndex = newTop8.indexOf(showId);
+        if(existingIndex > -1) newTop8[existingIndex] = null; 
+        
+        newTop8[selectingForSlot] = showId;
+        return newTop8;
+      });
+      setSelectingForSlot(null);
+    }
+  };
+
+  const handleRemoveTop8 = (index) => {
+    setTop8(prev => {
+      const newTop8 = [...prev];
+      newTop8[index] = null;
+      return newTop8;
+    });
+  };
+
+  // Inject Custom Styles for animations
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      @keyframes shine {
+        100% { left: 200%; }
+      }
+      .animate-shine {
+        animation: shine 1.5s ease-in-out infinite;
+      }
+      /* Hide scrollbar for Chrome, Safari and Opera */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      /* Hide scrollbar for IE, Edge and Firefox */
+      .no-scrollbar {
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0c] text-white font-sans selection:bg-[#4ade80] flex justify-center w-full">
+      {/* Mobile-sized App Container */}
+      <div className="w-full max-w-md relative pb-28 shadow-2xl bg-[#0f0f13] min-h-screen border-x border-white/5 overflow-x-hidden">
+        
+        {/* --- SHOP VIEW --- */}
+        {activeTab === 'shop' && (
+          <div className="p-4 pt-8 animate-in fade-in duration-300">
+            {/* Top Bar - Cleaned up */}
+            <div className="flex justify-end items-end mb-8">
+              <div className="bg-white/10 px-4 py-1.5 rounded-full flex items-center gap-2 border border-white/5">
+                <Star size={16} className="text-yellow-400 fill-yellow-400" />
+                <span className="font-black text-base">{ownedIds.length}</span>
+              </div>
+            </div>
+
+            {/* Featured Item (No Redundant Text) */}
+            <div className="mb-6 w-full max-w-[320px] mx-auto">
+               <Card show={MOCK_SHOWS[0]} isOwned={ownedIds.includes(MOCK_SHOWS[0].id)} onAction={handleClaim} />
+            </div>
+
+            {/* Daily Grid */}
+            <div className="grid grid-cols-2 gap-4 mt-8">
+              {MOCK_SHOWS.slice(1).map(show => (
+                <Card key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onAction={handleClaim} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* --- LOOT VIEW (Collection) --- */}
+        {activeTab === 'loot' && (
+          <div className="p-4 pt-8 animate-in fade-in duration-300">
+            <div className="mb-6 border-b border-white/10 pb-4">
+              <h1 className="text-3xl font-black uppercase tracking-tighter text-white">My Locker</h1>
+              <p className="text-xs font-bold text-[#4ade80] tracking-widest uppercase mt-1">
+                {ownedIds.length} / {MOCK_SHOWS.length} Collected
+              </p>
+            </div>
+            
+            {ownedShows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center mt-32 opacity-50">
+                <Package size={64} className="mb-4" />
+                <p className="font-black tracking-widest text-xl uppercase">Locker Empty</p>
+                <p className="text-sm font-bold text-gray-400 mt-2">Go to the shop to claim items!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                 {ownedShows.map(show => (
+                    <Card key={show.id} show={show} isOwned={true} actionType="none" />
+                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* --- TIERS VIEW (Game) --- */}
+        {activeTab === 'tiers' && (
+          <div className="p-4 pt-8 animate-in fade-in duration-300 min-h-screen flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-3xl font-black uppercase tracking-tighter text-white">
+                Rankings
+              </h1>
+              {unsortedLoot.length > 0 && (
+                <button 
+                  onClick={() => setIsSorting(true)}
+                  className="bg-rose-500 text-white px-4 py-2 rounded-xl font-black text-sm uppercase tracking-widest shadow-[0_0_15px_rgba(244,63,94,0.4)] hover:scale-105 transition-transform active:scale-95 flex items-center gap-2"
+                >
+                  <Play size={16} className="fill-white" /> Play ({unsortedLoot.length})
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 flex flex-col gap-4 pb-12">
+              {Object.entries(tierData).map(([tier, ids]) => (
+                <div key={tier} className="flex bg-white/5 rounded-2xl overflow-hidden border border-white/10 min-h-[100px]">
+                  {/* Tier Label */}
+                  <div className={`w-16 flex-shrink-0 flex items-center justify-center font-black text-4xl shadow-xl z-10 ${TIER_COLORS[tier]}`}>
+                    {tier}
+                  </div>
+                  {/* Tier Items */}
+                  <div className="flex-1 flex items-center gap-3 p-3 overflow-x-auto no-scrollbar relative">
+                     {ids.length === 0 ? (
+                       <span className="text-white/20 font-bold uppercase tracking-widest text-sm m-auto">Empty</span>
+                     ) : (
+                       ids.map(id => {
+                         const show = MOCK_SHOWS.find(s => s.id === id);
+                         return (
+                           <div key={id} className="w-[70px] flex-shrink-0 relative group cursor-pointer" onClick={() => handleRemoveFromTier(id, tier)}>
+                             <Card show={show} compact={true} actionType="none" />
+                             {/* Hover Remove Overlay */}
+                             <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl flex items-center justify-center backdrop-blur-sm">
+                               <X size={24} className="text-white" />
+                             </div>
+                           </div>
+                         )
+                       })
+                     )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* --- PROFILE VIEW (Top 8) --- */}
+        {activeTab === 'profile' && (
+          <div className="p-4 pt-8 animate-in fade-in duration-300">
+            <div className="flex items-center gap-4 mb-8 bg-white/5 p-4 rounded-3xl border border-white/10">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.4)]">
+                <User size={40} className="text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black uppercase tracking-tighter text-white leading-none">Player One</h1>
+                <p className="text-sm font-bold text-purple-400 tracking-widest uppercase mt-1">Level {Math.floor(ownedIds.length / 3) + 1}</p>
+              </div>
+            </div>
+
+            <div className="mb-4 flex items-center gap-2">
+              <Trophy size={18} className="text-yellow-400" />
+              <h2 className="font-black tracking-widest text-lg uppercase text-white">My Top 8</h2>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-3">
+              {top8.map((showId, index) => {
+                const show = showId ? MOCK_SHOWS.find(s => s.id === showId) : null;
+                return (
+                  <div 
+                    key={index} 
+                    className={`aspect-square rounded-2xl relative cursor-pointer overflow-hidden transition-transform active:scale-95 group
+                      ${!show ? 'border-2 border-dashed border-white/20 bg-white/5 hover:bg-white/10 flex items-center justify-center' : ''}
+                    `}
+                    onClick={() => show ? handleRemoveTop8(index) : setSelectingForSlot(index)}
+                  >
+                    {!show ? (
+                      <Plus size={24} className="text-white/40 group-hover:text-white/80 transition-colors" />
+                    ) : (
+                      <>
+                        <Card show={show} compact={true} actionType="none" />
+                        <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                          <X size={24} className="text-white" />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* --- OVERLAYS & MODALS --- */}
+        {isSorting && (
+          <SorterGame 
+            unsortedShows={unsortedLoot} 
+            onSort={handleSortShow} 
+            onFinish={() => setIsSorting(false)} 
+          />
+        )}
+
+        {selectingForSlot !== null && (
+          <SelectionModal 
+            shows={ownedShows} 
+            onSelect={handleAssignTop8} 
+            onClose={() => setSelectingForSlot(null)} 
+          />
+        )}
+
+        {/* --- BOTTOM NAVIGATION --- */}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[380px] bg-[#1a1a24]/90 backdrop-blur-xl border border-white/10 rounded-full p-2 flex justify-between items-center shadow-[0_20px_40px_rgba(0,0,0,0.8)] z-40">
+          {[
+            { id: 'shop', icon: Home, label: 'Shop' },
+            { id: 'loot', icon: Package, label: 'Loot', badge: ownedIds.length },
+            { id: 'tiers', icon: Trophy, label: 'Rankings', badge: unsortedLoot.length > 0 ? '!' : null },
+            { id: 'profile', icon: User, label: 'Profile' }
+          ].map(tab => {
+            const isActive = activeTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative p-3 rounded-full flex flex-col items-center justify-center transition-all duration-300 w-16 h-16
+                  ${isActive ? 'bg-white/10 -translate-y-2' : 'hover:bg-white/5 hover:-translate-y-1'}
+                `}
+              >
+                <Icon 
+                  size={isActive ? 28 : 24} 
+                  className={`transition-colors duration-300 ${isActive ? 'text-[#4ade80] drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]' : 'text-gray-400'}`} 
+                  strokeWidth={isActive ? 2.5 : 2}
+                />
+                {/* Dot indicator for active tab */}
+                {isActive && <div className="absolute bottom-1.5 w-1.5 h-1.5 rounded-full bg-[#4ade80] shadow-[0_0_5px_#4ade80]" />}
+                
+                {/* Notification Badge */}
+                {tab.badge && !isActive && (
+                   <div className="absolute top-2 right-2 w-4 h-4 bg-red-500 rounded-full border-2 border-[#1a1a24] flex items-center justify-center text-[10px] font-black text-white">
+                     {tab.badge}
+                   </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+      </div>
+    </div>
+  );
+}
