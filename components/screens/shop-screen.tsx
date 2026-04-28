@@ -6,6 +6,7 @@ import useSWR from 'swr'
 import { LootShow, RARITIES } from '@/lib/loot'
 import { getBackdropUrl, getPosterUrl } from '@/lib/tmdb'
 import { ShowCard } from '@/components/show-card'
+import { ShowDetailModal } from '@/components/show-detail-modal'
 import { cn } from '@/lib/utils'
 
 interface ShopScreenProps {
@@ -88,10 +89,11 @@ function HeroCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boolean; 
   )
 }
 
-function SearchModal({ onClose, onAdd, ownedIds }: {
+function SearchModal({ onClose, onAdd, ownedIds, onCardClick }: {
   onClose: () => void
   onAdd: (id: number) => void
   ownedIds: number[]
+  onCardClick?: (show: LootShow) => void
 }) {
   const [query, setQuery] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
@@ -142,19 +144,20 @@ function SearchModal({ onClose, onAdd, ownedIds }: {
             <p className="font-black uppercase tracking-widest text-sm">Type to search</p>
           </div>
         )}
-        {results.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            {results.map(show => (
-              <ShowCard
-                key={show.id}
-                show={show}
-                isOwned={ownedIds.includes(show.id)}
-                onAdd={onAdd}
-                actionType="add"
-              />
-            ))}
-          </div>
-        )}
+          {results.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {results.map(show => (
+                <ShowCard
+                  key={show.id}
+                  show={show}
+                  isOwned={ownedIds.includes(show.id)}
+                  onAdd={onAdd}
+                  onCardClick={onCardClick}
+                  actionType="add"
+                />
+              ))}
+            </div>
+          )}
       </div>
     </div>
   )
@@ -163,6 +166,7 @@ function SearchModal({ onClose, onAdd, ownedIds }: {
 export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
   const [activeTab, setActiveTab] = useState<Tab>('trending')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [selectedShow, setSelectedShow] = useState<LootShow | null>(null)
 
   const { data, isLoading } = useSWR('/api/trending', fetcher)
 
@@ -244,7 +248,9 @@ export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
             <>
               {/* Hero card */}
               {hero && (
-                <HeroCard show={hero} isOwned={ownedIds.includes(hero.id)} onAdd={onAdd} />
+                <div onClick={() => setSelectedShow(hero)} className="cursor-pointer">
+                  <HeroCard show={hero} isOwned={ownedIds.includes(hero.id)} onAdd={onAdd} />
+                </div>
               )}
 
               {/* Section label */}
@@ -257,22 +263,16 @@ export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
                 </span>
               </div>
 
-              {/* Masonry-style grid */}
+              {/* Trending grid */}
               <div className="grid grid-cols-2 gap-4">
-                {grid.map((show, i) => (
-                  <div key={show.id} className={cn(i === 0 ? 'col-span-2' : '')}>
-                    {i === 0 ? (
-                      /* Wide featured card */
-                      <div className="grid grid-cols-2 gap-4">
-                        <ShowCard show={show} isOwned={ownedIds.includes(show.id)} onAdd={onAdd} />
-                        {grid[1] && (
-                          <ShowCard show={grid[1]} isOwned={ownedIds.includes(grid[1].id)} onAdd={onAdd} />
-                        )}
-                      </div>
-                    ) : i === 1 ? null : (
-                      <ShowCard show={show} isOwned={ownedIds.includes(show.id)} onAdd={onAdd} />
-                    )}
-                  </div>
+                {grid.map((show) => (
+                  <ShowCard
+                    key={show.id}
+                    show={show}
+                    isOwned={ownedIds.includes(show.id)}
+                    onAdd={onAdd}
+                    onCardClick={setSelectedShow}
+                  />
                 ))}
               </div>
             </>
@@ -285,6 +285,16 @@ export function ShopScreen({ ownedIds, onAdd }: ShopScreenProps) {
           onClose={() => setSearchOpen(false)}
           onAdd={onAdd}
           ownedIds={ownedIds}
+          onCardClick={(show) => { setSearchOpen(false); setSelectedShow(show) }}
+        />
+      )}
+
+      {selectedShow && (
+        <ShowDetailModal
+          show={selectedShow}
+          isOwned={ownedIds.includes(selectedShow.id)}
+          onAdd={onAdd}
+          onClose={() => setSelectedShow(null)}
         />
       )}
     </>

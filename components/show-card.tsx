@@ -10,6 +10,7 @@ interface ShowCardProps {
   show: LootShow
   isOwned?: boolean
   onAdd?: (id: number) => void
+  onCardClick?: (show: LootShow) => void
   compact?: boolean
   actionType?: 'add' | 'none'
   className?: string
@@ -19,6 +20,7 @@ export function ShowCard({
   show,
   isOwned = false,
   onAdd,
+  onCardClick,
   compact = false,
   actionType = 'add',
   className,
@@ -59,6 +61,7 @@ export function ShowCard({
       )}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setTilt({ x: 0, y: 0 })}
+      onClick={() => onCardClick?.(show)}
       style={{
         transform: compact
           ? 'none'
