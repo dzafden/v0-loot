@@ -67,7 +67,7 @@ function PortraitCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boole
 function LandscapeCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boolean; onAdd: (id: number) => void }) {
   const [flashing, setFlashing] = useState(false)
   const backdrop = getBackdropUrl(show.backdropPath, 'w780')
-  const poster   = getPosterUrl(show.posterPath, 'w342')
+  const poster = getPosterUrl(show.posterPath, 'w342')
 
   function handleAdd(e: React.MouseEvent) {
     e.stopPropagation()
@@ -146,7 +146,7 @@ function CarouselRow({
         {shows.map(show =>
           landscape
             ? <LandscapeCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onAdd={onAdd} />
-            : <PortraitCard  key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onAdd={onAdd} />
+            : <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onAdd={onAdd} />
         )}
       </div>
     </div>
@@ -200,13 +200,18 @@ export function DiscoverScreen({ ownedIds, onAdd }: DiscoverScreenProps) {
 
   const { data, isLoading } = useSWR('/api/trending', fetcher)
 
-  const trending: LootShow[]  = data?.trending  ?? []
-  const topRated: LootShow[]  = data?.topRated  ?? []
-  const popular: LootShow[]   = data?.popular   ?? []
+  const trending: LootShow[] = data?.trending ?? []
+  const topRated: LootShow[] = data?.topRated ?? []
+  const popular: LootShow[] = data?.popular ?? []
+  const airingToday: LootShow[] = data?.airingToday ?? []
+  const crime: LootShow[] = data?.crime ?? []
+  const scifi: LootShow[] = data?.scifi ?? []
+  const netflix: LootShow[] = data?.netflix ?? []
+  const hbo: LootShow[] = data?.hbo ?? []
 
   // Split popular into loose "genre" rows using the first genre word from each show
   const animation = popular.filter(s => s.genre?.toLowerCase().includes('animation'))
-  const drama     = topRated.filter(s => s.genre?.toLowerCase().includes('drama'))
+  const drama = topRated.filter(s => s.genre?.toLowerCase().includes('drama'))
 
   return (
     <div className="flex flex-col min-h-full">
