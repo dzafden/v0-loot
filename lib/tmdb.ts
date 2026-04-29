@@ -88,7 +88,7 @@ async function tmdbFetch<T>(endpoint: string, params: Record<string, string> = {
   url.searchParams.set('language', 'en-US')
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
 
-  const res = await fetch(url.toString(), { next: { revalidate: 3600 } })
+  const res = await fetch(url.toString(), { next: { revalidate: 300 } })
   if (!res.ok) throw new Error(`TMDB fetch failed: ${res.status} ${endpoint}`)
   return res.json()
 }
