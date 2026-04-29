@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import useSWR from 'swr'
 import { LootShow, TierData, Tier } from '@/lib/loot'
 import { DiscoverScreen } from '@/components/screens/discover-screen'
@@ -11,11 +11,47 @@ import { BottomNav, TabId } from '@/components/bottom-nav'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
+// ── Storage helpers ───────────────────────────────────────────────────────────
+
+function loadState<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function saveState<T>(key: string, value: T): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(key, JSON.stringify(value))
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const DEFAULT_TIERS: TierData = { S: [], A: [], B: [], C: [], D: [] }
+const DEFAULT_TOP8: (number | null)[] = Array(8).fill(null)
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export function LootApp() {
   const [activeTab, setActiveTab] = useState<TabId>('discover')
-  const [ownedIds, setOwnedIds]   = useState<number[]>([])
-  const [tierData, setTierData]   = useState<TierData>({ S: [], A: [], B: [], C: [], D: [] })
-  const [top8, setTop8]           = useState<(number | null)[]>(Array(8).fill(null))
+
+  const [ownedIds, setOwnedIds] = useState<number[]>(
+    () => loadState('loot-owned', [])
+  )
+  const [tierData, setTierData] = useState<TierData>(
+    () => loadState('loot-tiers', DEFAULT_TIERS)
+  )
+  const [top8, setTop8] = useState<(number | null)[]>(
+    () => loadState('loot-top8', DEFAULT_TOP8)
+  )
+
+  // Persist on every change
+  useEffect(() => { saveState('loot-owned', ownedIds) }, [ownedIds])
+  useEffect(() => { saveState('loot-tiers', tierData) }, [tierData])
+  useEffect(() => { saveState('loot-top8', top8) }, [top8])
 
   const { data } = useSWR('/api/trending', fetcher)
 
@@ -36,7 +72,7 @@ export function LootApp() {
   )
 
   const sortedIds = useMemo(() => Object.values(tierData).flat(), [tierData])
-  const unsorted  = useMemo(
+  const unsorted = useMemo(
     () => ownedShows.filter(s => !sortedIds.includes(s.id)),
     [ownedShows, sortedIds]
   )

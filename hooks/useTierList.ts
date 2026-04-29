@@ -26,7 +26,7 @@ export function useTierList() {
       // Remove from any existing tier first
       const cleaned = Object.fromEntries(
         TIERS.map(t => [t, prev[t].filter(id => id !== show.id)])
-      ) as TierData
+      ) as unknown as TierData
       return { ...cleaned, [tier]: [...cleaned[tier], show.id] }
     })
   }
@@ -35,7 +35,7 @@ export function useTierList() {
     setTiers(prev =>
       Object.fromEntries(
         TIERS.map(t => [t, prev[t].filter(id => id !== showId)])
-      ) as TierData
+      ) as unknown as TierData
     )
   }
 
