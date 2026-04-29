@@ -1,8 +1,10 @@
 import { motion, AnimatePresence } from 'framer-motion'
+import { X } from 'lucide-react'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { listCastRoles, deleteCastRole } from '../../data/queries'
 import { db } from '../../data/db'
 import { imgUrl } from '../../lib/tmdb'
+import { cn } from '../../lib/utils'
 import type { CastRole, Show } from '../../types'
 
 export function MyCast() {
@@ -20,7 +22,7 @@ export function MyCast() {
           <div className="text-sm">No characters cast yet. Open a show, find someone, and give them a role.</div>
         </div>
       ) : (
-        <motion.div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        <motion.div className="grid grid-cols-3 gap-3">
           <AnimatePresence>
             {roles.map((r) => (
               <CastRoleCard key={r.id} role={r} show={showById.get(r.showId)} />
@@ -39,8 +41,9 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
       initial={{ opacity: 0, scale: 0.85 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.7 }}
-      className="relative rounded-2xl bg-zinc-900 border border-white/5 overflow-hidden aspect-[3/4]"
+      className="relative rounded-[20px] bg-[#1a1a24] border border-white/10 overflow-hidden aspect-[2/3]"
     >
+      {/* Photo */}
       <div className="absolute inset-0">
         {role.profilePath ? (
           <img
@@ -53,37 +56,56 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
           <Placeholder name={role.characterName} accent={show?.outlineColor} />
         )}
       </div>
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent"
-      />
-      <div className="absolute top-2 left-2 right-2 flex items-start justify-between">
-        <span className="rounded-full bg-amber-300 text-amber-950 text-[11px] font-bold px-2 py-0.5">
+
+      {/* Gradient — heavy at bottom, light at top */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+
+      {/* Top row: role tag + delete */}
+      <div className="absolute top-2.5 left-2.5 right-2.5 flex items-start justify-between gap-2">
+        <span className="rounded-lg bg-amber-300 text-amber-950 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 leading-none max-w-[75%] truncate shadow-lg">
           {role.roleName}
         </span>
         <button
           onClick={() => void deleteCastRole(role.id)}
-          className="rounded-full bg-black/55 backdrop-blur text-white/85 text-[10px] px-1.5 py-0.5"
+          className="w-6 h-6 rounded-full bg-black/70 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all flex-shrink-0"
           aria-label="Remove role"
         >
-          ✕
+          <X size={11} />
         </button>
       </div>
-      <div className="absolute inset-x-0 bottom-0 p-3">
-        <div className="text-sm font-semibold leading-tight">{role.characterName}</div>
-        <div className="text-[11px] opacity-70">{role.actorName}</div>
+
+      {/* Bottom info — clear 3-level hierarchy */}
+      <div className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8">
+        {/* 1. Show attribution — most contextual, accent colour */}
         {show && (
-          <div className="mt-2 flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 mb-1.5">
             {show.posterPath && (
               <img
                 src={imgUrl(show.posterPath, 'w185')}
                 alt={show.name}
-                className="h-6 w-4 rounded-sm object-cover"
+                className="h-4 w-3 rounded-[3px] object-cover flex-shrink-0"
               />
             )}
-            <span className="text-[11px] opacity-80 truncate">{show.name}</span>
+            <span className={cn(
+              'text-[9px] font-black uppercase tracking-widest truncate',
+              show.outlineColor ? '' : 'text-[#4ade80]',
+            )}
+              style={show.outlineColor ? { color: show.outlineColor } : undefined}
+            >
+              {show.name}
+            </span>
           </div>
         )}
+
+        {/* 2. Character name — hero */}
+        <p className="font-black text-white text-sm leading-tight uppercase tracking-tight truncate">
+          {role.characterName}
+        </p>
+
+        {/* 3. Actor name — supporting */}
+        <p className="text-[10px] text-zinc-500 font-semibold leading-tight mt-0.5 truncate">
+          {role.actorName}
+        </p>
       </div>
     </motion.div>
   )
