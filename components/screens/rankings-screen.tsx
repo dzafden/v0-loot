@@ -47,9 +47,9 @@ function SorterGame({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-between p-6 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col p-6 animate-in fade-in duration-200 overflow-y-auto">
       {/* Top */}
-      <div className="w-full flex items-center justify-between pt-6">
+      <div className="w-full flex items-center justify-between pt-6 mb-8">
         <div className="flex items-center gap-2">
           <Swords size={16} className="text-primary" />
           <span className="font-black uppercase tracking-[0.15em] text-white text-base">Ranking Queue</span>
@@ -64,45 +64,52 @@ function SorterGame({
       </div>
 
       {/* Progress */}
-      <div className="w-[60%] max-w-[200px]">
-        <div className="flex justify-between items-end mb-2">
-          <span className="font-black uppercase tracking-widest text-xs text-zinc-500">Progress</span>
-          <span className="font-black text-sm text-primary">{allShows.length - unsorted.length}/{allShows.length}</span>
-        </div>
-        <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-          <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
-        </div>
-      </div>
-
-      {/* Poster card */}
-      <div
-        className={cn(
-          'w-full max-w-[260px] aspect-[2/3] rounded-3xl overflow-hidden border border-white/15 shadow-2xl transition-all duration-300 relative',
-          exitDir === 'right' && 'translate-x-[130%] rotate-[15deg] opacity-0',
-          exitDir === 'left'  && 'translate-x-[-130%] rotate-[-15deg] opacity-0',
-          !exitDir            && 'translate-x-0 rotate-0 opacity-100'
-        )}
-      >
-        <img
-          src={poster || '/placeholder-poster.jpg'}
-          alt={current.title}
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-        <div className="absolute bottom-0 inset-x-0 p-4">
-          <h3 className="font-black text-white text-lg uppercase tracking-tight leading-tight line-clamp-2">
-            {current.title}
-          </h3>
-          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{current.year}</span>
+      <div className="w-full mb-8 flex justify-center">
+        <div className="w-[70%] max-w-[220px]">
+          <div className="flex justify-between items-end mb-2">
+            <span className="font-black uppercase tracking-widest text-xs text-zinc-500">Progress</span>
+            <span className="font-black text-sm text-primary">{allShows.length - unsorted.length}/{allShows.length}</span>
+          </div>
+          <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+          </div>
         </div>
       </div>
 
-      {/* Question + buttons */}
-      <div className="w-full">
-        <h2 className="text-center text-sm font-black uppercase tracking-widest text-zinc-500 mb-5">
+      {/* Center content - poster and question */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 min-h-0">
+        {/* Poster card */}
+        <div
+          className={cn(
+            'w-full max-w-[240px] aspect-[2/3] rounded-3xl overflow-hidden border border-white/15 shadow-2xl transition-all duration-300 relative flex-shrink-0',
+            exitDir === 'right' && 'translate-x-[130%] rotate-[15deg] opacity-0',
+            exitDir === 'left'  && 'translate-x-[-130%] rotate-[-15deg] opacity-0',
+            !exitDir            && 'translate-x-0 rotate-0 opacity-100'
+          )}
+        >
+          <img
+            src={poster || '/placeholder-poster.jpg'}
+            alt={current.title}
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+          <div className="absolute bottom-0 inset-x-0 p-3">
+            <h3 className="font-black text-white text-base uppercase tracking-tight leading-tight line-clamp-2">
+              {current.title}
+            </h3>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{current.year}</span>
+          </div>
+        </div>
+
+        {/* Question */}
+        <h2 className="text-center text-sm font-black uppercase tracking-widest text-zinc-500">
           Where does it rank?
         </h2>
-        <div className="grid grid-cols-5 gap-2">
+      </div>
+
+      {/* Bottom buttons - fixed/sticky positioning */}
+      <div className="w-full mt-8 pt-4 border-t border-white/10">
+        <div className="grid grid-cols-5 gap-2 mb-4">
           {TIERS.map(tier => {
             const style = TIER_STYLES[tier]
             return (
@@ -110,7 +117,7 @@ function SorterGame({
                 key={tier}
                 onClick={() => handleTier(tier)}
                 className={cn(
-                  'w-full aspect-square rounded-2xl font-black text-3xl flex items-center justify-center transition-transform active:scale-90 shadow-xl',
+                  'w-full aspect-square rounded-2xl font-black text-2xl flex items-center justify-center transition-transform active:scale-90 shadow-xl',
                   style.bg, style.text, style.shadow
                 )}
               >
@@ -121,7 +128,7 @@ function SorterGame({
         </div>
         <button
           onClick={onFinish}
-          className="w-full mt-4 text-zinc-600 text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors py-2"
+          className="w-full text-zinc-600 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors py-2"
         >
           Done for now
         </button>

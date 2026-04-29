@@ -67,7 +67,7 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-barlow), 'Barlow Condensed', system-ui, sans-serif;
+  --font-sans: var(--font-outfit), 'Outfit', system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), 'Geist Mono', monospace;
 
   --color-background: var(--background);

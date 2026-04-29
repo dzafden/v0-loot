@@ -83,7 +83,7 @@ export function LootApp() {
             <DiscoverScreen ownedIds={ownedIds} onAdd={handleAdd} />
           )}
           {activeTab === 'collection' && (
-            <CollectionScreen ownedShows={ownedShows} />
+            <CollectionScreen allShows={allShows} ownedIds={ownedIds} />
           )}
           {activeTab === 'rankings' && (
             <RankingsScreen

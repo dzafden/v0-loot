@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from 'next'
-import { Barlow_Condensed, Geist_Mono } from 'next/font/google'
+import { Outfit, Geist_Mono } from 'next/font/google'
 import './globals.css'
 
-const barlowCondensed = Barlow_Condensed({
+const outfit = Outfit({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700', '800', '900'],
-  variable: '--font-barlow',
+  variable: '--font-outfit',
 })
 
 const geistMono = Geist_Mono({
@@ -33,7 +33,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`bg-background ${barlowCondensed.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`bg-background ${outfit.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased">{children}</body>
     </html>
   )

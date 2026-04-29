@@ -7,10 +7,12 @@ import { getPosterUrl } from '@/lib/tmdb'
 import { cn } from '@/lib/utils'
 
 interface CollectionScreenProps {
-  ownedShows: LootShow[]
+  allShows: LootShow[]
+  ownedIds: number[]
 }
 
-export function CollectionScreen({ ownedShows }: CollectionScreenProps) {
+export function CollectionScreen({ allShows, ownedIds }: CollectionScreenProps) {
+  const ownedShows = allShows.filter(s => ownedIds.includes(s.id))
   const [searchQuery, setSearchQuery]   = useState('')
   const [activeFilter, setActiveFilter] = useState('All')
 
