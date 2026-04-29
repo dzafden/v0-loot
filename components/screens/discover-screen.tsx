@@ -15,6 +15,7 @@ interface DiscoverScreenProps {
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 // ── Portrait card (2:3) ───────────────────────────────────────────────────────
+
 function PortraitCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boolean; onAdd: (id: number) => void }) {
   const [flashing, setFlashing] = useState(false)
   const poster = getPosterUrl(show.posterPath, 'w342')
@@ -34,19 +35,11 @@ function PortraitCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boole
       'w-[130px] aspect-[2/3]',
       flashing && 'animate-pulse'
     )}>
-      {/* Shine sweep */}
       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-[20px]">
         <div className="absolute top-0 -left-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-20deg] group-hover:translate-x-[500%] transition-transform duration-700" />
       </div>
-
-      <img
-        src={poster || '/placeholder-poster.jpg'}
-        alt={show.title}
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+      <img src={poster} alt={show.title} className="absolute inset-0 w-full h-full object-cover" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-
-      {/* Add button */}
       <button
         onClick={handleAdd}
         className={cn(
@@ -64,6 +57,7 @@ function PortraitCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boole
 }
 
 // ── Landscape card (16:9) ─────────────────────────────────────────────────────
+
 function LandscapeCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: boolean; onAdd: (id: number) => void }) {
   const [flashing, setFlashing] = useState(false)
   const backdrop = getBackdropUrl(show.backdropPath, 'w780')
@@ -84,19 +78,11 @@ function LandscapeCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: bool
       'w-[280px] aspect-[16/9]',
       flashing && 'animate-pulse'
     )}>
-      {/* Shine sweep */}
       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-[20px]">
         <div className="absolute top-0 -left-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-20deg] group-hover:translate-x-[500%] transition-transform duration-700" />
       </div>
-
-      <img
-        src={backdrop || poster || '/placeholder-poster.jpg'}
-        alt={show.title}
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+      <img src={backdrop || poster} alt={show.title} className="absolute inset-0 w-full h-full object-cover" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-
-      {/* Add button */}
       <button
         onClick={handleAdd}
         className={cn(
@@ -109,8 +95,6 @@ function LandscapeCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: bool
       >
         {isOwned ? <Check size={16} strokeWidth={3} /> : <Plus size={20} strokeWidth={3} />}
       </button>
-
-      {/* Title */}
       <div className="absolute bottom-0 inset-x-0 p-4 z-10 pointer-events-none">
         <h3 className="font-black text-white text-base leading-tight uppercase tracking-tight truncate">{show.title}</h3>
         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5 block truncate">
@@ -122,6 +106,7 @@ function LandscapeCard({ show, isOwned, onAdd }: { show: LootShow; isOwned: bool
 }
 
 // ── Carousel row ──────────────────────────────────────────────────────────────
+
 function CarouselRow({
   title,
   shows,
@@ -153,7 +138,30 @@ function CarouselRow({
   )
 }
 
+// ── Skeleton loader ───────────────────────────────────────────────────────────
+
+function SkeletonRows() {
+  return (
+    <div className="px-4 flex flex-col gap-8">
+      {[true, false, false, true, false].map((isLandscape, i) => (
+        <div key={i}>
+          <div className="h-3 w-28 bg-white/10 rounded-full animate-pulse mb-3" />
+          <div className="flex gap-3 overflow-hidden">
+            {Array.from({ length: isLandscape ? 2 : 4 }).map((_, j) => (
+              <div key={j} className={cn(
+                'flex-shrink-0 rounded-[20px] bg-white/5 animate-pulse',
+                isLandscape ? 'w-[280px] aspect-[16/9]' : 'w-[130px] aspect-[2/3]'
+              )} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Search results ────────────────────────────────────────────────────────────
+
 function SearchResults({ query, ownedIds, onAdd }: { query: string; ownedIds: number[]; onAdd: (id: number) => void }) {
   const [debouncedQ, setDebouncedQ] = useState(query)
   useEffect(() => {
@@ -173,7 +181,7 @@ function SearchResults({ query, ownedIds, onAdd }: { query: string; ownedIds: nu
     </div>
   )
 
-  if (results.length === 0) return (
+  if (!isLoading && results.length === 0) return (
     <div className="flex flex-col items-center justify-center py-20 opacity-40 px-4">
       <Search size={40} className="mb-3 text-zinc-500" />
       <p className="font-black uppercase tracking-widest text-sm">No Results</p>
@@ -195,31 +203,28 @@ function SearchResults({ query, ownedIds, onAdd }: { query: string; ownedIds: nu
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
+
 export function DiscoverScreen({ ownedIds, onAdd }: DiscoverScreenProps) {
   const [searchQuery, setSearchQuery] = useState('')
-
   const { data, isLoading } = useSWR('/api/trending', fetcher)
 
   const trending: LootShow[] = data?.trending ?? []
   const topRated: LootShow[] = data?.topRated ?? []
-  const popular: LootShow[] = data?.popular ?? []
   const airingToday: LootShow[] = data?.airingToday ?? []
   const crime: LootShow[] = data?.crime ?? []
   const scifi: LootShow[] = data?.scifi ?? []
+  const animation: LootShow[] = data?.animation ?? []
+  const mystery: LootShow[] = data?.mystery ?? []
   const netflix: LootShow[] = data?.netflix ?? []
   const hbo: LootShow[] = data?.hbo ?? []
-
-  // Split popular into loose "genre" rows using the first genre word from each show
-  const animation = popular.filter(s => s.genre?.toLowerCase().includes('animation'))
-  const drama = topRated.filter(s => s.genre?.toLowerCase().includes('drama'))
+  const apple: LootShow[] = data?.apple ?? []
+  const amazon: LootShow[] = data?.amazon ?? []
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Sticky header with search */}
+      {/* Header */}
       <div className="sticky top-0 z-30 bg-[#0f0f13]/80 backdrop-blur-xl border-b border-white/5 pt-10 pb-4 px-4 flex flex-col gap-3">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Discover</h1>
-        </div>
+        <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Discover</h1>
         <div className="relative group">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-primary transition-colors pointer-events-none" />
           <input
@@ -245,58 +250,21 @@ export function DiscoverScreen({ ownedIds, onAdd }: DiscoverScreenProps) {
         {searchQuery ? (
           <SearchResults query={searchQuery} ownedIds={ownedIds} onAdd={onAdd} />
         ) : isLoading ? (
-          <div className="px-4 flex flex-col gap-8">
-            {[1, 2, 3].map(i => (
-              <div key={i}>
-                <div className="h-4 w-32 bg-surface-raised rounded animate-pulse mb-3" />
-                <div className="flex gap-3 overflow-hidden">
-                  {[1, 2, 3].map(j => (
-                    <div key={j} className={cn(
-                      'flex-shrink-0 rounded-[20px] bg-surface-raised animate-pulse',
-                      i === 1 ? 'w-[280px] aspect-[16/9]' : 'w-[130px] aspect-[2/3]'
-                    )} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          <SkeletonRows />
         ) : (
           <>
-            <CarouselRow
-              title="Recommended for You"
-              shows={trending.slice(0, 6)}
-              ownedIds={ownedIds}
-              onAdd={onAdd}
-              landscape
-            />
-            <CarouselRow
-              title="Trending Now"
-              shows={trending}
-              ownedIds={ownedIds}
-              onAdd={onAdd}
-            />
-            {animation.length > 0 && (
-              <CarouselRow
-                title="Animation"
-                shows={animation}
-                ownedIds={ownedIds}
-                onAdd={onAdd}
-              />
-            )}
-            {drama.length > 0 && (
-              <CarouselRow
-                title="Drama"
-                shows={drama}
-                ownedIds={ownedIds}
-                onAdd={onAdd}
-              />
-            )}
-            <CarouselRow
-              title="Top Rated"
-              shows={topRated}
-              ownedIds={ownedIds}
-              onAdd={onAdd}
-            />
+            <CarouselRow title="Trending This Week" shows={trending.slice(0, 8)} ownedIds={ownedIds} onAdd={onAdd} landscape />
+            <CarouselRow title="Airing Today" shows={airingToday} ownedIds={ownedIds} onAdd={onAdd} landscape />
+            <CarouselRow title="Trending Now" shows={trending} ownedIds={ownedIds} onAdd={onAdd} />
+            <CarouselRow title="On Netflix" shows={netflix} ownedIds={ownedIds} onAdd={onAdd} landscape />
+            <CarouselRow title="Crime" shows={crime} ownedIds={ownedIds} onAdd={onAdd} />
+            <CarouselRow title="On HBO" shows={hbo} ownedIds={ownedIds} onAdd={onAdd} landscape />
+            <CarouselRow title="Sci-Fi & Fantasy" shows={scifi} ownedIds={ownedIds} onAdd={onAdd} />
+            <CarouselRow title="On Apple TV+" shows={apple} ownedIds={ownedIds} onAdd={onAdd} landscape />
+            <CarouselRow title="Animation" shows={animation} ownedIds={ownedIds} onAdd={onAdd} />
+            <CarouselRow title="Mystery" shows={mystery} ownedIds={ownedIds} onAdd={onAdd} />
+            <CarouselRow title="On Amazon Prime" shows={amazon} ownedIds={ownedIds} onAdd={onAdd} landscape />
+            <CarouselRow title="Top Rated All Time" shows={topRated} ownedIds={ownedIds} onAdd={onAdd} />
           </>
         )}
       </div>
