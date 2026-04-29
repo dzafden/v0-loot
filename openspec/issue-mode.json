@@ -1,0 +1,24 @@
+{
+  "worktree_root": ".worktree",
+  "validation_commands": [
+    "pnpm lint",
+    "pnpm type-check"
+  ],
+  "worker_worktree": {
+    "enabled": true,
+    "scope": "change",
+    "mode": "detach",
+    "base_ref": "HEAD",
+    "branch_prefix": "opsx"
+  },
+  "rra": {
+    "gate_mode": "advisory"
+  },
+  "subagent_team": {
+    "auto_accept_spec_readiness": false,
+    "auto_accept_issue_planning": false,
+    "auto_accept_issue_review": true,
+    "auto_accept_change_acceptance": false,
+    "auto_archive_after_verify": false
+  }
+}
