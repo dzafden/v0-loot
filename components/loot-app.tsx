@@ -38,26 +38,35 @@ const DEFAULT_TOP8: (number | null)[] = Array(8).fill(null)
 export function LootApp() {
   const [activeTab, setActiveTab] = useState<TabId>('discover')
 
-  const [ownedIds, setOwnedIds] = useState<number[]>(
-    () => loadState('loot-owned', [])
-  )
-  const [tierData, setTierData] = useState<TierData>(
-    () => loadState('loot-tiers', DEFAULT_TIERS)
-  )
-  const [top8, setTop8] = useState<(number | null)[]>(
-    () => loadState('loot-top8', DEFAULT_TOP8)
-  )
+  const [ownedIds, setOwnedIds] = useState<number[]>(() => loadState('loot-owned', []))
+  const [showCache, setShowCache] = useState<Record<number, LootShow>>(() => loadState('loot-show-cache', {}))
+  const [tierData, setTierData] = useState<TierData>(() => loadState('loot-tiers', DEFAULT_TIERS))
+  const [top8, setTop8] = useState<(number | null)[]>(() => loadState('loot-top8', DEFAULT_TOP8))
 
-  // Persist on every change
   useEffect(() => { saveState('loot-owned', ownedIds) }, [ownedIds])
   useEffect(() => { saveState('loot-tiers', tierData) }, [tierData])
   useEffect(() => { saveState('loot-top8', top8) }, [top8])
+  useEffect(() => { saveState('loot-show-cache', showCache) }, [showCache])
 
   const { data } = useSWR('/api/trending', fetcher)
 
+  // Deduplicated list of all shows from the trending API
   const allShows: LootShow[] = useMemo(() => {
     if (!data) return []
-    const combined = [...(data.trending ?? []), ...(data.topRated ?? []), ...(data.popular ?? [])]
+    const combined = [
+      ...(data.trending ?? []),
+      ...(data.topRated ?? []),
+      ...(data.popular ?? []),
+      ...(data.airingToday ?? []),
+      ...(data.crime ?? []),
+      ...(data.scifi ?? []),
+      ...(data.animation ?? []),
+      ...(data.mystery ?? []),
+      ...(data.netflix ?? []),
+      ...(data.hbo ?? []),
+      ...(data.apple ?? []),
+      ...(data.amazon ?? []),
+    ]
     const seen = new Set<number>()
     return combined.filter(s => {
       if (seen.has(s.id)) return false
@@ -66,10 +75,12 @@ export function LootApp() {
     })
   }, [data])
 
-  const ownedShows = useMemo(
-    () => allShows.filter(s => ownedIds.includes(s.id)),
-    [allShows, ownedIds]
-  )
+  // Owned shows — merges API shows with search-result cache so search adds work
+  const ownedShows = useMemo(() => {
+    return ownedIds
+      .map(id => allShows.find(s => s.id === id) ?? showCache[id] ?? null)
+      .filter(Boolean) as LootShow[]
+  }, [allShows, ownedIds, showCache])
 
   const sortedIds = useMemo(() => Object.values(tierData).flat(), [tierData])
   const unsorted = useMemo(
@@ -77,8 +88,11 @@ export function LootApp() {
     [ownedShows, sortedIds]
   )
 
-  function handleAdd(id: number) {
+  function handleAdd(id: number, show?: LootShow) {
     setOwnedIds(prev => prev.includes(id) ? prev : [...prev, id])
+    if (show) {
+      setShowCache(prev => ({ ...prev, [id]: show }))
+    }
   }
 
   function handleSort(showId: number, tier: Tier) {
@@ -119,7 +133,7 @@ export function LootApp() {
             <DiscoverScreen ownedIds={ownedIds} onAdd={handleAdd} />
           )}
           {activeTab === 'collection' && (
-            <CollectionScreen allShows={allShows} ownedIds={ownedIds} />
+            <CollectionScreen ownedShows={ownedShows} />
           )}
           {activeTab === 'rankings' && (
             <RankingsScreen
