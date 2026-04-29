@@ -3,8 +3,8 @@
 import { useState, useMemo } from 'react'
 import useSWR from 'swr'
 import { LootShow, TierData, Tier } from '@/lib/loot'
-import { ShopScreen } from '@/components/screens/shop-screen'
-import { LockerScreen } from '@/components/screens/locker-screen'
+import { DiscoverScreen } from '@/components/screens/discover-screen'
+import { CollectionScreen } from '@/components/screens/collection-screen'
 import { RankingsScreen } from '@/components/screens/rankings-screen'
 import { ProfileScreen } from '@/components/screens/profile-screen'
 import { BottomNav, TabId } from '@/components/bottom-nav'
@@ -12,13 +12,13 @@ import { BottomNav, TabId } from '@/components/bottom-nav'
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 export function LootApp() {
-  const [activeTab, setActiveTab] = useState<TabId>('shop')
-  const [ownedIds, setOwnedIds] = useState<number[]>([])
-  const [tierData, setTierData] = useState<TierData>({ S: [], A: [], B: [], C: [], D: [] })
-  const [top8, setTop8] = useState<(number | null)[]>(Array(8).fill(null))
+  const [activeTab, setActiveTab] = useState<TabId>('discover')
+  const [ownedIds, setOwnedIds]   = useState<number[]>([])
+  const [tierData, setTierData]   = useState<TierData>({ S: [], A: [], B: [], C: [], D: [] })
+  const [top8, setTop8]           = useState<(number | null)[]>(Array(8).fill(null))
 
-  // Fetch all available shows for total count and locker
   const { data } = useSWR('/api/trending', fetcher)
+
   const allShows: LootShow[] = useMemo(() => {
     if (!data) return []
     const combined = [...(data.trending ?? []), ...(data.topRated ?? []), ...(data.popular ?? [])]
@@ -36,7 +36,7 @@ export function LootApp() {
   )
 
   const sortedIds = useMemo(() => Object.values(tierData).flat(), [tierData])
-  const unsorted = useMemo(
+  const unsorted  = useMemo(
     () => ownedShows.filter(s => !sortedIds.includes(s.id)),
     [ownedShows, sortedIds]
   )
@@ -77,14 +77,13 @@ export function LootApp() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex justify-center w-full">
-      <div className="w-full max-w-md relative min-h-screen bg-[#0f0f14] border-x border-white/5 overflow-x-hidden overflow-y-auto pb-32">
-
+      <div className="w-full max-w-md relative min-h-screen bg-[#0f0f13] border-x border-white/5 overflow-x-hidden overflow-y-auto pb-32">
         <div className="animate-in fade-in duration-300">
-          {activeTab === 'shop' && (
-            <ShopScreen ownedIds={ownedIds} onAdd={handleAdd} />
+          {activeTab === 'discover' && (
+            <DiscoverScreen ownedIds={ownedIds} onAdd={handleAdd} />
           )}
-          {activeTab === 'locker' && (
-            <LockerScreen ownedShows={ownedShows} totalShows={allShows.length} />
+          {activeTab === 'collection' && (
+            <CollectionScreen ownedShows={ownedShows} />
           )}
           {activeTab === 'rankings' && (
             <RankingsScreen
@@ -92,6 +91,7 @@ export function LootApp() {
               tierData={tierData}
               onSort={handleSort}
               onRemoveFromTier={handleRemoveFromTier}
+              onGoDiscover={() => setActiveTab('discover')}
             />
           )}
           {activeTab === 'profile' && (
@@ -106,7 +106,7 @@ export function LootApp() {
         <BottomNav
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          lockerCount={ownedIds.length}
+          collectionCount={ownedIds.length}
           unsortedCount={unsorted.length}
         />
       </div>
