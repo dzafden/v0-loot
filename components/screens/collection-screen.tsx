@@ -7,13 +7,11 @@ import { getPosterUrl } from '@/lib/tmdb'
 import { cn } from '@/lib/utils'
 
 interface CollectionScreenProps {
-  allShows: LootShow[]
-  ownedIds: number[]
+  ownedShows: LootShow[]
 }
 
-export function CollectionScreen({ allShows, ownedIds }: CollectionScreenProps) {
-  const ownedShows = allShows.filter(s => ownedIds.includes(s.id))
-  const [searchQuery, setSearchQuery]   = useState('')
+export function CollectionScreen({ ownedShows }: CollectionScreenProps) {
+  const [searchQuery, setSearchQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState('All')
 
   const genres = useMemo(() => {
