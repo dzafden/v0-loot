@@ -33,8 +33,9 @@ function SelectionModal({
   onClose: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col p-4 animate-in fade-in zoom-in-95 duration-200">
-      <div className="flex justify-between items-center mb-6 mt-4 px-2">
+    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      {/* Header */}
+      <div className="flex justify-between items-center px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
         <h2 className="text-2xl font-black text-white tracking-widest uppercase">Select Show</h2>
         <button
           onClick={onClose}
@@ -44,14 +45,16 @@ function SelectionModal({
           <X size={22} className="text-white" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto pb-8 no-scrollbar">
+
+      {/* Scrollable grid */}
+      <div className="flex-1 overflow-y-auto">
         {shows.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4 opacity-50">
             <Star size={48} />
             <p className="font-bold uppercase tracking-widest">Collection Empty</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-3 px-2">
+          <div className="grid grid-cols-3 gap-3 p-4 pb-16">
             {shows.map(show => {
               const poster = getPosterUrl(show.posterPath, 'w342')
               return (
@@ -67,6 +70,9 @@ function SelectionModal({
                       className="w-full h-full object-cover object-top"
                     />
                   </div>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-tight text-center mt-1 leading-tight line-clamp-2 px-1">
+                    {show.title}
+                  </p>
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-[16px] flex items-center justify-center">
                     <Check size={28} className="text-primary" />
                   </div>
@@ -84,12 +90,12 @@ function SelectionModal({
 
 export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProps) {
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null)
-  const [isEditing, setIsEditing]         = useState(false)
-  const [name, setName]                   = useState('PLAYER ONE')
-  const [colorIndex, setColorIndex]       = useState(0)
+  const [isEditing, setIsEditing] = useState(false)
+  const [name, setName] = useState('PLAYER ONE')
+  const [colorIndex, setColorIndex] = useState(0)
 
-  const level   = Math.floor(ownedShows.length / 3) + 1
-  const xpPct   = ((ownedShows.length % 3) / 3) * 100
+  const level = Math.floor(ownedShows.length / 3) + 1
+  const xpPct = ((ownedShows.length % 3) / 3) * 100
 
   return (
     <>
@@ -253,7 +259,7 @@ export function ProfileScreen({ ownedShows, top8, onSetTop8 }: ProfileScreenProp
 
       {selectingSlot !== null && (
         <SelectionModal
-          shows={ownedShows}
+          shows={ownedShows.filter(s => !top8.includes(s.id))}  // ← exclude already-slotted
           onSelect={(id) => {
             onSetTop8(selectingSlot, id)
             setSelectingSlot(null)
