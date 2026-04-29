@@ -41,7 +41,7 @@ function LootCardInner({
 }: Props) {
   const r = rarityStyle(rarity)
   const [tilt, setTilt] = useState({ x: 0, y: 0 })
-  const [flash, setFlash] = useState(false)
+  const [isAdding, setIsAdding] = useState(false)
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (disableTilt || compact) return
@@ -67,8 +67,8 @@ function LootCardInner({
 
   const handleAction = () => {
     if (actionType === 'add') {
-      setFlash(true)
-      setTimeout(() => setFlash(false), 300)
+      setIsAdding(true)
+      setTimeout(() => setIsAdding(false), 150)
     }
     onAction?.(show)
   }
@@ -92,12 +92,12 @@ function LootCardInner({
       style={{
         transform:
           compact || disableTilt
-            ? 'none'
-            : `perspective(900px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+            ? `scale(${isAdding ? 0.93 : 1})`
+            : `perspective(900px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${isAdding ? 0.93 : 1})`,
       }}
     >
       <div
-        className={`absolute inset-0 rounded-[20px] ring-[3px] ring-inset ${r.ring} ${r.glow} overflow-hidden bg-[#1a1a24] flex flex-col ${flash ? 'animate-pulse bg-white/40' : ''} ${isSelected ? 'ring-[#4ade80] ring-[4px]' : ''}`}
+        className={`absolute inset-0 rounded-[20px] ring-[3px] ring-inset ${r.ring} ${r.glow} overflow-hidden bg-[#1a1a24] flex flex-col ${isSelected ? 'ring-[#4ade80] ring-[4px]' : ''}`}
       >
         {/* shine sweep on hover */}
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-[20px]">
@@ -178,7 +178,7 @@ function LootCardInner({
                 <button
                   className={`flex-shrink-0 w-9 h-9 rounded-xl font-black transition-all duration-200 flex items-center justify-center ${
                     actionType === 'add'
-                      ? isSelected
+                      ? isSelected || isAdding
                         ? 'bg-white/5 text-white/30'
                         : 'bg-[#4ade80] text-black hover:bg-[#22c55e] hover:scale-105 active:scale-95'
                       : 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
@@ -189,7 +189,7 @@ function LootCardInner({
                   }}
                 >
                   {actionType === 'add' ? (
-                    isSelected ? (
+                    isSelected || isAdding ? (
                       <Check size={18} strokeWidth={3} />
                     ) : (
                       <Plus size={20} strokeWidth={4} />

@@ -460,15 +460,15 @@ function PortraitCard({
   isOwned: boolean
   variant?: 'grid' | 'carousel'
 }) {
-  const [flashing, setFlashing] = useState(false)
+  const [isAnimatingAdd, setIsAnimatingAdd] = useState(false)
   const [adding, setAdding] = useState(false)
 
   async function handleAdd(e: React.MouseEvent) {
     e.stopPropagation()
     if (isOwned || adding) return
-    setFlashing(true)
+    setIsAnimatingAdd(true)
     setAdding(true)
-    setTimeout(() => setFlashing(false), 400)
+    setTimeout(() => setIsAnimatingAdd(false), 150)
     try {
       await persistShow(show)
     } catch {
@@ -485,7 +485,7 @@ function PortraitCard({
         variant === 'carousel'
           ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]'
           : 'aspect-[2/3]',
-        flashing && 'animate-pulse',
+        isAnimatingAdd ? 'scale-[0.93]' : 'scale-100',
       )}
     >
       {show.posterPath ? (
@@ -510,7 +510,7 @@ function PortraitCard({
         )}
         aria-label={isOwned ? 'In collection' : 'Add to collection'}
       >
-        {isOwned ? <Check size={14} strokeWidth={3} /> : <Plus size={16} strokeWidth={3} />}
+        {isOwned || adding ? <Check size={14} strokeWidth={3} /> : <Plus size={16} strokeWidth={3} />}
       </button>
       {variant === 'grid' && (
         <div className="absolute bottom-0 inset-x-0 p-2 z-10 pointer-events-none">
@@ -525,15 +525,15 @@ function PortraitCard({
 }
 
 function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) {
-  const [flashing, setFlashing] = useState(false)
+  const [isAnimatingAdd, setIsAnimatingAdd] = useState(false)
   const [adding, setAdding] = useState(false)
 
   async function handleAdd(e: React.MouseEvent) {
     e.stopPropagation()
     if (isOwned || adding) return
-    setFlashing(true)
+    setIsAnimatingAdd(true)
     setAdding(true)
-    setTimeout(() => setFlashing(false), 400)
+    setTimeout(() => setIsAnimatingAdd(false), 150)
     try {
       await persistShow(show)
     } catch {
@@ -554,7 +554,7 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
       className={cn(
         'relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg transition-transform duration-150 active:scale-95',
         'w-[280px] aspect-[16/9]',
-        flashing && 'animate-pulse',
+        isAnimatingAdd ? 'scale-[0.93]' : 'scale-100',
       )}
     >
       {bg && (
@@ -572,7 +572,7 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
         )}
         aria-label={isOwned ? 'In collection' : 'Add to collection'}
       >
-        {isOwned ? <Check size={16} strokeWidth={3} /> : <Plus size={20} strokeWidth={3} />}
+        {isOwned || adding ? <Check size={16} strokeWidth={3} /> : <Plus size={20} strokeWidth={3} />}
       </button>
       <div className="absolute bottom-0 inset-x-0 p-4 z-10 pointer-events-none">
         <h3 className="font-black text-white text-base leading-tight uppercase tracking-tight truncate">
