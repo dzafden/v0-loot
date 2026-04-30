@@ -1,3 +1,4 @@
+import { useAnimation, motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, Plus, Check, X } from 'lucide-react'
 import {
@@ -451,6 +452,129 @@ async function persistShow(show: LootShow) {
   await upsertShow(persisted)
 }
 
+// ── Shared "collect" button — iOS App Store / Spotify pattern ────────────────
+//
+// Three-part interaction:
+//   1. whileTap scale squish   — immediate physical feedback, no delay
+//   2. AnimatePresence icon morph — + → spinner → ✓ via spring, not CSS transition
+//   3. Burst ring               — border div that scale+fades outward on success
+//   4. Haptic                   — navigator.vibrate success rhythm
+
+function AddButton({
+  isOwned,
+  adding,
+  onAdd,
+  size = 'sm',
+}: {
+  isOwned: boolean
+  adding: boolean
+  onAdd: (e: React.MouseEvent) => Promise<void>
+  size?: 'sm' | 'lg'
+}) {
+  const controls = useAnimation()
+  const [showBurst, setShowBurst] = useState(false)
+  const [addError, setAddError] = useState(false)
+
+  const w = size === 'lg' ? 'w-9 h-9 rounded-xl' : 'w-8 h-8 rounded-lg'
+  const iconSize = size === 'lg' ? 16 : 14
+  const plusSize = size === 'lg' ? 20 : 16
+
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (isOwned || adding) return
+    setAddError(false)
+    try {
+      await onAdd(e)
+      // success sequence
+      navigator.vibrate?.([6, 20, 10])
+      setShowBurst(true)
+      void controls.start({
+        scale: [1, 1.32, 0.9, 1],
+        transition: { duration: 0.4, times: [0, 0.28, 0.65, 1], ease: 'easeOut' },
+      })
+      setTimeout(() => setShowBurst(false), 600)
+    } catch {
+      setAddError(true)
+      navigator.vibrate?.([80])
+      setTimeout(() => setAddError(false), 2000)
+    }
+  }
+
+  return (
+    <div className="relative">
+      {/* burst ring — the "ripple outward" established pattern */}
+      <AnimatePresence>
+        {showBurst && (
+          <motion.div
+            key="burst"
+            initial={{ scale: 0.85, opacity: 0.9 }}
+            animate={{ scale: 2.4, opacity: 0 }}
+            transition={{ duration: 0.55, ease: 'easeOut' }}
+            className={`absolute inset-0 ${w} border-2 border-[#4ade80] pointer-events-none`}
+          />
+        )}
+      </AnimatePresence>
+
+      <motion.button
+        animate={controls}
+        whileTap={!isOwned ? { scale: 0.68 } : undefined}
+        onClick={handleClick}
+        disabled={isOwned || adding}
+        className={cn(
+          `${w} flex items-center justify-center shadow-lg z-30 relative`,
+          isOwned
+            ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
+            : addError
+              ? 'bg-rose-500 text-white'
+              : 'bg-[#4ade80] text-black',
+        )}
+        aria-label={isOwned ? 'In collection' : 'Add to collection'}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {isOwned ? (
+            <motion.span
+              key="owned"
+              initial={{ scale: 0, rotate: -45 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 22 }}
+              className="flex items-center justify-center"
+            >
+              <Check size={iconSize} strokeWidth={3} />
+            </motion.span>
+          ) : adding ? (
+            <motion.span
+              key="spinner"
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={{ duration: 0.12 }}
+              className="flex items-center justify-center"
+            >
+              <div
+                className={cn(
+                  'border-2 border-black/30 border-t-black rounded-full animate-spin',
+                  size === 'lg' ? 'w-4 h-4' : 'w-3.5 h-3.5',
+                )}
+              />
+            </motion.span>
+          ) : (
+            <motion.span
+              key="plus"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0, rotate: 45 }}
+              transition={{ duration: 0.14 }}
+              className="flex items-center justify-center"
+            >
+              <Plus size={plusSize} strokeWidth={3} />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
+    </div>
+  )
+}
+
 function PortraitCard({
   show,
   isOwned,
@@ -460,22 +584,13 @@ function PortraitCard({
   isOwned: boolean
   variant?: 'grid' | 'carousel'
 }) {
-  const [isAnimatingAdd, setIsAnimatingAdd] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState(false)
 
-  async function handleAdd(e: React.MouseEvent) {
-    e.stopPropagation()
+  const handleAdd = async () => {
     if (isOwned || adding) return
-    setIsAnimatingAdd(true)
     setAdding(true)
-    setAddError(false)
-    setTimeout(() => setIsAnimatingAdd(false), 150)
     try {
       await persistShow(show)
-    } catch {
-      setAddError(true)
-      setTimeout(() => setAddError(false), 2000)
     } finally {
       setAdding(false)
     }
@@ -484,11 +599,8 @@ function PortraitCard({
   return (
     <div
       className={cn(
-        'relative group cursor-pointer rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg transition-transform duration-150 active:scale-95',
-        variant === 'carousel'
-          ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]'
-          : 'aspect-[2/3]',
-        isAnimatingAdd ? 'scale-[0.93]' : 'scale-100',
+        'relative group cursor-pointer rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg',
+        variant === 'carousel' ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]' : 'aspect-[2/3]',
       )}
     >
       {show.posterPath ? (
@@ -502,21 +614,9 @@ function PortraitCard({
         <div className="absolute inset-0 bg-zinc-800" />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-      <button
-        onClick={handleAdd}
-        disabled={isOwned || adding}
-        className={cn(
-          'absolute top-2 right-2 z-30 w-8 h-8 rounded-lg font-black transition-all duration-200 flex items-center justify-center shadow-lg',
-          isOwned
-            ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
-            : addError
-              ? 'bg-rose-500 text-white'
-              : 'bg-[#4ade80] text-black hover:brightness-110 active:scale-95 disabled:opacity-50',
-        )}
-        aria-label={isOwned ? 'In collection' : 'Add to collection'}
-      >
-        {isOwned || adding ? <Check size={14} strokeWidth={3} /> : <Plus size={16} strokeWidth={3} />}
-      </button>
+      <div className="absolute top-2 right-2 z-30">
+        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="sm" />
+      </div>
       {variant === 'grid' && (
         <div className="absolute bottom-0 inset-x-0 p-2 z-10 pointer-events-none">
           <h3 className="font-black text-white text-xs leading-tight truncate">{show.title}</h3>
@@ -530,22 +630,13 @@ function PortraitCard({
 }
 
 function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) {
-  const [isAnimatingAdd, setIsAnimatingAdd] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState(false)
 
-  async function handleAdd(e: React.MouseEvent) {
-    e.stopPropagation()
+  const handleAdd = async () => {
     if (isOwned || adding) return
-    setIsAnimatingAdd(true)
     setAdding(true)
-    setAddError(false)
-    setTimeout(() => setIsAnimatingAdd(false), 150)
     try {
       await persistShow(show)
-    } catch {
-      setAddError(true)
-      setTimeout(() => setAddError(false), 2000)
     } finally {
       setAdding(false)
     }
@@ -558,32 +649,14 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
       : ''
 
   return (
-    <div
-      className={cn(
-        'relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg transition-transform duration-150 active:scale-95',
-        'w-[280px] aspect-[16/9]',
-        isAnimatingAdd ? 'scale-[0.93]' : 'scale-100',
-      )}
-    >
+    <div className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg w-[280px] aspect-[16/9]">
       {bg && (
         <img src={bg} alt={show.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-      <button
-        onClick={handleAdd}
-        disabled={isOwned || adding}
-        className={cn(
-          'absolute top-3 right-3 z-30 w-9 h-9 rounded-xl font-black transition-all duration-200 flex items-center justify-center shadow-lg',
-          isOwned
-            ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
-            : addError
-              ? 'bg-rose-500 text-white'
-              : 'bg-[#4ade80] text-black hover:brightness-110 active:scale-95 disabled:opacity-50',
-        )}
-        aria-label={isOwned ? 'In collection' : 'Add to collection'}
-      >
-        {isOwned || adding ? <Check size={16} strokeWidth={3} /> : <Plus size={20} strokeWidth={3} />}
-      </button>
+      <div className="absolute top-3 right-3 z-30">
+        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="lg" />
+      </div>
       <div className="absolute bottom-0 inset-x-0 p-4 z-10 pointer-events-none">
         <h3 className="font-black text-white text-base leading-tight uppercase tracking-tight truncate">
           {show.title}
