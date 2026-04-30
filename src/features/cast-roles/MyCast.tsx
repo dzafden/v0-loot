@@ -60,52 +60,47 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
       {/* Gradient — heavy at bottom, light at top */}
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
 
-      {/* Top row: role tag + delete */}
-      <div className="absolute top-2.5 left-2.5 right-2.5 flex items-start justify-between gap-2">
-        <span className="rounded-lg bg-amber-300 text-amber-950 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 leading-none max-w-[75%] truncate shadow-lg">
-          {role.roleName}
-        </span>
+      {/* Delete button — top right only, small */}
+      <div className="absolute top-2 right-2">
         <button
           onClick={() => void deleteCastRole(role.id)}
-          className="w-6 h-6 rounded-full bg-black/70 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all flex-shrink-0"
+          className="w-6 h-6 rounded-full bg-black/70 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all"
           aria-label="Remove role"
         >
           <X size={11} />
         </button>
       </div>
 
-      {/* Bottom info — clear 3-level hierarchy */}
-      <div className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8">
-        {/* 1. Show attribution — most contextual, accent colour */}
+      {/* Bottom info panel */}
+      <div className="absolute inset-x-0 bottom-0 px-2 pb-2.5 pt-6">
+        {/* Role badge — wraps if needed */}
+        <span className="inline-block rounded-md bg-amber-300 text-amber-950 text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 leading-tight mb-1.5 max-w-full line-clamp-1">
+          {role.roleName}
+        </span>
+
+        {/* Character name — wraps up to 2 lines */}
+        <p className="font-black text-white text-[11px] leading-tight line-clamp-2 mb-0.5">
+          {role.characterName}
+        </p>
+
+        {/* Show — accent, truncated OK (secondary) */}
         {show && (
-          <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="flex items-center gap-1 mt-1">
             {show.posterPath && (
               <img
                 src={imgUrl(show.posterPath, 'w185')}
                 alt={show.name}
-                className="h-4 w-3 rounded-[3px] object-cover flex-shrink-0"
+                className="h-3.5 w-2.5 rounded-[2px] object-cover flex-shrink-0"
               />
             )}
-            <span className={cn(
-              'text-[9px] font-black uppercase tracking-widest truncate',
-              show.outlineColor ? '' : 'text-[#4ade80]',
-            )}
+            <span
+              className={cn('text-[9px] font-bold truncate', show.outlineColor ? '' : 'text-[#4ade80]')}
               style={show.outlineColor ? { color: show.outlineColor } : undefined}
             >
               {show.name}
             </span>
           </div>
         )}
-
-        {/* 2. Character name — hero */}
-        <p className="font-black text-white text-sm leading-tight uppercase tracking-tight truncate">
-          {role.characterName}
-        </p>
-
-        {/* 3. Actor name — supporting */}
-        <p className="text-[10px] text-zinc-500 font-semibold leading-tight mt-0.5 truncate">
-          {role.actorName}
-        </p>
       </div>
     </motion.div>
   )
