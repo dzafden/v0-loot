@@ -464,11 +464,15 @@ function AddButton({
   isOwned,
   adding,
   onAdd,
+  onSuccess,
+  onError,
   size = 'sm',
 }: {
   isOwned: boolean
   adding: boolean
   onAdd: (e: React.MouseEvent) => Promise<void>
+  onSuccess?: () => void
+  onError?: () => void
   size?: 'sm' | 'lg'
 }) {
   const controls = useAnimation()
@@ -493,10 +497,12 @@ function AddButton({
         transition: { duration: 0.4, times: [0, 0.28, 0.65, 1], ease: 'easeOut' },
       })
       setTimeout(() => setShowBurst(false), 600)
+      onSuccess?.()
     } catch {
       setAddError(true)
       navigator.vibrate?.([80])
       setTimeout(() => setAddError(false), 2000)
+      onError?.()
     }
   }
 
@@ -575,6 +581,27 @@ function AddButton({
   )
 }
 
+// Diagonal shine sweep — the "loot card claimed" pattern from trading card games.
+// A white gradient bar sweeps left-to-right once across the card on success.
+function ShineOverlay() {
+  return (
+    <motion.div
+      className="absolute inset-0 z-20 pointer-events-none overflow-hidden"
+      initial={{ opacity: 1 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25, delay: 0.45 }}
+    >
+      <motion.div
+        className="absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-white/30 to-transparent -skew-x-12"
+        initial={{ left: '-45%' }}
+        animate={{ left: '130%' }}
+        transition={{ duration: 0.55, ease: [0.25, 0.1, 0.25, 1] }}
+      />
+    </motion.div>
+  )
+}
+
 function PortraitCard({
   show,
   isOwned,
@@ -585,6 +612,8 @@ function PortraitCard({
   variant?: 'grid' | 'carousel'
 }) {
   const [adding, setAdding] = useState(false)
+  const [shine, setShine] = useState(false)
+  const cardControls = useAnimation()
 
   const handleAdd = async () => {
     if (isOwned || adding) return
@@ -596,8 +625,18 @@ function PortraitCard({
     }
   }
 
+  const handleSuccess = () => {
+    setShine(true)
+    void cardControls.start({
+      scale: [1, 1.04, 0.98, 1],
+      transition: { duration: 0.38, times: [0, 0.3, 0.65, 1] },
+    })
+    setTimeout(() => setShine(false), 700)
+  }
+
   return (
-    <div
+    <motion.div
+      animate={cardControls}
       className={cn(
         'relative group cursor-pointer rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg',
         variant === 'carousel' ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]' : 'aspect-[2/3]',
@@ -614,8 +653,12 @@ function PortraitCard({
         <div className="absolute inset-0 bg-zinc-800" />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+
+      {/* Shine sweep on successful add */}
+      <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
+
       <div className="absolute top-2 right-2 z-30">
-        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="sm" />
+        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />
       </div>
       {variant === 'grid' && (
         <div className="absolute bottom-0 inset-x-0 p-2 z-10 pointer-events-none">
@@ -625,12 +668,14 @@ function PortraitCard({
           )}
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
 function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) {
   const [adding, setAdding] = useState(false)
+  const [shine, setShine] = useState(false)
+  const cardControls = useAnimation()
 
   const handleAdd = async () => {
     if (isOwned || adding) return
@@ -642,6 +687,15 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
     }
   }
 
+  const handleSuccess = () => {
+    setShine(true)
+    void cardControls.start({
+      scale: [1, 1.03, 0.99, 1],
+      transition: { duration: 0.38, times: [0, 0.3, 0.65, 1] },
+    })
+    setTimeout(() => setShine(false), 700)
+  }
+
   const bg = show.backdropPath
     ? imgUrl(show.backdropPath, 'w500')
     : show.posterPath
@@ -649,13 +703,20 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
       : ''
 
   return (
-    <div className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg w-[280px] aspect-[16/9]">
+    <motion.div
+      animate={cardControls}
+      className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg w-[280px] aspect-[16/9]"
+    >
       {bg && (
         <img src={bg} alt={show.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+
+      {/* Shine sweep on successful add */}
+      <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
+
       <div className="absolute top-3 right-3 z-30">
-        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="lg" />
+        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="lg" />
       </div>
       <div className="absolute bottom-0 inset-x-0 p-4 z-10 pointer-events-none">
         <h3 className="font-black text-white text-base leading-tight uppercase tracking-tight truncate">
@@ -665,6 +726,6 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
           {show.year} &bull; {show.genre}
         </span>
       </div>
-    </div>
+    </motion.div>
   )
 }
