@@ -220,19 +220,16 @@ export function ProfileTab() {
             ) : (
               <div className="grid grid-cols-3 gap-3 p-4 pb-16">
                 {availableShows.map((show) => (
-                  <div key={show.id} className="relative group cursor-pointer" onClick={() => void assign(selectingSlot, show)}>
-                    <div className="aspect-square rounded-[16px] overflow-hidden border border-white/10 bg-[#1a1a24]">
-                      {show.posterPath ? (
-                        <img src={imgUrl(show.posterPath, 'w342')} alt={show.name} className="w-full h-full object-cover object-top" />
-                      ) : (
-                        <div className="w-full h-full grid place-items-center text-zinc-500 font-black text-xl">
-                          {show.name.slice(0, 2).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-[9px] font-black text-zinc-500 uppercase tracking-tight text-center mt-1 leading-tight line-clamp-2 px-1">{show.name}</p>
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-[16px] flex items-center justify-center">
-                      <Check size={28} className="text-[#4ade80]" />
+                  <div key={show.id} className="relative group cursor-pointer aspect-[2/3] rounded-[16px] overflow-hidden border border-white/10 bg-[#1a1a24]" onClick={() => void assign(selectingSlot, show)}>
+                    {show.posterPath ? (
+                      <img src={imgUrl(show.posterPath, 'w342')} alt={show.name} className="w-full h-full object-cover object-top" />
+                    ) : (
+                      <div className="w-full h-full grid place-items-center text-zinc-500 font-black text-xl">
+                        {show.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex items-center justify-center">
+                      <Check size={28} className="text-[#4ade80]" strokeWidth={3} />
                     </div>
                   </div>
                 ))}
