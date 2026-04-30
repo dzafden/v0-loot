@@ -14,15 +14,12 @@ export function MyCast() {
 
   return (
     <div className="px-3 pb-20">
-      <p className="text-xs text-white/55 px-1 mt-1 mb-3">
-        Characters playing roles in your life.
-      </p>
       {!roles.length ? (
         <div className="text-center text-white/55 py-16">
           <div className="text-sm">No characters cast yet. Open a show, find someone, and give them a role.</div>
         </div>
       ) : (
-        <motion.div className="grid grid-cols-3 gap-3">
+        <motion.div className="grid grid-cols-3 gap-x-3 gap-y-4">
           <AnimatePresence>
             {roles.map((r) => (
               <CastRoleCard key={r.id} role={r} show={showById.get(r.showId)} />
@@ -35,72 +32,74 @@ export function MyCast() {
 }
 
 function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
+  const accentColor = show?.outlineColor ?? '#4ade80'
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.85 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.7 }}
-      className="relative rounded-[20px] bg-[#1a1a24] border border-white/10 overflow-hidden aspect-[2/3]"
+      className="flex flex-col"
     >
-      {/* Photo */}
-      <div className="absolute inset-0">
-        {role.profilePath ? (
-          <img
-            src={imgUrl(role.profilePath, 'w342')}
-            alt={role.characterName}
-            className="h-full w-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <Placeholder name={role.characterName} accent={show?.outlineColor} />
-        )}
+      {/* Card — photo only, no role chip inside */}
+      <div className="relative rounded-[20px] bg-[#1a1a24] border border-white/10 overflow-hidden aspect-[2/3]">
+        <div className="absolute inset-0">
+          {role.profilePath ? (
+            <img
+              src={imgUrl(role.profilePath, 'w342')}
+              alt={role.characterName}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <Placeholder name={role.characterName} accent={show?.outlineColor} />
+          )}
+        </div>
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+
+        {/* Delete button */}
+        <div className="absolute top-2 right-2">
+          <button
+            onClick={() => void deleteCastRole(role.id)}
+            className="w-6 h-6 rounded-full bg-black/70 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all"
+            aria-label="Remove role"
+          >
+            <X size={11} />
+          </button>
+        </div>
+
+        {/* Character name + show inside card at bottom */}
+        <div className="absolute inset-x-0 bottom-0 px-2 pb-2 pt-8">
+          <p className="font-black text-white text-[11px] leading-tight line-clamp-2">
+            {role.characterName}
+          </p>
+          {show && (
+            <div className="flex items-center gap-1 mt-1">
+              {show.posterPath && (
+                <img
+                  src={imgUrl(show.posterPath, 'w185')}
+                  alt={show.name}
+                  className="h-3.5 w-2.5 rounded-[2px] object-cover flex-shrink-0"
+                />
+              )}
+              <span
+                className={cn('text-[9px] font-bold truncate', show.outlineColor ? '' : 'text-[#4ade80]')}
+                style={show.outlineColor ? { color: show.outlineColor } : undefined}
+              >
+                {show.name}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Gradient — heavy at bottom, light at top */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-
-      {/* Delete button — top right only, small */}
-      <div className="absolute top-2 right-2">
-        <button
-          onClick={() => void deleteCastRole(role.id)}
-          className="w-6 h-6 rounded-full bg-black/70 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all"
-          aria-label="Remove role"
-        >
-          <X size={11} />
-        </button>
-      </div>
-
-      {/* Bottom info panel */}
-      <div className="absolute inset-x-0 bottom-0 px-2 pb-2.5 pt-6">
-        {/* Role badge — wraps if needed */}
-        <span className="inline-block rounded-md bg-amber-300 text-amber-950 text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 leading-tight mb-1.5 max-w-full line-clamp-1">
+      {/* Role label — outside the card, stat-line style */}
+      <div className="mt-2 pl-2" style={{ borderLeft: `2px solid ${accentColor}` }}>
+        <span className="block text-[9px] font-black uppercase tracking-[0.12em] text-white/70 leading-tight line-clamp-1">
           {role.roleName}
         </span>
-
-        {/* Character name — wraps up to 2 lines */}
-        <p className="font-black text-white text-[11px] leading-tight line-clamp-2 mb-0.5">
-          {role.characterName}
-        </p>
-
-        {/* Show — accent, truncated OK (secondary) */}
-        {show && (
-          <div className="flex items-center gap-1 mt-1">
-            {show.posterPath && (
-              <img
-                src={imgUrl(show.posterPath, 'w185')}
-                alt={show.name}
-                className="h-3.5 w-2.5 rounded-[2px] object-cover flex-shrink-0"
-              />
-            )}
-            <span
-              className={cn('text-[9px] font-bold truncate', show.outlineColor ? '' : 'text-[#4ade80]')}
-              style={show.outlineColor ? { color: show.outlineColor } : undefined}
-            >
-              {show.name}
-            </span>
-          </div>
-        )}
       </div>
     </motion.div>
   )

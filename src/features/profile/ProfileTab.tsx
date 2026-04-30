@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, X, Check, User, Star, Edit3 } from 'lucide-react'
+import { Plus, X, Check, User, Edit3 } from 'lucide-react'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { setTop8 } from '../../data/queries'
@@ -150,14 +150,6 @@ export function ProfileTab() {
           </div>
 
           <div className="mb-6">
-            <div className="flex items-center justify-between mb-4 px-1">
-              <div className="flex items-center gap-2">
-                <Star size={16} className="text-yellow-400 fill-yellow-400" />
-                <h3 className="font-black tracking-widest text-lg uppercase text-white">Loadout</h3>
-              </div>
-              <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Top 8</span>
-            </div>
-
             <div className="grid grid-cols-4 gap-3">
               {slots.map((show, index) => (
                 <div
@@ -197,7 +189,7 @@ export function ProfileTab() {
           </div>
 
           <section>
-            <h3 className="font-black tracking-widest text-lg uppercase text-white mb-2 px-1">Cast Roles</h3>
+            <h3 className="font-black tracking-widest text-lg uppercase text-white mb-2 px-1">Roster</h3>
             <MyCast />
           </section>
         </div>
