@@ -5,7 +5,6 @@ import {
   getDiscoverFeed,
   getCachedDiscoverFeed,
   getDiscoverCategoryPage,
-  getShowDetail,
   hasTmdbKey,
   imgUrl,
   searchShows,
@@ -433,9 +432,10 @@ function CarouselRow({
 }
 
 async function persistShow(show: LootShow) {
-  const detail = await getShowDetail(show.id)
-  const genres = detail.genres.map((g) => g.name) as string[]
   const yr = show.year && show.year !== '—' ? Number(show.year) : undefined
+  // Use genre from the discover feed directly — avoids an extra API round-trip
+  // that could silently fail and make the add appear to do nothing.
+  const genreStr = show.genre as Genre
   const persisted: Show = {
     id: show.id,
     name: show.title,
@@ -443,8 +443,8 @@ async function persistShow(show: LootShow) {
     posterPath: show.posterPath,
     backdropPath: show.backdropPath,
     overview: show.overview,
-    genres: genres as Genre[],
-    rawGenres: genres,
+    genres: genreStr ? [genreStr] : [],
+    rawGenres: genreStr ? [genreStr] : [],
     addedAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -462,17 +462,20 @@ function PortraitCard({
 }) {
   const [isAnimatingAdd, setIsAnimatingAdd] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState(false)
 
   async function handleAdd(e: React.MouseEvent) {
     e.stopPropagation()
     if (isOwned || adding) return
     setIsAnimatingAdd(true)
     setAdding(true)
+    setAddError(false)
     setTimeout(() => setIsAnimatingAdd(false), 150)
     try {
       await persistShow(show)
     } catch {
-      // silent for now; surface via toast later
+      setAddError(true)
+      setTimeout(() => setAddError(false), 2000)
     } finally {
       setAdding(false)
     }
@@ -506,7 +509,9 @@ function PortraitCard({
           'absolute top-2 right-2 z-30 w-8 h-8 rounded-lg font-black transition-all duration-200 flex items-center justify-center shadow-lg',
           isOwned
             ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
-            : 'bg-[#4ade80] text-black hover:brightness-110 active:scale-95 disabled:opacity-50',
+            : addError
+              ? 'bg-rose-500 text-white'
+              : 'bg-[#4ade80] text-black hover:brightness-110 active:scale-95 disabled:opacity-50',
         )}
         aria-label={isOwned ? 'In collection' : 'Add to collection'}
       >
@@ -527,17 +532,20 @@ function PortraitCard({
 function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) {
   const [isAnimatingAdd, setIsAnimatingAdd] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState(false)
 
   async function handleAdd(e: React.MouseEvent) {
     e.stopPropagation()
     if (isOwned || adding) return
     setIsAnimatingAdd(true)
     setAdding(true)
+    setAddError(false)
     setTimeout(() => setIsAnimatingAdd(false), 150)
     try {
       await persistShow(show)
     } catch {
-      // silent for now
+      setAddError(true)
+      setTimeout(() => setAddError(false), 2000)
     } finally {
       setAdding(false)
     }
@@ -568,7 +576,9 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
           'absolute top-3 right-3 z-30 w-9 h-9 rounded-xl font-black transition-all duration-200 flex items-center justify-center shadow-lg',
           isOwned
             ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
-            : 'bg-[#4ade80] text-black hover:brightness-110 active:scale-95 disabled:opacity-50',
+            : addError
+              ? 'bg-rose-500 text-white'
+              : 'bg-[#4ade80] text-black hover:brightness-110 active:scale-95 disabled:opacity-50',
         )}
         aria-label={isOwned ? 'In collection' : 'Add to collection'}
       >
