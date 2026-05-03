@@ -206,7 +206,7 @@ export function ProfileTab() {
           <div className="flex-1 overflow-y-auto">
             {availableShows.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4 opacity-50">
-                <Star size={48} />
+                <Plus size={40} />
                 <p className="font-bold uppercase tracking-widest">Collection Empty</p>
               </div>
             ) : (
