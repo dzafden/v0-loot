@@ -140,28 +140,15 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
-          onClick={onClose}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-50 bg-[#0f0f13] flex flex-col"
         >
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-            onClick={(e) => e.stopPropagation()}
-            className="absolute inset-x-0 bottom-0 top-12 bg-[#0f0f13] rounded-t-[28px] border-t border-white/10 flex flex-col overflow-hidden"
-          >
-            {/* Handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-              <div className="w-9 h-1 rounded-full bg-white/20" />
-            </div>
-
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pb-4 flex-shrink-0">
-              <h2 className="text-xl font-black uppercase tracking-tight text-white">Add a show</h2>
+            <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
+              <h2 className="text-sm font-black uppercase tracking-widest text-white">Add a show</h2>
               <button
                 onClick={onClose}
-                className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+                className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all"
                 aria-label="Close"
               >
                 <X size={18} className="text-white" />
@@ -169,7 +156,7 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
             </div>
 
             {/* Mode tabs */}
-            <div className="flex gap-2 px-5 pb-4 flex-shrink-0">
+            <div className="flex gap-2 px-4 pt-4 pb-4 flex-shrink-0">
               {(['search', 'import'] as const).map((m) => (
                 <button
                   key={m}
@@ -218,7 +205,6 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
             {keyOk && mode === 'import' && (
               <ImportMode ownedIds={ownedIds} />
             )}
-          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
