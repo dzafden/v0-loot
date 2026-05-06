@@ -6,6 +6,7 @@ import {
   getDiscoverFeed,
   getCachedDiscoverFeed,
   getDiscoverCategoryPage,
+  getTmdbKey,
   hasTmdbKey,
   imgUrl,
   searchShows,
@@ -479,9 +480,9 @@ function AddButton({
   const [showBurst, setShowBurst] = useState(false)
   const [addError, setAddError] = useState(false)
 
-  const w = size === 'lg' ? 'w-9 h-9 rounded-xl' : 'w-8 h-8 rounded-lg'
-  const iconSize = size === 'lg' ? 16 : 14
-  const plusSize = size === 'lg' ? 20 : 16
+  const w = size === 'lg' ? 'w-12 h-12 rounded-full' : 'w-8 h-8 rounded-lg'
+  const iconSize = size === 'lg' ? 20 : 14
+  const plusSize = size === 'lg' ? 28 : 16
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -602,6 +603,70 @@ function ShineOverlay() {
   )
 }
 
+type LandscapeArt = {
+  logoPath: string | null
+  tagline: string
+}
+
+type TmdbLogoAsset = {
+  file_path: string
+  vote_average?: number
+  iso_639_1?: string | null
+}
+
+const TMDB_API_BASE = 'https://api.themoviedb.org/3'
+const landscapeArtCache = new Map<number, LandscapeArt>()
+const landscapeArtInflight = new Map<number, Promise<LandscapeArt>>()
+
+function bestLogo(items: TmdbLogoAsset[] = []) {
+  return [...items]
+    .filter((item) => item.iso_639_1 === 'en' || item.iso_639_1 === null)
+    .sort((a, b) => (b.vote_average ?? 0) - (a.vote_average ?? 0))[0]?.file_path ?? null
+}
+
+function shortTmdbCopy(text: string) {
+  const firstSentence = text.match(/^[^.!?]+[.!?]/)?.[0]?.trim()
+  const base = firstSentence && firstSentence.length >= 42 ? firstSentence : text
+  return base.length > 112 ? `${base.slice(0, 109).trim()}...` : base
+}
+
+async function getLandscapeArt(showId: number): Promise<LandscapeArt> {
+  const cached = landscapeArtCache.get(showId)
+  if (cached) return cached
+
+  const existing = landscapeArtInflight.get(showId)
+  if (existing) return existing
+
+  const request = (async () => {
+    const key = getTmdbKey()
+    const url = new URL(`${TMDB_API_BASE}/tv/${showId}`)
+    url.searchParams.set('api_key', key)
+    url.searchParams.set('append_to_response', 'images')
+    url.searchParams.set('include_image_language', 'en,null')
+
+    const res = await fetch(url.toString())
+    if (!res.ok) throw new Error(`TMDB landscape art failed: ${res.status}`)
+
+    const data = (await res.json()) as {
+      tagline?: string
+      images?: { logos?: TmdbLogoAsset[] }
+    }
+    const art = {
+      logoPath: bestLogo(data.images?.logos ?? []),
+      tagline: data.tagline?.trim() ?? '',
+    }
+    landscapeArtCache.set(showId, art)
+    return art
+  })()
+
+  landscapeArtInflight.set(showId, request)
+  try {
+    return await request
+  } finally {
+    landscapeArtInflight.delete(showId)
+  }
+}
+
 function PortraitCard({
   show,
   isOwned,
@@ -675,6 +740,9 @@ function PortraitCard({
 function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  const [isVisible, setIsVisible] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const cardControls = useAnimation()
 
   const handleAdd = async () => {
@@ -701,30 +769,74 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
     : show.posterPath
       ? imgUrl(show.posterPath, 'w342')
       : ''
+  const copy = art?.tagline || shortTmdbCopy(show.overview)
+
+  useEffect(() => {
+    const node = cardRef.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        setIsVisible(true)
+        observer.disconnect()
+      },
+      { rootMargin: '320px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!isVisible || art) return
+    let cancelled = false
+    getLandscapeArt(show.id)
+      .then((next) => {
+        if (!cancelled) setArt(next)
+      })
+      .catch(() => {
+        if (!cancelled) setArt({ logoPath: null, tagline: '' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [art, isVisible, show.id])
 
   return (
     <motion.div
+      ref={cardRef}
       animate={cardControls}
-      className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg w-[280px] aspect-[16/9]"
+      className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg w-[300px] aspect-[1.9/1]"
     >
       {bg && (
         <img src={bg} alt={show.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/78 via-black/24 to-black/8" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-black/12 to-black/8" />
 
       {/* Shine sweep on successful add */}
       <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
 
-      <div className="absolute top-3 right-3 z-30">
+      <div className="absolute bottom-3 right-3 z-30">
         <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="lg" />
       </div>
-      <div className="absolute bottom-0 inset-x-0 p-4 z-10 pointer-events-none">
-        <h3 className="font-black text-white text-base leading-tight uppercase tracking-tight truncate">
-          {show.title}
-        </h3>
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5 block truncate">
-          {show.year} &bull; {show.genre}
-        </span>
+      <div className="absolute inset-x-0 bottom-0 top-0 z-10 flex flex-col justify-between p-4 pr-16 pointer-events-none">
+        {art?.logoPath ? (
+          <img
+            src={imgUrl(art.logoPath, 'w500')}
+            alt={show.title}
+            loading="lazy"
+            className="max-h-[68px] max-w-[62%] object-contain object-left drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)]"
+          />
+        ) : (
+          <h3 className="max-w-[62%] text-2xl font-black leading-none tracking-tight text-white drop-shadow-[0_4px_10px_rgba(0,0,0,0.85)]">
+            {show.title}
+          </h3>
+        )}
+        {copy && (
+          <p className="line-clamp-2 max-w-[78%] text-lg font-light italic leading-tight tracking-tight text-white/88 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+            {copy}
+          </p>
+        )}
       </div>
     </motion.div>
   )
