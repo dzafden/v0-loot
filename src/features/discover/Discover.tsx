@@ -17,11 +17,63 @@ import {
 import { upsertShow } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import type { Genre, Show } from '../../types'
+import type { Genre, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
 
 interface Props {
   onOpenSettings: () => void
+}
+
+const SURFACE_ALLOW_OWNED = new Set<DiscoverCategoryKey>(['trending', 'airingToday', 'popular'])
+const FEED_KEYS: (keyof DiscoverFeed)[] = ['trending', 'airingToday', 'popular', 'netflix', 'crime', 'hbo', 'scifi', 'apple', 'animation', 'mystery', 'amazon', 'topRated']
+const TIER_TASTE_WEIGHT: Record<Tier, number> = { S: 9, A: 6, B: 3, C: 1, D: -3 }
+
+function buildTasteWeights(ownedShows: Show[], assignments: TierAssignment[]) {
+  const tierByShow = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
+  const weights = new Map<string, number>()
+  for (const show of ownedShows) {
+    const tier = tierByShow.get(show.id)
+    const base = 1 + (tier ? TIER_TASTE_WEIGHT[tier] : 0) + (typeof show.top8Position === 'number' ? 4 : 0)
+    const genres = [...(show.genres ?? []), ...(show.rawGenres ?? [])].filter(Boolean)
+    for (const genre of genres) {
+      weights.set(genre, (weights.get(genre) ?? 0) + base)
+    }
+  }
+  return weights
+}
+
+function tasteScore(show: LootShow, tasteWeights: Map<string, number>) {
+  return (tasteWeights.get(show.genre) ?? 0) * 12 + show.rating * 1.4 + Math.log10(Math.max(1, show.popularity)) * 2
+}
+
+function uniqueShows(shows: LootShow[]) {
+  const seen = new Set<number>()
+  return shows.filter((show) => {
+    if (seen.has(show.id)) return false
+    seen.add(show.id)
+    return true
+  })
+}
+
+function personalizeShows(
+  shows: LootShow[],
+  tasteWeights: Map<string, number>,
+  ownedSet: Set<number>,
+  options: { allowOwned?: boolean; featuredId?: number } = {},
+) {
+  return uniqueShows(shows)
+    .filter((show) => show.id !== options.featuredId)
+    .filter((show) => options.allowOwned || !ownedSet.has(show.id))
+    .sort((a, b) => tasteScore(b, tasteWeights) - tasteScore(a, tasteWeights))
+}
+
+function canonRow(feed: DiscoverFeed, tasteWeights: Map<string, number>, ownedSet: Set<number>, featuredId?: number) {
+  return personalizeShows(
+    FEED_KEYS.flatMap((key) => feed[key]),
+    tasteWeights,
+    ownedSet,
+    { featuredId },
+  ).slice(0, 12)
 }
 
 export function Discover({ onOpenSettings }: Props) {
@@ -44,6 +96,7 @@ export function Discover({ onOpenSettings }: Props) {
   const keyOk = hasTmdbKey()
 
   const ownedShows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
+  const tierAssignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const ownedIds = ownedShows.map((s) => s.id)
 
   // Trending feed — fetched on mount, cached at module level for 5 min.
@@ -141,12 +194,13 @@ export function Discover({ onOpenSettings }: Props) {
   }
 
   return (
-    <div className="flex flex-col min-h-full pb-28">
-      <div className="sticky top-0 z-30 bg-[#0f0f13]/85 backdrop-blur-xl border-b border-white/5 pt-5 pb-3 px-4 flex flex-col gap-3">
+    <div className="relative flex flex-col min-h-full pb-28 overflow-hidden">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_50%_0%,rgba(245,196,83,0.16),transparent_22rem)]" aria-hidden />
+      <div className="sticky top-0 z-30 bg-[#08070a]/45 backdrop-blur-2xl pt-4 pb-3 px-4 flex flex-col gap-3">
         <div className="relative group">
           <Search
             size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-[#4ade80] transition-colors pointer-events-none"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35 group-focus-within:text-[#f5c453] transition-colors pointer-events-none"
           />
           <input
             type="search"
@@ -154,7 +208,7 @@ export function Discover({ onOpenSettings }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search for shows..."
             disabled={!keyOk}
-            className="w-full bg-[#1a1a24] border-2 border-white/10 rounded-xl py-2.5 pl-9 pr-9 font-bold text-sm text-white placeholder:text-zinc-600 outline-none focus:border-[#4ade80] transition-colors disabled:opacity-50"
+            className="w-full bg-black/26 border border-white/[0.08] rounded-full py-2.5 pl-9 pr-9 font-bold text-sm text-white placeholder:text-white/28 outline-none focus:border-[#f5c453]/55 focus:bg-black/42 transition-colors disabled:opacity-50"
           />
           {query && (
             <button
@@ -169,7 +223,7 @@ export function Discover({ onOpenSettings }: Props) {
         {searchError && <p className="text-xs text-rose-300">{searchError}</p>}
       </div>
 
-      <div className="flex-1 pt-4">
+      <div className="relative z-10 flex-1 pt-1">
         {activeCategory ? (
           <CategoryGrid
             title={activeCategory.title}
@@ -188,10 +242,110 @@ export function Discover({ onOpenSettings }: Props) {
         ) : feedLoading || !feed ? (
           <SkeletonRows />
         ) : (
-          <FeedRows feed={feed} ownedIds={ownedIds} onOpenCategory={openCategory} />
+          <>
+            <PortalHero show={feed.trending[0]} isOwned={feed.trending[0] ? ownedIds.includes(feed.trending[0].id) : false} />
+            <FeedRows
+              feed={feed}
+              ownedIds={ownedIds}
+              ownedShows={ownedShows}
+              tierAssignments={tierAssignments}
+              onOpenCategory={openCategory}
+              featuredId={feed.trending[0]?.id}
+            />
+          </>
         )}
       </div>
     </div>
+  )
+}
+
+function PortalHero({ show, isOwned }: { show?: LootShow; isOwned: boolean }) {
+  const [adding, setAdding] = useState(false)
+  const [shine, setShine] = useState(false)
+  const [art, setArt] = useState<LandscapeArt | null>(() => show ? landscapeArtCache.get(show.id) ?? null : null)
+  const controls = useAnimation()
+
+  useEffect(() => {
+    if (!show) return
+    const cached = landscapeArtCache.get(show.id)
+    if (cached) {
+      setArt(cached)
+      return
+    }
+    let cancelled = false
+    getLandscapeArt(show.id)
+      .then((next) => {
+        if (!cancelled) setArt(next)
+      })
+      .catch(() => {
+        if (!cancelled) setArt({ logoPath: null, tagline: '' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [show])
+
+  if (!show) return null
+
+  const bg = show.backdropPath
+    ? imgUrl(show.backdropPath, 'original')
+    : show.posterPath
+      ? imgUrl(show.posterPath, 'w500')
+      : ''
+  const copy = art?.tagline || ''
+
+  const handleAdd = async () => {
+    if (isOwned || adding) return
+    setAdding(true)
+    try {
+      await persistShow(show)
+      setShine(true)
+      void controls.start({
+        scale: [1, 1.018, 0.995, 1],
+        transition: { duration: 0.48, times: [0, 0.35, 0.72, 1] },
+      })
+      setTimeout(() => setShine(false), 760)
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <motion.section
+      animate={controls}
+      className="relative mx-3 mb-8 h-[430px] overflow-hidden rounded-[34px] bg-black shadow-[0_26px_80px_rgba(0,0,0,0.72)] loot-vignette"
+      style={{ animation: 'loot-rise 520ms ease both' }}
+    >
+      {bg && <img src={bg} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/18 to-black/92" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/78 via-black/22 to-transparent" />
+      <div className="absolute -left-16 top-20 h-56 w-56 rounded-full bg-[#f5c453]/18 blur-3xl" style={{ animation: 'loot-breathe 6s ease-in-out infinite' }} />
+      <AnimatePresence>{shine && <ShineOverlay key="hero-shine" />}</AnimatePresence>
+
+      <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-20">
+        <p className="mb-4 text-[10px] font-black uppercase tracking-[0.32em] text-[#f5c453]/90">Signal</p>
+        {art?.logoPath ? (
+          <img
+            src={imgUrl(art.logoPath, 'w500')}
+            alt={show.title}
+            className="mb-5 max-h-[92px] max-w-[78%] object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]"
+          />
+        ) : (
+          <h2 className="mb-5 max-w-[80%] text-5xl font-black leading-[0.84] tracking-[-0.12em] text-balance drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]">
+            {show.title}
+          </h2>
+        )}
+        {copy && (
+          <p className="max-w-[255px] text-lg font-medium leading-[1.05] text-white/82 text-balance">
+            {copy}
+          </p>
+        )}
+      </div>
+
+      <div className="absolute bottom-6 right-5 z-20">
+        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="lg" />
+      </div>
+    </motion.section>
   )
 }
 
@@ -240,11 +394,11 @@ function CategoryGrid({
 
   return (
     <div className="px-4 pb-8" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <div className="sticky top-0 z-20 -mx-4 px-4 pt-1 pb-3 bg-[#0f0f13]/92 backdrop-blur-xl border-b border-white/5 mb-4">
+      <div className="sticky top-0 z-20 -mx-4 px-4 pt-1 pb-3 bg-[#08070a]/70 backdrop-blur-2xl mb-4">
         <div className="flex items-center justify-between">
           <button
             onClick={onBack}
-            className="h-9 px-3 rounded-xl bg-white/10 text-white text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5"
+            className="h-9 px-3 rounded-full bg-white/[0.07] text-white/80 text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5"
           >
             <ChevronLeft size={14} /> Back
           </button>
@@ -261,7 +415,7 @@ function CategoryGrid({
       <div ref={sentinelRef} className="h-8" />
       {loading && (
         <div className="flex justify-center py-4">
-          <div className="w-7 h-7 border-2 border-[#4ade80] border-t-transparent rounded-full animate-spin" />
+          <div className="w-7 h-7 border-2 border-[#f5c453] border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
@@ -303,7 +457,7 @@ function SearchResults({
   if (loading) {
     return (
       <div className="flex justify-center py-16">
-        <div className="w-8 h-8 border-2 border-[#4ade80] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#f5c453] border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -311,15 +465,12 @@ function SearchResults({
     return (
       <div className="flex flex-col items-center justify-center py-20 opacity-40 px-4">
         <Search size={40} className="mb-3 text-zinc-500" />
-        <p className="font-black uppercase tracking-widest text-sm">No Results</p>
+        <p className="font-black uppercase tracking-widest text-sm">No matches</p>
       </div>
     )
   }
   return (
     <div className="px-4 pb-8">
-      <p className="text-[11px] font-black text-zinc-600 uppercase tracking-widest mb-4">
-        {results.length} results
-      </p>
       <div className="grid grid-cols-2 gap-4">
         {results.map((show) => (
           <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} />
@@ -332,26 +483,42 @@ function SearchResults({
 function FeedRows({
   feed,
   ownedIds,
+  ownedShows,
+  tierAssignments,
   onOpenCategory,
+  featuredId,
 }: {
   feed: DiscoverFeed
   ownedIds: number[]
+  ownedShows: Show[]
+  tierAssignments: TierAssignment[]
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
+  featuredId?: number
 }) {
+  const ownedSet = useMemo(() => new Set(ownedIds), [ownedIds])
+  const tasteWeights = useMemo(() => buildTasteWeights(ownedShows, tierAssignments), [ownedShows, tierAssignments])
+  const row = (key: keyof DiscoverFeed) =>
+    personalizeShows(feed[key], tasteWeights, ownedSet, {
+      allowOwned: SURFACE_ALLOW_OWNED.has(key as DiscoverCategoryKey),
+      featuredId,
+    }).slice(0, 10)
+  const personalized = canonRow(feed, tasteWeights, ownedSet, featuredId)
+
   return (
     <>
-      <CarouselRow title="Trending This Week" categoryKey="trending" shows={feed.trending.slice(0, 8)} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Airing Today" categoryKey="airingToday" shows={feed.airingToday} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Trending Now" categoryKey="popular" shows={feed.popular} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On Netflix" categoryKey="netflix" shows={feed.netflix} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Crime" categoryKey="crime" shows={feed.crime} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On HBO" categoryKey="hbo" shows={feed.hbo} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Sci-Fi & Fantasy" categoryKey="scifi" shows={feed.scifi} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On Apple TV+" categoryKey="apple" shows={feed.apple} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Animation" categoryKey="animation" shows={feed.animation} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Mystery" categoryKey="mystery" shows={feed.mystery} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On Amazon Prime" categoryKey="amazon" shows={feed.amazon} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={feed.topRated} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="For Your Taste" categoryKey="popular" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Trending This Week" categoryKey="trending" shows={row('trending')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Airing Today" categoryKey="airingToday" shows={row('airingToday')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Trending Now" categoryKey="popular" shows={row('popular')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="On Netflix" categoryKey="netflix" shows={row('netflix')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Crime" categoryKey="crime" shows={row('crime')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="On HBO" categoryKey="hbo" shows={row('hbo')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Sci-Fi & Fantasy" categoryKey="scifi" shows={row('scifi')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="On Apple TV+" categoryKey="apple" shows={row('apple')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Animation" categoryKey="animation" shows={row('animation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Mystery" categoryKey="mystery" shows={row('mystery')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="On Amazon Prime" categoryKey="amazon" shows={row('amazon')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
+      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={row('topRated')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
     </>
   )
 }
@@ -396,12 +563,12 @@ function CarouselRow({
 }) {
   if (shows.length === 0) return null
   return (
-    <div className="mb-8">
+    <div className="mb-9">
       <div className="flex items-center justify-between mb-3 px-4">
-        <h2 className="font-black tracking-widest text-sm uppercase text-white">{title}</h2>
+        <h2 className="font-black tracking-[0.2em] text-[11px] uppercase text-white/54">{title}</h2>
         <button
           onClick={() => onOpenCategory(categoryKey, title)}
-          className="text-zinc-600 hover:text-white transition-colors"
+          className="text-white/28 hover:text-white transition-colors"
           aria-label={`Open ${title}`}
         >
           <ChevronRight size={18} />
@@ -418,14 +585,12 @@ function CarouselRow({
         <button
           onClick={() => onOpenCategory(categoryKey, title)}
           className={cn(
-            'flex-shrink-0 snap-center rounded-[20px] border border-dashed border-white/20 bg-white/[0.03] text-white/80 hover:bg-white/[0.06] transition-colors',
+            'flex-shrink-0 snap-center rounded-[24px] bg-white/[0.035] text-white/62 hover:bg-white/[0.07] transition-colors',
             landscape ? 'w-[220px] aspect-[16/9]' : 'w-[130px] aspect-[2/3]',
           )}
         >
           <div className="w-full h-full grid place-items-center">
-            <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest">
-              See all <ChevronRight size={14} />
-            </div>
+            <ChevronRight size={18} />
           </div>
         </button>
       </div>
@@ -517,7 +682,7 @@ function AddButton({
             initial={{ scale: 0.85, opacity: 0.9 }}
             animate={{ scale: 2.4, opacity: 0 }}
             transition={{ duration: 0.55, ease: 'easeOut' }}
-            className={`absolute inset-0 ${w} border-2 border-[#4ade80] pointer-events-none`}
+            className={`absolute inset-0 ${w} border-2 border-[#f5c453] pointer-events-none`}
           />
         )}
       </AnimatePresence>
@@ -533,7 +698,7 @@ function AddButton({
             ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
             : addError
               ? 'bg-rose-500 text-white'
-              : 'bg-[#4ade80] text-black',
+              : 'bg-[#f5c453] text-black',
         )}
         aria-label={isOwned ? 'In collection' : 'Add to collection'}
       >
@@ -624,12 +789,6 @@ function bestLogo(items: TmdbLogoAsset[] = []) {
     .sort((a, b) => (b.vote_average ?? 0) - (a.vote_average ?? 0))[0]?.file_path ?? null
 }
 
-function shortTmdbCopy(text: string) {
-  const firstSentence = text.match(/^[^.!?]+[.!?]/)?.[0]?.trim()
-  const base = firstSentence && firstSentence.length >= 42 ? firstSentence : text
-  return base.length > 112 ? `${base.slice(0, 109).trim()}...` : base
-}
-
 async function getLandscapeArt(showId: number): Promise<LandscapeArt> {
   const cached = landscapeArtCache.get(showId)
   if (cached) return cached
@@ -703,7 +862,7 @@ function PortraitCard({
     <motion.div
       animate={cardControls}
       className={cn(
-        'relative group cursor-pointer rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg',
+        'relative group cursor-pointer rounded-[24px] overflow-hidden bg-[#151117] shadow-[0_18px_44px_rgba(0,0,0,0.42)] transition-transform duration-300 active:scale-[0.98]',
         variant === 'carousel' ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]' : 'aspect-[2/3]',
       )}
     >
@@ -717,7 +876,8 @@ function PortraitCard({
       ) : (
         <div className="absolute inset-0 bg-zinc-800" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-black/4 to-transparent" />
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[radial-gradient(circle_at_50%_100%,rgba(245,196,83,0.18),transparent_62%)]" />
 
       {/* Shine sweep on successful add */}
       <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
@@ -726,10 +886,10 @@ function PortraitCard({
         <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />
       </div>
       {variant === 'grid' && (
-        <div className="absolute bottom-0 inset-x-0 p-2 z-10 pointer-events-none">
-          <h3 className="font-black text-white text-xs leading-tight truncate">{show.title}</h3>
+        <div className="absolute bottom-0 inset-x-0 p-3 z-10 pointer-events-none">
+          <h3 className="font-black text-white text-xs leading-tight line-clamp-2 tracking-[-0.04em]">{show.title}</h3>
           {show.year !== '—' && (
-            <span className="text-[10px] font-bold text-zinc-300">{show.year}</span>
+            <span className="text-[10px] font-bold text-white/52">{show.year}</span>
           )}
         </div>
       )}
@@ -769,8 +929,6 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
     : show.posterPath
       ? imgUrl(show.posterPath, 'w342')
       : ''
-  const copy = art?.tagline || shortTmdbCopy(show.overview)
-
   useEffect(() => {
     const node = cardRef.current
     if (!node) return
@@ -805,13 +963,14 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
     <motion.div
       ref={cardRef}
       animate={cardControls}
-      className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[20px] overflow-hidden border border-white/10 bg-[#1a1a24] shadow-lg w-[300px] aspect-[1.9/1]"
+      className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[28px] overflow-hidden bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] w-[300px] aspect-[1.9/1] transition-transform duration-300 active:scale-[0.98]"
     >
       {bg && (
         <img src={bg} alt={show.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/78 via-black/24 to-black/8" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-black/12 to-black/8" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/82 via-black/22 to-black/5" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/10 to-black/8" />
+      <div className="absolute -left-12 bottom-0 h-32 w-32 rounded-full bg-[#f5c453]/12 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       {/* Shine sweep on successful add */}
       <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
@@ -832,11 +991,7 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
             {show.title}
           </h3>
         )}
-        {copy && (
-          <p className="line-clamp-2 max-w-[78%] text-lg font-light italic leading-tight tracking-tight text-white/88 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
-            {copy}
-          </p>
-        )}
+        <span className="h-1.5 w-12 rounded-full bg-white/45 shadow-[0_0_18px_rgba(255,255,255,0.28)]" />
       </div>
     </motion.div>
   )

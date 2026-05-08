@@ -34,9 +34,6 @@ export function ProfileTab() {
     [shows],
   )
 
-  const level = Math.floor(shows.length / 3) + 1
-  const xpPct = ((shows.length % 3) / 3) * 100
-
   const slots: (Show | null)[] = Array.from({ length: MAX }).map((_, i) => top8[i] ?? null)
   const availableShows = shows.filter((s) => !top8.some((t) => t.id === s.id))
 
@@ -65,14 +62,14 @@ export function ProfileTab() {
 
   return (
     <>
-      <div className="flex flex-col min-h-full pb-28">
-        <div className="sticky top-0 z-30 bg-[#0f0f13]/85 backdrop-blur-xl border-b border-white/5 pt-5 pb-3 px-4" />
+      <div className="relative flex flex-col min-h-full pb-28 overflow-hidden">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-[radial-gradient(circle_at_28%_0%,rgba(245,196,83,0.16),transparent_20rem),radial-gradient(circle_at_86%_10%,rgba(251,113,133,0.12),transparent_18rem)]" aria-hidden />
 
-        <div className="px-4 pt-4 pb-6">
-          <div className="relative mb-6 bg-[#1a1a24] p-5 rounded-[24px] border border-white/10 shadow-xl overflow-hidden">
+        <div className="relative z-10 px-4 pt-5 pb-6">
+          <div className="relative mb-5 p-4 rounded-[30px] overflow-hidden">
             <div
               className={cn(
-                'absolute top-0 right-0 w-40 h-40 bg-gradient-to-br opacity-20 blur-3xl rounded-full translate-x-10 -translate-y-10 pointer-events-none',
+                'absolute top-0 right-0 w-48 h-48 bg-gradient-to-br opacity-30 blur-3xl rounded-full translate-x-10 -translate-y-10 pointer-events-none',
                 PROFILE_COLORS[colorIndex],
               )}
             />
@@ -80,7 +77,7 @@ export function ProfileTab() {
             <div className="flex items-center gap-4 relative z-10">
               <div
                 className={cn(
-                  'w-20 h-20 rounded-[20px] bg-gradient-to-tr flex items-center justify-center shadow-lg border-2 border-white/20 flex-shrink-0',
+                  'w-20 h-20 rounded-[24px] bg-gradient-to-tr flex items-center justify-center shadow-[0_18px_44px_rgba(0,0,0,0.42)] flex-shrink-0',
                   PROFILE_COLORS[colorIndex],
                 )}
               >
@@ -93,27 +90,19 @@ export function ProfileTab() {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value.toUpperCase())}
-                    className="w-full bg-black/50 border border-white/20 rounded-lg px-3 py-1 font-black uppercase tracking-tighter text-2xl text-white outline-none focus:border-[#4ade80] mb-1"
+                    className="w-full bg-black/42 border border-white/12 rounded-2xl px-3 py-1 font-black uppercase tracking-tighter text-2xl text-white outline-none focus:border-[#f5c453] mb-1"
                     maxLength={12}
                     autoFocus
                   />
                 ) : (
-                  <h2 className="text-3xl font-black uppercase tracking-tighter text-white leading-none mb-1 truncate">
+                  <h2 className="text-3xl font-black uppercase tracking-[-0.08em] text-white leading-none mb-1 truncate">
                     {name}
                   </h2>
                 )}
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded font-black text-zinc-300 tracking-widest uppercase">
-                    Level {level}
-                  </span>
-                  <span className="text-[10px] font-bold text-[#4ade80] tracking-widest uppercase">
+                  <span className="text-[10px] font-bold text-[#f5c453] tracking-widest uppercase">
                     {shows.length} Shows
                   </span>
-                </div>
-                <div className="mt-2">
-                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-[#4ade80] rounded-full transition-all duration-700" style={{ width: `${xpPct}%` }} />
-                  </div>
                 </div>
               </div>
 
@@ -121,7 +110,7 @@ export function ProfileTab() {
                 onClick={() => setIsEditing((v) => !v)}
                 className={cn(
                   'p-3 rounded-full transition-colors flex-shrink-0',
-                  isEditing ? 'bg-[#4ade80] text-black' : 'bg-white/10 text-white hover:bg-white/20',
+                  isEditing ? 'bg-[#f5c453] text-black' : 'bg-white/10 text-white hover:bg-white/20',
                 )}
                 aria-label={isEditing ? 'Save' : 'Edit profile'}
               >
@@ -149,14 +138,15 @@ export function ProfileTab() {
             )}
           </div>
 
-          <div className="mb-6">
+          <div className="mb-7">
             <div className="grid grid-cols-4 gap-3">
               {slots.map((show, index) => (
                 <div
                   key={index}
                   className={cn(
-                    'aspect-[2/3] rounded-[16px] relative cursor-pointer overflow-hidden transition-transform active:scale-95 group',
-                    !show ? 'border-2 border-dashed border-white/20 bg-[#1a1a24] hover:bg-white/10 flex items-center justify-center' : '',
+                    'aspect-[2/3] rounded-[22px] relative cursor-pointer overflow-hidden transition-transform active:scale-95 group shadow-[0_16px_34px_rgba(0,0,0,0.34)]',
+                    index < 2 && 'col-span-2',
+                    !show ? 'bg-white/[0.035] hover:bg-white/[0.07] flex items-center justify-center' : '',
                   )}
                   onClick={() => {
                     if (show) {
@@ -167,7 +157,7 @@ export function ProfileTab() {
                   }}
                 >
                   {!show ? (
-                    <Plus size={22} className="text-white/30 group-hover:text-white/60 transition-colors" />
+                    <Plus size={index < 2 ? 30 : 22} className="text-white/24 group-hover:text-white/60 transition-colors" />
                   ) : (
                     <>
                       {show.posterPath ? (
@@ -178,6 +168,9 @@ export function ProfileTab() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                      <div className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[#f5c453] text-[11px] font-black text-black shadow-[0_0_18px_rgba(245,196,83,0.42)]">
+                        {index + 1}
+                      </div>
                       <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
                         <X size={22} className="text-white" />
                       </div>
@@ -189,7 +182,7 @@ export function ProfileTab() {
           </div>
 
           <section>
-            <h3 className="font-black tracking-widest text-lg uppercase text-white mb-2 px-1">Roster</h3>
+            <h3 className="font-black tracking-[0.24em] text-[11px] uppercase text-white/44 mb-2 px-1">Roster</h3>
             <MyCast />
           </section>
         </div>
@@ -197,8 +190,8 @@ export function ProfileTab() {
 
       {selectingSlot !== null && (
         <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col">
-          <div className="flex justify-between items-center px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
-            <h2 className="text-2xl font-black text-white tracking-widest uppercase">Select Show</h2>
+          <div className="flex justify-between items-center px-4 pt-12 pb-4 flex-shrink-0">
+            <h2 className="text-3xl font-black text-white tracking-[-0.08em]">Equip</h2>
             <button onClick={() => setSelectingSlot(null)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all" aria-label="Close">
               <X size={22} className="text-white" />
             </button>
@@ -212,7 +205,7 @@ export function ProfileTab() {
             ) : (
               <div className="grid grid-cols-3 gap-3 p-4 pb-16">
                 {availableShows.map((show) => (
-                  <div key={show.id} className="relative group cursor-pointer aspect-[2/3] rounded-[16px] overflow-hidden border border-white/10 bg-[#1a1a24]" onClick={() => void assign(selectingSlot, show)}>
+                  <div key={show.id} className="relative group cursor-pointer aspect-[2/3] rounded-[22px] overflow-hidden bg-[#151117] shadow-[0_16px_34px_rgba(0,0,0,0.34)]" onClick={() => void assign(selectingSlot, show)}>
                     {show.posterPath ? (
                       <img src={imgUrl(show.posterPath, 'w342')} alt={show.name} className="w-full h-full object-cover object-top" />
                     ) : (
@@ -221,7 +214,7 @@ export function ProfileTab() {
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex items-center justify-center">
-                      <Check size={28} className="text-[#4ade80]" strokeWidth={3} />
+                      <Check size={28} className="text-[#f5c453]" strokeWidth={3} />
                     </div>
                   </div>
                 ))}

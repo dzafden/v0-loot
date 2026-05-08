@@ -12,9 +12,10 @@ interface Props {
   active: Tab
   onChange: (t: Tab) => void
   unsortedCount?: number
+  subdued?: boolean
 }
 
-export function BottomNav({ active, onChange, unsortedCount = 0 }: Props) {
+export function BottomNav({ active, onChange, unsortedCount = 0, subdued = false }: Props) {
   const TABS: TabDef[] = [
     { id: 'discover', Icon: Compass },
     { id: 'collection', Icon: Package },
@@ -23,7 +24,7 @@ export function BottomNav({ active, onChange, unsortedCount = 0 }: Props) {
   ]
 
   return (
-    <nav className="fixed bottom-5 left-1/2 -translate-x-1/2 w-[92%] max-w-[390px] bg-[#14141c]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 grid grid-cols-4 gap-1 shadow-[0_16px_40px_rgba(0,0,0,0.75)] z-40">
+    <nav className={`fixed left-1/2 -translate-x-1/2 rounded-full border border-white/[0.07] grid grid-cols-4 gap-1 shadow-[0_18px_54px_rgba(0,0,0,0.65)] z-40 transition-all duration-300 ${subdued ? 'bottom-3 w-[64%] max-w-[250px] bg-black/16 p-1 opacity-45 backdrop-blur-xl' : 'bottom-5 w-[78%] max-w-[320px] bg-black/28 p-1.5 opacity-100 backdrop-blur-2xl'}`}>
       {TABS.map(({ id, Icon, badge }) => {
         const isActive = active === id
         const numericBadge = typeof badge === 'number' ? Math.min(badge, 99) : badge
@@ -33,22 +34,25 @@ export function BottomNav({ active, onChange, unsortedCount = 0 }: Props) {
           <button
             key={id}
             onClick={() => onChange(id)}
-            className={`relative h-14 rounded-xl grid place-items-center transition-all duration-200 ${
-              isActive ? 'bg-white/10' : 'hover:bg-white/[0.06]'
+            className={`relative ${subdued ? 'h-10' : 'h-12'} rounded-full grid place-items-center transition-all duration-300 ${
+              isActive ? 'text-white' : 'hover:bg-white/[0.05]'
             }`}
             aria-label={id}
           >
+            {isActive && (
+              <span className="absolute inset-1 rounded-full bg-white/[0.08] shadow-[0_0_28px_rgba(245,196,83,0.24)]" />
+            )}
             <Icon
-              size={22}
+              size={21}
               strokeWidth={isActive ? 2.4 : 2.1}
-              className={`transition-colors duration-300 ${
+              className={`relative z-10 transition-colors duration-300 ${
                 isActive
-                  ? 'text-[#4ade80] drop-shadow-[0_0_8px_rgba(74,222,128,0.55)]'
-                  : 'text-zinc-400'
+                  ? 'text-[#f5c453] drop-shadow-[0_0_12px_rgba(245,196,83,0.5)]'
+                  : 'text-white/38'
               }`}
             />
             {isActive && (
-              <div className="absolute -bottom-0.5 h-1 w-6 rounded-full bg-[#4ade80]/95 shadow-[0_0_8px_rgba(74,222,128,0.75)]" />
+              <div className="absolute -bottom-0.5 h-1 w-5 rounded-full bg-[#f5c453]/95 shadow-[0_0_10px_rgba(245,196,83,0.75)]" />
             )}
             {badge && !isActive && (
               <div

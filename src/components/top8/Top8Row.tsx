@@ -43,16 +43,16 @@ export function Top8Row({ shows, onTap }: Props) {
   if (!shows.length) return null
 
   return (
-    <div className="pb-2 pt-1">
-      <div className="px-4 mb-2 flex items-baseline justify-between">
-        <h2 className="text-[11px] uppercase tracking-[0.18em] font-semibold text-white/50">
-          Top 8
+    <div className="pb-4 pt-2">
+      <div className="px-4 mb-3 flex items-baseline justify-between">
+        <h2 className="text-[10px] uppercase tracking-[0.28em] font-black text-[#f5c453]/80">
+          Top 8 Shrine
         </h2>
         <span className="text-[11px] text-white/40">{shows.length}/8</span>
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleEnd}>
         <SortableContext items={shows.map((s) => s.id)} strategy={horizontalListSortingStrategy}>
-          <div className="flex gap-3 overflow-x-auto px-4 pb-4 snap-x">
+          <div className="flex gap-4 overflow-x-auto px-4 pb-4 snap-x">
             <AnimatePresence>
               {shows.map((s, i) => (
                 <Top8Item key={s.id} show={s} index={i} onTap={onTap} />
@@ -87,7 +87,7 @@ function Top8Item({ show, index, onTap }: { show: Show; index: number; onTap?: (
         transition: { type: 'spring', stiffness: 360, damping: 18, delay: index * 0.06 },
       }}
       exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
-      className="snap-start shrink-0 relative w-36"
+      className="snap-start shrink-0 relative w-40"
     >
       {/* shockwave ring on entry */}
       <motion.div
@@ -103,7 +103,7 @@ function Top8Item({ show, index, onTap }: { show: Show; index: number; onTap?: (
         className="absolute -inset-2 rounded-3xl pointer-events-none"
         style={{
           background:
-            'radial-gradient(closest-side, rgba(255,184,74,0.35), rgba(255,184,74,0) 70%)',
+            'radial-gradient(closest-side, rgba(245,196,83,0.34), rgba(245,196,83,0) 70%)',
         }}
         animate={{ opacity: [0.5, 0.85, 0.5] }}
         transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
@@ -115,7 +115,7 @@ function Top8Item({ show, index, onTap }: { show: Show; index: number; onTap?: (
         disableTilt
         onLongPress={(s) => void setTop8(s.id, null)}
       />
-      <div className="absolute -top-2 -left-2 grid place-items-center h-7 w-7 rounded-full bg-amber-400 text-amber-950 font-black text-xs shadow-glow-sm">
+      <div className="absolute -top-2 -left-2 grid place-items-center h-8 w-8 rounded-full bg-[#f5c453] text-black font-black text-xs shadow-[0_0_22px_rgba(245,196,83,0.46)]">
         {index + 1}
       </div>
     </motion.div>

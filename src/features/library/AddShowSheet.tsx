@@ -236,7 +236,7 @@ function SearchMode({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search a TV show…"
-            className="w-full bg-[#1a1a24] border border-white/10 rounded-xl py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-[#4ade80] transition-colors"
+            className="w-full bg-black/30 border border-white/10 rounded-full py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-[#f5c453] transition-colors"
           />
         </div>
         {error && <p className="text-xs text-rose-400 mt-2 px-1">{error}</p>}
@@ -245,7 +245,7 @@ function SearchMode({
       <div className="flex-1 overflow-y-auto px-3 pb-8">
         {loading && (
           <div className="flex justify-center py-8">
-            <div className="w-7 h-7 border-2 border-[#4ade80] border-t-transparent rounded-full animate-spin" />
+            <div className="w-7 h-7 border-2 border-[#f5c453] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
         {!loading && q.trim() === '' && (
@@ -254,44 +254,63 @@ function SearchMode({
         {!loading && q.trim() !== '' && results.length === 0 && (
           <p className="text-center text-xs text-zinc-600 py-12 uppercase tracking-widest font-bold">No results</p>
         )}
-        <ul className="space-y-1">
-          {results.map((r) => {
-            const isOwned = ownedIds.has(r.id)
-            const isAdding = adding === r.id
-            return (
-              <li key={r.id}>
+        {results.length > 0 && (
+          <div className="space-y-4">
+            {(() => {
+              const hero = results[0]
+              const isOwned = ownedIds.has(hero.id)
+              const isAdding = adding === hero.id
+              return (
                 <button
-                  onClick={() => onAdd(r)}
+                  onClick={() => onAdd(hero)}
                   disabled={isAdding || isOwned}
-                  className="w-full flex items-center gap-3 p-2.5 rounded-2xl hover:bg-white/[0.04] active:bg-white/[0.07] transition-colors disabled:opacity-70 text-left"
+                  className="relative h-[320px] w-full overflow-hidden rounded-[34px] bg-black text-left shadow-[0_24px_70px_rgba(0,0,0,0.62)] disabled:opacity-70"
                 >
-                  <div className="h-16 w-11 rounded-xl overflow-hidden bg-[#1a1a24] flex-shrink-0">
-                    {r.poster_path && (
-                      <img src={imgUrl(r.poster_path, 'w185')} alt={r.name} className="h-full w-full object-cover" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-sm text-white leading-tight truncate">{r.name}</div>
-                    <div className="text-[11px] text-zinc-500 mt-0.5">
-                      {(r.first_air_date ?? '').slice(0, 4) || '—'}
+                  {(hero.backdrop_path || hero.poster_path) && (
+                    <img
+                      src={imgUrl(hero.backdrop_path ?? hero.poster_path, hero.backdrop_path ? 'w500' : 'w342')}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-cover opacity-76"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/20 to-black/10" />
+                  <div className="absolute bottom-0 inset-x-0 p-5">
+                    <h3 className="max-w-[78%] text-4xl font-black leading-[0.86] tracking-[-0.11em] text-white text-balance">{hero.name}</h3>
+                    <div className="mt-3 flex items-center gap-3">
+                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/46">{(hero.first_air_date ?? '').slice(0, 4) || '----'}</span>
+                      <span className={cn('grid h-11 w-11 place-items-center rounded-full', isOwned ? 'bg-[#f5c453]/20 text-[#f5c453]' : 'bg-[#f5c453] text-black')}>
+                        {isOwned ? <Check size={18} strokeWidth={3} /> : isAdding ? <div className="w-4 h-4 border-2 border-black/35 border-t-black rounded-full animate-spin" /> : <Plus size={18} strokeWidth={3} />}
+                      </span>
                     </div>
-                    {r.overview && (
-                      <div className="text-[11px] text-zinc-500 line-clamp-2 mt-0.5 leading-snug">{r.overview}</div>
-                    )}
-                  </div>
-                  <div className={cn(
-                    'w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors',
-                    isOwned ? 'bg-[#4ade80]/20 text-[#4ade80]' : isAdding ? 'bg-white/10' : 'bg-[#4ade80] text-black',
-                  )}>
-                    {isOwned ? <Check size={16} strokeWidth={3} /> : isAdding
-                      ? <div className="w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full animate-spin" />
-                      : <Plus size={16} strokeWidth={3} />}
                   </div>
                 </button>
-              </li>
-            )
-          })}
-        </ul>
+              )
+            })()}
+            <div className="flex gap-3 overflow-x-auto no-scrollbar pb-3">
+              {results.slice(1).map((r) => {
+                const isOwned = ownedIds.has(r.id)
+                const isAdding = adding === r.id
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => onAdd(r)}
+                    disabled={isAdding || isOwned}
+                    className="relative h-44 w-28 flex-shrink-0 overflow-hidden rounded-[24px] bg-[#151117] shadow-[0_16px_34px_rgba(0,0,0,0.34)] disabled:opacity-70"
+                  >
+                    {r.poster_path && <img src={imgUrl(r.poster_path, 'w342')} alt={r.name} className="h-full w-full object-cover" />}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-transparent to-transparent" />
+                    <div className="absolute bottom-0 inset-x-0 p-2">
+                      <div className="line-clamp-2 text-left text-xs font-black leading-tight tracking-[-0.04em] text-white">{r.name}</div>
+                    </div>
+                    <div className={cn('absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full', isOwned ? 'bg-[#f5c453]/20 text-[#f5c453]' : 'bg-[#f5c453] text-black')}>
+                      {isOwned ? <Check size={14} strokeWidth={3} /> : isAdding ? <div className="w-3.5 h-3.5 border-2 border-black/35 border-t-black rounded-full animate-spin" /> : <Plus size={14} strokeWidth={3} />}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </>
   )

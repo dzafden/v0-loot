@@ -10,11 +10,15 @@ import { EpisodeTracker } from './features/episode-tracker/EpisodeTracker'
 import { AssignRoleSheet } from './features/cast-roles/AssignRoleSheet'
 import { SettingsSheet } from './features/settings/SettingsSheet'
 import { IOSInstallBanner } from './components/ui/IOSInstallBanner'
+import { DiscoveryPreviewLab, WowLab, WowVariantsLab } from './features/lab/WowLab'
 import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
 import type { Show } from './types'
 
 export default function App() {
+  const isWowLab = window.location.pathname.startsWith('/lab/wow')
+  const isWowVariantsLab = window.location.pathname.startsWith('/lab/wow-variants')
+  const isDiscoveryPreviewLab = window.location.pathname.startsWith('/lab/discovery-preview')
   const [tab, setTab] = useState<Tab>('discover')
   const [detail, setDetail] = useState<Show | null>(null)
   const [adding, setAdding] = useState(false)
@@ -44,9 +48,23 @@ export default function App() {
     }
   }, [])
 
+  if (isWowVariantsLab) {
+    return <WowVariantsLab />
+  }
+
+  if (isDiscoveryPreviewLab) {
+    return <DiscoveryPreviewLab />
+  }
+
+  if (isWowLab) {
+    return <WowLab />
+  }
+
   return (
-    <div className="min-h-svh bg-[#0a0a0c] text-white selection:bg-[#4ade80] selection:text-black flex justify-center">
-      <div className="w-full max-w-md relative bg-[#0f0f13] min-h-svh border-x border-white/5 overflow-x-hidden">
+    <div className="min-h-svh text-white selection:bg-[#f5c453] selection:text-black flex justify-center bg-[#050507]">
+      <div className="fixed inset-0 pointer-events-none loot-noise opacity-[0.26]" aria-hidden />
+      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_-12%,rgba(255,190,106,0.18),transparent_34rem),radial-gradient(circle_at_88%_28%,rgba(74,222,128,0.08),transparent_22rem)]" aria-hidden />
+      <div className="w-full max-w-md relative bg-[#08070a]/92 min-h-svh overflow-x-hidden shadow-[0_0_80px_rgba(0,0,0,0.75)]">
         {tab === 'discover' && (
           <Discover onOpenSettings={() => setSettingsOpen(true)} />
         )}
@@ -74,6 +92,7 @@ export default function App() {
             setTab(t)
           }}
           unsortedCount={unsortedCount}
+          subdued={Boolean(detail)}
         />
 
         <AddShowSheet

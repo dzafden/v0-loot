@@ -312,10 +312,75 @@ export interface TmdbShowDetail extends TmdbSearchResult {
   number_of_seasons: number
   seasons: { season_number: number; episode_count: number; name: string }[]
   genres: { id: number; name: string }[]
+  overview?: string
+  first_air_date?: string
+  networks?: { id: number; name: string }[]
+  tagline?: string
+}
+
+export interface TmdbImageAsset {
+  file_path: string
+  file_type?: string
+  vote_average?: number
+  width?: number
+  height?: number
+  iso_639_1?: string | null
+}
+
+export interface TmdbVideoAsset {
+  id: string
+  key: string
+  name: string
+  site: string
+  type: string
+}
+
+export interface TmdbAggregateCastMember {
+  id: number
+  name: string
+  profile_path: string | null
+  roles?: { character: string; episode_count?: number }[]
+  total_episode_count?: number
 }
 
 export async function getShowDetail(id: number) {
   return tmdb<TmdbShowDetail>(`/tv/${id}`)
+}
+
+export async function getShowKeywords(showId: number) {
+  return tmdb<{ results: { id: number; name: string }[] }>(`/tv/${showId}/keywords`)
+}
+
+export async function getShowImages(showId: number) {
+  return tmdb<{
+    backdrops: TmdbImageAsset[]
+    logos: TmdbImageAsset[]
+    posters: TmdbImageAsset[]
+  }>(`/tv/${showId}/images`, {
+    include_image_language: 'en,null',
+  })
+}
+
+export async function getShowVideos(showId: number) {
+  return tmdb<{ results: TmdbVideoAsset[] }>(`/tv/${showId}/videos`, {
+    include_video_language: 'en,null',
+  })
+}
+
+export async function getAggregateCredits(showId: number) {
+  return tmdb<{ cast: TmdbAggregateCastMember[] }>(`/tv/${showId}/aggregate_credits`)
+}
+
+export async function getShowRecommendations(showId: number, page = 1) {
+  return tmdb<{ results: TmdbSearchResult[] }>(`/tv/${showId}/recommendations`, {
+    page: String(page),
+  })
+}
+
+export async function getSimilarShows(showId: number, page = 1) {
+  return tmdb<{ results: TmdbSearchResult[] }>(`/tv/${showId}/similar`, {
+    page: String(page),
+  })
 }
 
 export async function getSeason(showId: number, seasonNumber: number) {

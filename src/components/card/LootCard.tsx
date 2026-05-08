@@ -88,7 +88,7 @@ function LootCardInner({
         setTilt({ x: 0, y: 0 })
       }}
       onMouseMove={handleMouseMove}
-      className={`relative group cursor-pointer w-full ${compact ? 'aspect-square' : 'aspect-[3/4]'} rounded-[20px] z-10 transition-transform duration-150 active:scale-[0.97]`}
+      className={`relative group cursor-pointer w-full ${compact ? 'aspect-square' : 'aspect-[3/4]'} rounded-[24px] z-10 transition-transform duration-150 active:scale-[0.97]`}
       style={{
         transform:
           compact || disableTilt
@@ -97,15 +97,20 @@ function LootCardInner({
       }}
     >
       <div
-        className={`absolute inset-0 rounded-[20px] ring-[3px] ring-inset ${r.ring} ${r.glow} overflow-hidden bg-[#1a1a24] flex flex-col ${isSelected ? 'ring-[#4ade80] ring-[4px]' : ''}`}
+        className={`absolute inset-0 rounded-[24px] overflow-hidden bg-[#151117] flex flex-col shadow-[0_16px_42px_rgba(0,0,0,0.45)] ${isSelected ? 'ring-[#f5c453] ring-[3px]' : ''}`}
       >
+        <div
+          className="absolute -inset-5 opacity-45 blur-2xl transition-opacity duration-300 group-hover:opacity-80"
+          style={{ background: `radial-gradient(circle at 50% 35%, ${r.hex}55, transparent 62%)` }}
+          aria-hidden
+        />
         {/* shine sweep on hover */}
-        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-[20px]">
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-20 overflow-hidden rounded-[24px]">
           <div className="absolute top-0 -left-[100%] w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-20deg] group-hover:animate-shine" />
         </div>
 
         {/* Image */}
-        <div className={`relative ${compact ? 'h-full' : 'h-[75%]'} w-full overflow-hidden bg-black`}>
+        <div className="relative h-full w-full overflow-hidden bg-black">
           {show.posterPath ? (
             <img
               src={imgUrl(show.posterPath, 'w500')}
@@ -123,7 +128,7 @@ function LootCardInner({
           {/* tier badge */}
           {tier && (
             <div
-              className={`absolute top-2 left-2 h-7 w-7 rounded-lg grid place-items-center font-black text-[12px] z-30 ${TIER_STYLE[tier]}`}
+              className={`absolute top-2 left-2 h-7 w-7 rounded-full grid place-items-center font-black text-[12px] z-30 ${TIER_STYLE[tier]}`}
             >
               {tier}
             </div>
@@ -133,7 +138,7 @@ function LootCardInner({
           {episodeProgress && episodeProgress.total > 0 && (
             <div className="absolute top-2 right-2 z-30">
               {episodeProgress.watched >= episodeProgress.total ? (
-                <span className="rounded-md bg-emerald-400 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-950">
+                <span className="rounded-md bg-[#f5c453] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
                   ✓
                 </span>
               ) : (
@@ -161,13 +166,13 @@ function LootCardInner({
 
         {/* Info bar */}
         {!compact && (
-          <div className="relative h-[25%] flex flex-col justify-center px-3 bg-[#121216] border-t border-white/5 z-10">
-            <div className="flex justify-between items-center w-full">
+          <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end px-3 pb-3 pt-12 bg-gradient-to-t from-black/88 via-black/32 to-transparent">
+            <div className="flex justify-between items-end w-full">
               <div className="flex flex-col overflow-hidden pr-2">
-                <h3 className="font-black text-white text-[14px] leading-tight uppercase tracking-tight truncate">
+                <h3 className="font-black text-white text-[14px] leading-[0.95] tracking-[-0.06em] line-clamp-2">
                   {show.name}
                 </h3>
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest truncate mt-0.5">
+                <span className="text-[10px] font-bold text-white/42 uppercase tracking-widest truncate mt-1">
                   {show.year}
                   {show.year && show.genres?.[0] ? ' • ' : ''}
                   {show.genres?.[0]}
@@ -179,8 +184,8 @@ function LootCardInner({
                   className={`flex-shrink-0 w-9 h-9 rounded-xl font-black transition-all duration-200 flex items-center justify-center ${
                     actionType === 'add'
                       ? isSelected || isAdding
-                        ? 'bg-white/5 text-white/30'
-                        : 'bg-[#4ade80] text-black hover:bg-[#22c55e] hover:scale-105 active:scale-95'
+                        ? 'bg-white/8 text-white/30'
+                        : 'bg-[#f5c453] text-black hover:bg-[#ffd66f] hover:scale-105 active:scale-95'
                       : 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
                   }`}
                   onClick={(e) => {
