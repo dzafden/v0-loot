@@ -76,6 +76,8 @@ export interface SeasonCache {
   key: string
   showId: number
   seasonNumber: number
+  name?: string
+  posterPath?: string | null
   episodes: { episode_number: number; name: string; still_path?: string | null }[]
   fetchedAt: number
 }

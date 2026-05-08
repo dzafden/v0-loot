@@ -7,6 +7,7 @@ import {
   getCachedDiscoverFeed,
   getDiscoverCategoryPage,
   getTmdbKey,
+  getShowRecommendations,
   hasTmdbKey,
   imgUrl,
   searchShows,
@@ -27,6 +28,11 @@ interface Props {
 const SURFACE_ALLOW_OWNED = new Set<DiscoverCategoryKey>(['trending', 'airingToday', 'popular'])
 const FEED_KEYS: (keyof DiscoverFeed)[] = ['trending', 'airingToday', 'popular', 'netflix', 'crime', 'hbo', 'scifi', 'apple', 'animation', 'mystery', 'amazon', 'topRated']
 const TIER_TASTE_WEIGHT: Record<Tier, number> = { S: 9, A: 6, B: 3, C: 1, D: -3 }
+const TASTE_ANCHOR_LIMIT = 3
+const TASTE_REC_TTL_MS = 10 * 60_000
+
+const tasteRecCache = new Map<string, { data: LootShow[]; ts: number }>()
+const tasteRecInflight = new Map<string, Promise<LootShow[]>>()
 
 function buildTasteWeights(ownedShows: Show[], assignments: TierAssignment[]) {
   const tierByShow = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
@@ -42,8 +48,34 @@ function buildTasteWeights(ownedShows: Show[], assignments: TierAssignment[]) {
   return weights
 }
 
-function tasteScore(show: LootShow, tasteWeights: Map<string, number>) {
-  return (tasteWeights.get(show.genre) ?? 0) * 12 + show.rating * 1.4 + Math.log10(Math.max(1, show.popularity)) * 2
+function anchorScore(show: Show, tierByShow: Map<number, Tier>) {
+  const tier = tierByShow.get(show.id)
+  const tierScore = tier ? TIER_TASTE_WEIGHT[tier] * 5 : 4
+  const top8Score = typeof show.top8Position === 'number' ? 34 - show.top8Position * 2 : 0
+  const daysSinceAdd = Math.max(0, (Date.now() - show.addedAt) / 86_400_000)
+  const recencyScore = Math.max(0, 10 - daysSinceAdd)
+  return tierScore + top8Score + recencyScore
+}
+
+function pickTasteAnchors(ownedShows: Show[], assignments: TierAssignment[]) {
+  const tierByShow = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
+  const positiveTaste = ownedShows.filter((show) => tierByShow.get(show.id) !== 'D')
+  return (positiveTaste.length ? positiveTaste : ownedShows)
+    .slice()
+    .sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
+    .slice(0, TASTE_ANCHOR_LIMIT)
+}
+
+function tasteScore(show: LootShow, tasteWeights: Map<string, number>, recommendationBoost: Map<number, number> = new Map()) {
+  return (recommendationBoost.get(show.id) ?? 0) + (tasteWeights.get(show.genre) ?? 0) * 12 + show.rating * 1.4 + Math.log10(Math.max(1, show.popularity)) * 2
+}
+
+function recommendationBoosts(shows: LootShow[]) {
+  const boosts = new Map<number, number>()
+  shows.forEach((show, index) => {
+    boosts.set(show.id, Math.max(boosts.get(show.id) ?? 0, 90 - index * 2))
+  })
+  return boosts
 }
 
 function uniqueShows(shows: LootShow[]) {
@@ -59,21 +91,98 @@ function personalizeShows(
   shows: LootShow[],
   tasteWeights: Map<string, number>,
   ownedSet: Set<number>,
-  options: { allowOwned?: boolean; featuredId?: number } = {},
+  options: { allowOwned?: boolean; featuredId?: number; recommendationBoost?: Map<number, number> } = {},
 ) {
   return uniqueShows(shows)
     .filter((show) => show.id !== options.featuredId)
     .filter((show) => options.allowOwned || !ownedSet.has(show.id))
-    .sort((a, b) => tasteScore(b, tasteWeights) - tasteScore(a, tasteWeights))
+    .sort((a, b) => tasteScore(b, tasteWeights, options.recommendationBoost) - tasteScore(a, tasteWeights, options.recommendationBoost))
 }
 
-function canonRow(feed: DiscoverFeed, tasteWeights: Map<string, number>, ownedSet: Set<number>, featuredId?: number) {
+function recommendationsForCategory(key: keyof DiscoverFeed, recommendations: LootShow[]) {
+  switch (key) {
+    case 'crime':
+      return recommendations.filter((show) => show.genre === 'Crime' || show.genre === 'Thriller')
+    case 'scifi':
+      return recommendations.filter((show) => show.genre === 'Sci-Fi' || show.genre === 'Fantasy')
+    case 'animation':
+      return recommendations.filter((show) => show.genre === 'Animation' || show.genre === 'Kids')
+    case 'mystery':
+      return recommendations.filter((show) => show.genre === 'Mystery' || show.genre === 'Thriller')
+    case 'popular':
+    case 'trending':
+    case 'airingToday':
+    case 'topRated':
+      return recommendations
+    default:
+      return []
+  }
+}
+
+function canonRow(
+  feed: DiscoverFeed,
+  tasteWeights: Map<string, number>,
+  ownedSet: Set<number>,
+  recommendations: LootShow[],
+  recommendationBoost: Map<number, number>,
+  featuredId?: number,
+) {
   return personalizeShows(
-    FEED_KEYS.flatMap((key) => feed[key]),
+    [...recommendations, ...FEED_KEYS.flatMap((key) => feed[key])],
     tasteWeights,
     ownedSet,
-    { featuredId },
+    { featuredId, recommendationBoost },
   ).slice(0, 12)
+}
+
+function discoverHero(
+  feed: DiscoverFeed,
+  tasteWeights: Map<string, number>,
+  ownedSet: Set<number>,
+  recommendations: LootShow[],
+  recommendationBoost: Map<number, number>,
+) {
+  const pool = [
+    ...recommendations,
+    ...feed.trending,
+    ...feed.popular,
+    ...feed.airingToday,
+    ...feed.topRated,
+    ...feed.netflix,
+    ...feed.hbo,
+    ...feed.apple,
+  ]
+  return personalizeShows(pool, tasteWeights, ownedSet, { recommendationBoost })[0]
+    ?? personalizeShows(pool, tasteWeights, ownedSet, { allowOwned: true, recommendationBoost })[0]
+}
+
+async function getTasteRecommendationPool(anchors: Show[]) {
+  if (!anchors.length) return []
+  const cacheKey = anchors.map((show) => show.id).join(',')
+  const cached = tasteRecCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < TASTE_REC_TTL_MS) return cached.data
+
+  const inflight = tasteRecInflight.get(cacheKey)
+  if (inflight) return inflight
+
+  const request = Promise.all(
+    anchors.map((anchor) =>
+      getShowRecommendations(anchor.id, 1)
+        .then((data) => data.results.map(tmdbToLoot))
+        .catch(() => []),
+    ),
+  ).then((groups) => {
+    const data = uniqueShows(groups.flat()).filter((show) => show.posterPath || show.backdropPath)
+    tasteRecCache.set(cacheKey, { data, ts: Date.now() })
+    return data
+  })
+
+  tasteRecInflight.set(cacheKey, request)
+  try {
+    return await request
+  } finally {
+    tasteRecInflight.delete(cacheKey)
+  }
 }
 
 export function Discover({ onOpenSettings }: Props) {
@@ -92,12 +201,17 @@ export function Discover({ onOpenSettings }: Props) {
   const [categoryTotalPages, setCategoryTotalPages] = useState(1)
   const [categoryLoading, setCategoryLoading] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const [tasteRecommendations, setTasteRecommendations] = useState<LootShow[]>([])
 
   const keyOk = hasTmdbKey()
 
   const ownedShows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const tierAssignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
-  const ownedIds = ownedShows.map((s) => s.id)
+  const ownedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
+  const ownedSet = useMemo(() => new Set(ownedIds), [ownedIds])
+  const tasteWeights = useMemo(() => buildTasteWeights(ownedShows, tierAssignments), [ownedShows, tierAssignments])
+  const tasteAnchors = useMemo(() => pickTasteAnchors(ownedShows, tierAssignments), [ownedShows, tierAssignments])
+  const recommendationBoost = useMemo(() => recommendationBoosts(tasteRecommendations), [tasteRecommendations])
 
   // Trending feed — fetched on mount, cached at module level for 5 min.
   useEffect(() => {
@@ -119,6 +233,24 @@ export function Discover({ onOpenSettings }: Props) {
       cancelled = true
     }
   }, [keyOk])
+
+  useEffect(() => {
+    if (!keyOk || tasteAnchors.length === 0) {
+      setTasteRecommendations([])
+      return
+    }
+    let cancelled = false
+    getTasteRecommendationPool(tasteAnchors)
+      .then((shows) => {
+        if (!cancelled) setTasteRecommendations(shows.filter((show) => !ownedSet.has(show.id)))
+      })
+      .catch(() => {
+        if (!cancelled) setTasteRecommendations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [keyOk, tasteAnchors, ownedSet])
 
   // Search debounce.
   useEffect(() => {
@@ -184,7 +316,7 @@ export function Discover({ onOpenSettings }: Props) {
     return () => observer.disconnect()
   }, [activeCategory, categoryLoading, categoryPage, categoryTotalPages])
 
-  const categoryOwnedIds = useMemo(() => new Set(ownedIds), [ownedIds])
+  const heroShow = useMemo(() => feed ? discoverHero(feed, tasteWeights, ownedSet, tasteRecommendations, recommendationBoost) : undefined, [feed, ownedSet, recommendationBoost, tasteRecommendations, tasteWeights])
 
   const openCategory = (key: DiscoverCategoryKey, title: string) => {
     setActiveCategory({ key, title })
@@ -230,7 +362,7 @@ export function Discover({ onOpenSettings }: Props) {
             items={categoryItems}
             loading={categoryLoading}
             sentinelRef={sentinelRef}
-            ownedIds={categoryOwnedIds}
+            ownedIds={ownedSet}
             onBack={() => setActiveCategory(null)}
           />
         ) : !keyOk ? (
@@ -243,14 +375,16 @@ export function Discover({ onOpenSettings }: Props) {
           <SkeletonRows />
         ) : (
           <>
-            <PortalHero show={feed.trending[0]} isOwned={feed.trending[0] ? ownedIds.includes(feed.trending[0].id) : false} />
+            <PortalHero show={heroShow} isOwned={heroShow ? ownedSet.has(heroShow.id) : false} />
             <FeedRows
               feed={feed}
               ownedIds={ownedIds}
               ownedShows={ownedShows}
               tierAssignments={tierAssignments}
+              tasteRecommendations={tasteRecommendations}
+              recommendationBoost={recommendationBoost}
               onOpenCategory={openCategory}
-              featuredId={feed.trending[0]?.id}
+              featuredId={heroShow?.id}
             />
           </>
         )}
@@ -272,6 +406,7 @@ function PortalHero({ show, isOwned }: { show?: LootShow; isOwned: boolean }) {
       setArt(cached)
       return
     }
+    setArt(null)
     let cancelled = false
     getLandscapeArt(show.id)
       .then((next) => {
@@ -485,6 +620,8 @@ function FeedRows({
   ownedIds,
   ownedShows,
   tierAssignments,
+  tasteRecommendations,
+  recommendationBoost,
   onOpenCategory,
   featuredId,
 }: {
@@ -492,17 +629,22 @@ function FeedRows({
   ownedIds: number[]
   ownedShows: Show[]
   tierAssignments: TierAssignment[]
+  tasteRecommendations: LootShow[]
+  recommendationBoost: Map<number, number>
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
   featuredId?: number
 }) {
   const ownedSet = useMemo(() => new Set(ownedIds), [ownedIds])
   const tasteWeights = useMemo(() => buildTasteWeights(ownedShows, tierAssignments), [ownedShows, tierAssignments])
-  const row = (key: keyof DiscoverFeed) =>
-    personalizeShows(feed[key], tasteWeights, ownedSet, {
+  const row = (key: keyof DiscoverFeed) => {
+    const recommendationMatches = recommendationsForCategory(key, tasteRecommendations)
+    return personalizeShows([...recommendationMatches, ...feed[key]], tasteWeights, ownedSet, {
       allowOwned: SURFACE_ALLOW_OWNED.has(key as DiscoverCategoryKey),
       featuredId,
+      recommendationBoost,
     }).slice(0, 10)
-  const personalized = canonRow(feed, tasteWeights, ownedSet, featuredId)
+  }
+  const personalized = canonRow(feed, tasteWeights, ownedSet, tasteRecommendations, recommendationBoost, featuredId)
 
   return (
     <>
@@ -991,7 +1133,15 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
             {show.title}
           </h3>
         )}
-        <span className="h-1.5 w-12 rounded-full bg-white/45 shadow-[0_0_18px_rgba(255,255,255,0.28)]" />
+        {art?.tagline ? (
+          <p className="max-w-[190px] text-[13px] font-semibold leading-[1.05] text-white/76 line-clamp-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]">
+            {art.tagline}
+          </p>
+        ) : (
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/42">
+            {show.year !== '—' ? show.year : show.genre}
+          </p>
+        )}
       </div>
     </motion.div>
   )

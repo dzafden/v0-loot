@@ -121,7 +121,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
     <div className="relative flex flex-col min-h-full pb-28 overflow-hidden">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_20%_0%,rgba(245,196,83,0.13),transparent_20rem)]" aria-hidden />
 
-      <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between px-4 pt-5 pointer-events-none">
+      <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 pt-5 pointer-events-none">
         <button
           onClick={() => setSearchOpen((value) => !value)}
           className="grid h-11 w-11 place-items-center rounded-full bg-black/34 text-white/78 backdrop-blur-2xl shadow-[0_12px_32px_rgba(0,0,0,0.38)] border border-white/[0.08] pointer-events-auto active:scale-95"
@@ -145,7 +145,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="absolute left-16 right-16 top-5 z-50"
+            className="absolute left-16 right-16 top-5 z-40"
           >
             <input
               autoFocus

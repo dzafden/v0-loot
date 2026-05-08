@@ -2,13 +2,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import type { Show } from '../../types'
 import { db } from '../../data/db'
-import { getSeason, getShowDetail } from '../../lib/tmdb'
+import { getSeason, getShowDetail, imgUrl } from '../../lib/tmdb'
 import { cacheSeason, progressKey, setEpisodeWatched, setSeasonWatched } from '../../data/queries'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
+import { cn } from '../../lib/utils'
 
 interface Props {
   show: Show
   onClose: () => void
+}
+
+type SeasonMeta = {
+  name: string
+  posterPath: string | null
 }
 
 export function EpisodeTracker({ show, onClose }: Props) {
@@ -31,6 +37,7 @@ export function EpisodeTracker({ show, onClose }: Props) {
   const [confetti, setConfetti] = useState(false)
   const [busySeason, setBusySeason] = useState<number | null>(null)
   const [bulkBusy, setBulkBusy] = useState<null | 'mark' | 'unmark'>(null)
+  const [seasonMeta, setSeasonMeta] = useState<Map<number, SeasonMeta>>(new Map())
 
   // Fetch missing seasons on mount/update (handles partial caches)
   useEffect(() => {
@@ -39,9 +46,23 @@ export function EpisodeTracker({ show, onClose }: Props) {
     ;(async () => {
       try {
         const detail = await getShowDetail(show.id)
+        if (cancelled) return
+        setSeasonMeta(new Map(detail.seasons
+          .filter((s) => s.season_number !== 0)
+          .map((s): [number, SeasonMeta] => [s.season_number, { name: s.name, posterPath: s.poster_path ?? null }]),
+        ))
         const cachedSeasonNumbers = new Set(seasons.map((s) => s.seasonNumber))
+        const cachedByNumber = new Map(seasons.map((s) => [s.seasonNumber, s]))
         for (const s of detail.seasons) {
           if (s.season_number === 0) continue // skip specials by default
+          const cachedSeason = cachedByNumber.get(s.season_number)
+          if (cachedSeason && (!cachedSeason.posterPath || !cachedSeason.name)) {
+            await cacheSeason({
+              ...cachedSeason,
+              name: cachedSeason.name ?? s.name,
+              posterPath: cachedSeason.posterPath ?? s.poster_path ?? null,
+            })
+          }
           if (cachedSeasonNumbers.has(s.season_number)) continue
           const data = await getSeason(show.id, s.season_number)
           if (cancelled) return
@@ -49,6 +70,8 @@ export function EpisodeTracker({ show, onClose }: Props) {
             key: `${show.id}-${s.season_number}`,
             showId: show.id,
             seasonNumber: s.season_number,
+            name: data.name ?? s.name,
+            posterPath: data.poster_path ?? s.poster_path ?? null,
             episodes: data.episodes.map((e) => ({
               episode_number: e.episode_number,
               name: e.name,
@@ -170,39 +193,71 @@ export function EpisodeTracker({ show, onClose }: Props) {
             const seasonWatched = s.episodes.filter((e) =>
               watchedSet.has(progressKey(show.id, s.seasonNumber, e.episode_number)),
             ).length
+            const meta = seasonMeta.get(s.seasonNumber)
+            const posterPath = s.posterPath ?? meta?.posterPath ?? null
+            const seasonName = s.name ?? meta?.name ?? `Season ${s.seasonNumber}`
+            const seasonComplete = s.episodes.length > 0 && seasonWatched === s.episodes.length
+            const seasonPercent = s.episodes.length > 0 ? (seasonWatched / s.episodes.length) * 100 : 0
             return (
-              <div key={s.key} className="border-b border-white/5">
-                <button
-                  onClick={() => toggleSeason(s.seasonNumber)}
-                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-white/[0.03]"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold">Season {s.seasonNumber}</span>
-                    <span className="text-sm text-white/55">
-                      {seasonWatched}/{s.episodes.length}
+              <div key={s.key} className={cn('border-b border-white/5 transition-colors', open && 'bg-white/[0.025]')}>
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                  <button
+                    onClick={() => toggleSeason(s.seasonNumber)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left active:scale-[0.99]"
+                  >
+                    <span className="relative h-[84px] w-[58px] shrink-0 overflow-hidden rounded-[14px] bg-white/[0.06] shadow-[0_14px_28px_rgba(0,0,0,0.32)] ring-1 ring-white/[0.08]">
+                      {posterPath ? (
+                        <img src={imgUrl(posterPath, 'w185')} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                      ) : show.backdropPath ? (
+                        <img src={imgUrl(show.backdropPath, 'w342')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" loading="lazy" />
+                      ) : null}
+                      <span className="absolute inset-0 bg-gradient-to-t from-black/72 via-black/12 to-transparent" />
+                      <span className="absolute bottom-1.5 left-1.5 text-[10px] font-black uppercase tracking-[-0.02em] text-white">S{s.seasonNumber}</span>
                     </span>
-                  </div>
-                  <div className="flex items-center gap-2">
+
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[21px] font-black leading-none tracking-[-0.045em] text-white">{seasonName}</span>
+                      <span className="mt-1.5 block text-[13px] text-white/50">{seasonWatched}/{s.episodes.length} episodes</span>
+                      <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                        <motion.span
+                          initial={false}
+                          animate={{ width: `${seasonPercent}%` }}
+                          transition={{ type: 'spring', stiffness: 180, damping: 24 }}
+                          className="block h-full rounded-full bg-emerald-300"
+                        />
+                      </span>
+                    </span>
+                  </button>
+
+                  <div className="flex shrink-0 items-center gap-2">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation()
+                      onClick={() => {
                         const allWatched = seasonWatched === s.episodes.length
                         setBusySeason(s.seasonNumber)
                         void setSeasonWatched(show.id, s.seasonNumber, s.episodes.map((x) => x.episode_number), !allWatched)
                           .finally(() => setBusySeason(null))
                       }}
                       disabled={busySeason === s.seasonNumber}
-                      className="rounded-full bg-white/10 px-3 py-1.5 text-xs disabled:opacity-50"
+                      className={cn(
+                        'rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.08em] disabled:opacity-50',
+                        seasonComplete ? 'bg-white/[0.1] text-white/62' : 'bg-emerald-400/18 text-emerald-200',
+                      )}
                     >
                       {busySeason === s.seasonNumber
-                        ? 'Saving…'
-                        : seasonWatched === s.episodes.length
-                          ? 'Unmark season'
-                          : 'Mark season'}
+                        ? 'Saving'
+                        : seasonComplete
+                          ? 'Unmark'
+                          : 'Mark'}
                     </button>
-                    <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+                    <button
+                      onClick={() => toggleSeason(s.seasonNumber)}
+                      className={cn('grid h-9 w-8 place-items-center text-xl text-white/70 transition-transform active:scale-90', open && 'rotate-90')}
+                      aria-label={open ? `Collapse ${seasonName}` : `Expand ${seasonName}`}
+                    >
+                      ›
+                    </button>
                   </div>
-                </button>
+                </div>
                 <AnimatePresence>
                   {open && (
                     <motion.div

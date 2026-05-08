@@ -310,7 +310,7 @@ export async function getDiscoverCategoryPage(
 
 export interface TmdbShowDetail extends TmdbSearchResult {
   number_of_seasons: number
-  seasons: { season_number: number; episode_count: number; name: string }[]
+  seasons: { season_number: number; episode_count: number; name: string; poster_path?: string | null }[]
   genres: { id: number; name: string }[]
   overview?: string
   first_air_date?: string
@@ -385,6 +385,8 @@ export async function getSimilarShows(showId: number, page = 1) {
 
 export async function getSeason(showId: number, seasonNumber: number) {
   return tmdb<{
+    name?: string
+    poster_path?: string | null
     episodes: { episode_number: number; name: string; still_path?: string | null }[]
   }>(`/tv/${showId}/season/${seasonNumber}`)
 }

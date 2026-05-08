@@ -14,12 +14,17 @@ import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
 import type { Show } from './types'
 
+type CastingTarget = {
+  show: Show
+  personId?: number
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('discover')
   const [detail, setDetail] = useState<Show | null>(null)
   const [adding, setAdding] = useState(false)
   const [tracking, setTracking] = useState<Show | null>(null)
-  const [castingFor, setCastingFor] = useState<Show | null>(null)
+  const [castingFor, setCastingFor] = useState<CastingTarget | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
@@ -65,7 +70,7 @@ export default function App() {
             show={detail}
             onBack={() => setDetail(null)}
             onTrackEpisodes={(s) => setTracking(s)}
-            onAssignRole={(s) => setCastingFor(s)}
+            onAssignRole={(s, personId) => setCastingFor({ show: s, personId })}
           />
         )}
 
@@ -89,7 +94,7 @@ export default function App() {
         />
         <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         {tracking && <EpisodeTracker show={tracking} onClose={() => setTracking(null)} />}
-        <AssignRoleSheet show={castingFor} onClose={() => setCastingFor(null)} />
+        <AssignRoleSheet show={castingFor?.show ?? null} initialPersonId={castingFor?.personId} onClose={() => setCastingFor(null)} />
 
         <IOSInstallBanner />
       </div>

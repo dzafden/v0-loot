@@ -27,11 +27,12 @@ const PRESET_ROLES = [
 interface Props {
   show: Show
   existingPersonIds?: Set<number>
+  initialPersonId?: number | null
   onClose: () => void
   onBack?: () => void // present only in multi-step flows (e.g. roster picker)
 }
 
-export function CharacterRolePicker({ show, existingPersonIds = new Set(), onClose, onBack }: Props) {
+export function CharacterRolePicker({ show, existingPersonIds = new Set(), initialPersonId = null, onClose, onBack }: Props) {
   const [cast, setCast] = useState<CastMember[]>([])
   const [castLoading, setCastLoading] = useState(false)
   const [picked, setPicked] = useState<CastMember | null>(null)
@@ -40,12 +41,29 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), onClo
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
     setCastLoading(true)
+    setPicked(null)
     getCredits(show.id)
-      .then((d) => setCast(d.cast))
-      .catch(() => setCast([]))
-      .finally(() => setCastLoading(false))
-  }, [show.id])
+      .then((d) => {
+        if (cancelled) return
+        setCast(d.cast)
+        const initialPick = initialPersonId
+          ? d.cast.find((member) => member.id === initialPersonId && !existingPersonIds.has(member.id))
+          : null
+        if (initialPick) setPicked(initialPick)
+      })
+      .catch(() => {
+        if (!cancelled) setCast([])
+      })
+      .finally(() => {
+        if (!cancelled) setCastLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [show.id, initialPersonId, existingPersonIds])
 
   const canCast = picked && (role !== '__custom__' || customRole.trim())
 
