@@ -10,15 +10,11 @@ import { EpisodeTracker } from './features/episode-tracker/EpisodeTracker'
 import { AssignRoleSheet } from './features/cast-roles/AssignRoleSheet'
 import { SettingsSheet } from './features/settings/SettingsSheet'
 import { IOSInstallBanner } from './components/ui/IOSInstallBanner'
-import { DiscoveryPreviewLab, WowLab, WowVariantsLab } from './features/lab/WowLab'
 import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
 import type { Show } from './types'
 
 export default function App() {
-  const isWowLab = window.location.pathname.startsWith('/lab/wow')
-  const isWowVariantsLab = window.location.pathname.startsWith('/lab/wow-variants')
-  const isDiscoveryPreviewLab = window.location.pathname.startsWith('/lab/discovery-preview')
   const [tab, setTab] = useState<Tab>('discover')
   const [detail, setDetail] = useState<Show | null>(null)
   const [adding, setAdding] = useState(false)
@@ -47,18 +43,6 @@ export default function App() {
       document.head.removeChild(style)
     }
   }, [])
-
-  if (isWowVariantsLab) {
-    return <WowVariantsLab />
-  }
-
-  if (isDiscoveryPreviewLab) {
-    return <DiscoveryPreviewLab />
-  }
-
-  if (isWowLab) {
-    return <WowLab />
-  }
 
   return (
     <div className="min-h-svh text-white selection:bg-[#f5c453] selection:text-black flex justify-center bg-[#050507]">
