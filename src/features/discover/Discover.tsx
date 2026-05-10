@@ -1,6 +1,6 @@
 import { useAnimation, motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, Plus, Check, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, Plus, Check, X, RefreshCw } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
@@ -23,16 +23,142 @@ import { cn } from '../../lib/utils'
 
 interface Props {
   onOpenSettings: () => void
+  onOpenShow: (show: Show) => void
 }
 
-const SURFACE_ALLOW_OWNED = new Set<DiscoverCategoryKey>(['trending', 'airingToday', 'popular'])
 const FEED_KEYS: (keyof DiscoverFeed)[] = ['trending', 'airingToday', 'popular', 'netflix', 'crime', 'hbo', 'scifi', 'apple', 'animation', 'mystery', 'amazon', 'topRated']
 const TIER_TASTE_WEIGHT: Record<Tier, number> = { S: 9, A: 6, B: 3, C: 1, D: -3 }
-const TASTE_ANCHOR_LIMIT = 3
-const TASTE_REC_TTL_MS = 10 * 60_000
+const TASTE_ANCHOR_LIMIT = 18
+const ACTIVE_ANCHOR_COUNT = 8
+const TASTE_REC_TTL_MS = 24 * 60 * 60_000
+const DISCOVER_IMPRESSIONS_KEY = 'loot:discover-impressions:v1'
+const DISCOVER_LIBRARY_SNAPSHOT_KEY = 'loot:discover-library-snapshot:v1'
 
 const tasteRecCache = new Map<string, { data: LootShow[]; ts: number }>()
 const tasteRecInflight = new Map<string, Promise<LootShow[]>>()
+
+type DiscoverImpression = {
+  count: number
+  lastDay: string
+  mutedUntil?: string
+}
+type DiscoverImpressions = Record<string, DiscoverImpression>
+type DiscoverLibrarySnapshot = {
+  ownedShows: Show[]
+  tierAssignments: TierAssignment[]
+  signature: string
+  createdAt: number
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function daysFromNow(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function hashString(value: string) {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function seededShuffle<T>(items: T[], seed: number) {
+  const shuffled = [...items]
+  let state = seed || 1
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    state = Math.imul(state ^ (state >>> 15), 1 | state)
+    state ^= state + Math.imul(state ^ (state >>> 7), 61 | state)
+    const next = ((state ^ (state >>> 14)) >>> 0) / 4294967296
+    const j = Math.floor(next * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
+}
+
+function readDiscoverImpressions(): DiscoverImpressions {
+  try {
+    const raw = localStorage.getItem(DISCOVER_IMPRESSIONS_KEY)
+    return raw ? JSON.parse(raw) as DiscoverImpressions : {}
+  } catch {
+    return {}
+  }
+}
+
+function createLibrarySnapshot(ownedShows: Show[], tierAssignments: TierAssignment[]): DiscoverLibrarySnapshot {
+  return {
+    ownedShows,
+    tierAssignments,
+    signature: librarySignature(ownedShows, tierAssignments),
+    createdAt: Date.now(),
+  }
+}
+
+function readLibrarySnapshot(): DiscoverLibrarySnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(DISCOVER_LIBRARY_SNAPSHOT_KEY)
+    return raw ? JSON.parse(raw) as DiscoverLibrarySnapshot : null
+  } catch {
+    return null
+  }
+}
+
+function writeLibrarySnapshot(snapshot: DiscoverLibrarySnapshot) {
+  try {
+    sessionStorage.setItem(DISCOVER_LIBRARY_SNAPSHOT_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Session storage can be unavailable; Discover should still work with in-memory state.
+  }
+}
+
+function recordDiscoverImpressions(ids: number[]) {
+  const day = todayKey()
+  const existing = readDiscoverImpressions()
+  const next: DiscoverImpressions = { ...existing }
+  let changed = false
+
+  for (const id of new Set(ids.filter(Boolean))) {
+    const key = String(id)
+    const current = next[key]
+    if (current?.lastDay === day) continue
+    const count = (current?.count ?? 0) + 1
+    next[key] = {
+      count,
+      lastDay: day,
+      mutedUntil: count >= 4 ? daysFromNow(7) : current?.mutedUntil,
+    }
+    changed = true
+  }
+
+  if (!changed) return null
+  try {
+    localStorage.setItem(DISCOVER_IMPRESSIONS_KEY, JSON.stringify(next))
+  } catch {
+    // localStorage can be full or blocked; Discover should still work.
+  }
+  return next
+}
+
+function impressionPenalty(show: LootShow, impressions: DiscoverImpressions = {}) {
+  const record = impressions[String(show.id)]
+  if (!record) return 0
+  if (record.mutedUntil && record.mutedUntil >= todayKey()) return 220
+  return Math.min(120, record.count * 24)
+}
+
+function librarySignature(ownedShows: Show[], assignments: TierAssignment[]) {
+  const tiers = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
+  return ownedShows
+    .map((show) => `${show.id}:${tiers.get(show.id) ?? ''}:${show.top8Position ?? ''}`)
+    .sort()
+    .join('|')
+}
 
 function buildTasteWeights(ownedShows: Show[], assignments: TierAssignment[]) {
   const tierByShow = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
@@ -59,15 +185,43 @@ function anchorScore(show: Show, tierByShow: Map<number, Tier>) {
 
 function pickTasteAnchors(ownedShows: Show[], assignments: TierAssignment[]) {
   const tierByShow = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
-  const positiveTaste = ownedShows.filter((show) => tierByShow.get(show.id) !== 'D')
-  return (positiveTaste.length ? positiveTaste : ownedShows)
+  const positiveTaste = ownedShows.filter((show) => tierByShow.get(show.id) !== 'D' && tierByShow.get(show.id) !== 'C')
+  const sorted = (positiveTaste.length ? positiveTaste : ownedShows)
     .slice()
     .sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
-    .slice(0, TASTE_ANCHOR_LIMIT)
+  const selected: Show[] = []
+  const genreCounts = new Map<string, number>()
+
+  for (const show of sorted) {
+    const genre = show.genres?.[0] ?? show.rawGenres?.[0] ?? 'Default'
+    if ((genreCounts.get(genre) ?? 0) >= 2) continue
+    selected.push(show)
+    genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1)
+    if (selected.length >= TASTE_ANCHOR_LIMIT) return selected
+  }
+
+  for (const show of sorted) {
+    if (selected.some((picked) => picked.id === show.id)) continue
+    selected.push(show)
+    if (selected.length >= TASTE_ANCHOR_LIMIT) return selected
+  }
+
+  return selected
 }
 
-function tasteScore(show: LootShow, tasteWeights: Map<string, number>, recommendationBoost: Map<number, number> = new Map()) {
-  return (recommendationBoost.get(show.id) ?? 0) + (tasteWeights.get(show.genre) ?? 0) * 12 + show.rating * 1.4 + Math.log10(Math.max(1, show.popularity)) * 2
+function rotateActiveAnchors(anchors: Show[], signature: string) {
+  if (anchors.length <= ACTIVE_ANCHOR_COUNT) return anchors
+  const seed = hashString(`${todayKey()}:${signature}`)
+  const shuffled = seededShuffle(anchors, seed)
+  return shuffled.slice(0, ACTIVE_ANCHOR_COUNT)
+}
+
+function tasteScore(show: LootShow, tasteWeights: Map<string, number>, recommendationBoost: Map<number, number> = new Map(), impressions: DiscoverImpressions = {}) {
+  return (recommendationBoost.get(show.id) ?? 0)
+    + (tasteWeights.get(show.genre) ?? 0) * 10
+    + show.rating * 1.5
+    + Math.log10(Math.max(1, show.popularity)) * 3
+    - impressionPenalty(show, impressions)
 }
 
 function recommendationBoosts(shows: LootShow[]) {
@@ -91,32 +245,34 @@ function personalizeShows(
   shows: LootShow[],
   tasteWeights: Map<string, number>,
   ownedSet: Set<number>,
-  options: { allowOwned?: boolean; featuredId?: number; recommendationBoost?: Map<number, number> } = {},
+  options: { allowOwned?: boolean; featuredId?: number; recommendationBoost?: Map<number, number>; preserveOrder?: boolean; impressions?: DiscoverImpressions } = {},
 ) {
-  return uniqueShows(shows)
+  const filtered = uniqueShows(shows)
     .filter((show) => show.id !== options.featuredId)
     .filter((show) => options.allowOwned || !ownedSet.has(show.id))
-    .sort((a, b) => tasteScore(b, tasteWeights, options.recommendationBoost) - tasteScore(a, tasteWeights, options.recommendationBoost))
+  if (options.preserveOrder) return filtered
+  return filtered.sort((a, b) =>
+    tasteScore(b, tasteWeights, options.recommendationBoost, options.impressions)
+    - tasteScore(a, tasteWeights, options.recommendationBoost, options.impressions),
+  )
 }
 
-function recommendationsForCategory(key: keyof DiscoverFeed, recommendations: LootShow[]) {
-  switch (key) {
-    case 'crime':
-      return recommendations.filter((show) => show.genre === 'Crime' || show.genre === 'Thriller')
-    case 'scifi':
-      return recommendations.filter((show) => show.genre === 'Sci-Fi' || show.genre === 'Fantasy')
-    case 'animation':
-      return recommendations.filter((show) => show.genre === 'Animation' || show.genre === 'Kids')
-    case 'mystery':
-      return recommendations.filter((show) => show.genre === 'Mystery' || show.genre === 'Thriller')
-    case 'popular':
-    case 'trending':
-    case 'airingToday':
-    case 'topRated':
-      return recommendations
-    default:
-      return []
+function diversifyShows(shows: LootShow[], limit: number, maxPerGenre = 3) {
+  const picked: LootShow[] = []
+  const genreCounts = new Map<string, number>()
+  for (const show of shows) {
+    const count = genreCounts.get(show.genre) ?? 0
+    if (count >= maxPerGenre) continue
+    picked.push(show)
+    genreCounts.set(show.genre, count + 1)
+    if (picked.length >= limit) return picked
   }
+  for (const show of shows) {
+    if (picked.some((pickedShow) => pickedShow.id === show.id)) continue
+    picked.push(show)
+    if (picked.length >= limit) return picked
+  }
+  return picked
 }
 
 function canonRow(
@@ -125,14 +281,15 @@ function canonRow(
   ownedSet: Set<number>,
   recommendations: LootShow[],
   recommendationBoost: Map<number, number>,
+  impressions: DiscoverImpressions,
   featuredId?: number,
 ) {
   return personalizeShows(
     [...recommendations, ...FEED_KEYS.flatMap((key) => feed[key])],
     tasteWeights,
     ownedSet,
-    { featuredId, recommendationBoost },
-  ).slice(0, 12)
+    { featuredId, recommendationBoost, impressions },
+  )
 }
 
 function discoverHero(
@@ -141,6 +298,8 @@ function discoverHero(
   ownedSet: Set<number>,
   recommendations: LootShow[],
   recommendationBoost: Map<number, number>,
+  impressions: DiscoverImpressions,
+  seed: number,
 ) {
   const pool = [
     ...recommendations,
@@ -152,8 +311,10 @@ function discoverHero(
     ...feed.hbo,
     ...feed.apple,
   ]
-  return personalizeShows(pool, tasteWeights, ownedSet, { recommendationBoost })[0]
-    ?? personalizeShows(pool, tasteWeights, ownedSet, { allowOwned: true, recommendationBoost })[0]
+  const ranked = diversifyShows(personalizeShows(pool, tasteWeights, ownedSet, { recommendationBoost, impressions }), 18, 3)
+  const rotatingTop = seededShuffle(ranked.slice(0, 10), seed)
+  return rotatingTop[0]
+    ?? personalizeShows(pool, tasteWeights, ownedSet, { allowOwned: true, recommendationBoost, impressions })[0]
 }
 
 async function getTasteRecommendationPool(anchors: Show[]) {
@@ -185,7 +346,7 @@ async function getTasteRecommendationPool(anchors: Show[]) {
   }
 }
 
-export function Discover({ onOpenSettings }: Props) {
+export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [query, setQuery] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   const [results, setResults] = useState<LootShow[]>([])
@@ -202,16 +363,42 @@ export function Discover({ onOpenSettings }: Props) {
   const [categoryLoading, setCategoryLoading] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [tasteRecommendations, setTasteRecommendations] = useState<LootShow[]>([])
+  const [impressions] = useState<DiscoverImpressions>(() => readDiscoverImpressions())
+  const [librarySnapshot, setLibrarySnapshot] = useState<DiscoverLibrarySnapshot | null>(() => readLibrarySnapshot())
 
   const keyOk = hasTmdbKey()
 
   const ownedShows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const tierAssignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
-  const ownedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
-  const ownedSet = useMemo(() => new Set(ownedIds), [ownedIds])
-  const tasteWeights = useMemo(() => buildTasteWeights(ownedShows, tierAssignments), [ownedShows, tierAssignments])
-  const tasteAnchors = useMemo(() => pickTasteAnchors(ownedShows, tierAssignments), [ownedShows, tierAssignments])
+  const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
+  const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
+  const profileShows = librarySnapshot?.ownedShows ?? []
+  const profileTierAssignments = librarySnapshot?.tierAssignments ?? []
+  const profileOwnedIds = useMemo(() => profileShows.map((s) => s.id), [profileShows])
+  const profileOwnedSet = useMemo(() => new Set(profileOwnedIds), [profileOwnedIds])
+  const tasteWeights = useMemo(() => buildTasteWeights(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
+  const tasteAnchors = useMemo(() => pickTasteAnchors(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
+  const tasteSignature = librarySnapshot?.signature ?? ''
+  const activeTasteAnchors = useMemo(() => rotateActiveAnchors(tasteAnchors, tasteSignature), [tasteAnchors, tasteSignature])
+  const discoverSeed = useMemo(() => hashString(`${todayKey()}:${tasteSignature}`), [tasteSignature])
   const recommendationBoost = useMemo(() => recommendationBoosts(tasteRecommendations), [tasteRecommendations])
+
+  useEffect(() => {
+    if (librarySnapshot) return
+    const timer = window.setTimeout(() => {
+      const snapshot = createLibrarySnapshot(ownedShows, tierAssignments)
+      writeLibrarySnapshot(snapshot)
+      setLibrarySnapshot(snapshot)
+    }, 260)
+    return () => window.clearTimeout(timer)
+  }, [librarySnapshot, ownedShows, tierAssignments])
+
+  const refreshDiscoverMix = () => {
+    const snapshot = createLibrarySnapshot(ownedShows, tierAssignments)
+    writeLibrarySnapshot(snapshot)
+    setLibrarySnapshot(snapshot)
+    setTasteRecommendations([])
+  }
 
   // Trending feed — fetched on mount, cached at module level for 5 min.
   useEffect(() => {
@@ -235,14 +422,14 @@ export function Discover({ onOpenSettings }: Props) {
   }, [keyOk])
 
   useEffect(() => {
-    if (!keyOk || tasteAnchors.length === 0) {
+    if (!keyOk || activeTasteAnchors.length === 0) {
       setTasteRecommendations([])
       return
     }
     let cancelled = false
-    getTasteRecommendationPool(tasteAnchors)
+    getTasteRecommendationPool(activeTasteAnchors)
       .then((shows) => {
-        if (!cancelled) setTasteRecommendations(shows.filter((show) => !ownedSet.has(show.id)))
+        if (!cancelled) setTasteRecommendations(shows.filter((show) => !profileOwnedSet.has(show.id)))
       })
       .catch(() => {
         if (!cancelled) setTasteRecommendations([])
@@ -250,7 +437,7 @@ export function Discover({ onOpenSettings }: Props) {
     return () => {
       cancelled = true
     }
-  }, [keyOk, tasteAnchors, ownedSet])
+  }, [keyOk, activeTasteAnchors, profileOwnedSet])
 
   // Search debounce.
   useEffect(() => {
@@ -316,7 +503,14 @@ export function Discover({ onOpenSettings }: Props) {
     return () => observer.disconnect()
   }, [activeCategory, categoryLoading, categoryPage, categoryTotalPages])
 
-  const heroShow = useMemo(() => feed ? discoverHero(feed, tasteWeights, ownedSet, tasteRecommendations, recommendationBoost) : undefined, [feed, ownedSet, recommendationBoost, tasteRecommendations, tasteWeights])
+  const heroShow = useMemo(
+    () => feed ? discoverHero(feed, tasteWeights, profileOwnedSet, tasteRecommendations, recommendationBoost, impressions, discoverSeed) : undefined,
+    [discoverSeed, feed, impressions, profileOwnedSet, recommendationBoost, tasteRecommendations, tasteWeights],
+  )
+
+  const handleImpressions = (ids: number[]) => {
+    recordDiscoverImpressions(ids)
+  }
 
   const openCategory = (key: DiscoverCategoryKey, title: string) => {
     setActiveCategory({ key, title })
@@ -351,6 +545,15 @@ export function Discover({ onOpenSettings }: Props) {
               <X size={14} />
             </button>
           )}
+          {!query && librarySnapshot && (
+            <button
+              onClick={refreshDiscoverMix}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/28 hover:text-[#f5c453] active:scale-90 transition-colors"
+              aria-label="Refresh Discover"
+            >
+              <RefreshCw size={14} />
+            </button>
+          )}
         </div>
         {searchError && <p className="text-xs text-rose-300">{searchError}</p>}
       </div>
@@ -362,28 +565,34 @@ export function Discover({ onOpenSettings }: Props) {
             items={categoryItems}
             loading={categoryLoading}
             sentinelRef={sentinelRef}
-            ownedIds={ownedSet}
+            ownedIds={liveOwnedSet}
+            onOpenShow={onOpenShow}
             onBack={() => setActiveCategory(null)}
           />
         ) : !keyOk ? (
           <NoKey onOpenSettings={onOpenSettings} />
         ) : query.trim() ? (
-          <SearchResults loading={searchLoading} results={results} ownedIds={ownedIds} />
+          <SearchResults loading={searchLoading} results={results} ownedIds={liveOwnedIds} onOpenShow={onOpenShow} />
         ) : feedError ? (
           <p className="px-5 py-10 text-center text-rose-300 text-sm">{feedError}</p>
-        ) : feedLoading || !feed ? (
+        ) : feedLoading || !feed || !librarySnapshot ? (
           <SkeletonRows />
         ) : (
           <>
-            <PortalHero show={heroShow} isOwned={heroShow ? ownedSet.has(heroShow.id) : false} />
+            <PortalHero show={heroShow} isOwned={heroShow ? liveOwnedSet.has(heroShow.id) : false} onOpenShow={onOpenShow} />
             <FeedRows
               feed={feed}
-              ownedIds={ownedIds}
-              ownedShows={ownedShows}
-              tierAssignments={tierAssignments}
+              ownedIds={liveOwnedIds}
+              profileOwnedIds={profileOwnedIds}
+              profileShows={profileShows}
+              profileTierAssignments={profileTierAssignments}
               tasteRecommendations={tasteRecommendations}
               recommendationBoost={recommendationBoost}
+              impressions={impressions}
+              discoverSeed={discoverSeed}
+              onImpressions={handleImpressions}
               onOpenCategory={openCategory}
+              onOpenShow={onOpenShow}
               featuredId={heroShow?.id}
             />
           </>
@@ -393,7 +602,7 @@ export function Discover({ onOpenSettings }: Props) {
   )
 }
 
-function PortalHero({ show, isOwned }: { show?: LootShow; isOwned: boolean }) {
+function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
   const [art, setArt] = useState<LandscapeArt | null>(() => show ? landscapeArtCache.get(show.id) ?? null : null)
@@ -448,8 +657,14 @@ function PortalHero({ show, isOwned }: { show?: LootShow; isOwned: boolean }) {
   return (
     <motion.section
       animate={controls}
+      onClick={() => onOpenShow(lootToShow(show))}
       className="relative mx-3 mb-8 h-[430px] overflow-hidden rounded-[34px] bg-black shadow-[0_26px_80px_rgba(0,0,0,0.72)] loot-vignette"
       style={{ animation: 'loot-rise 520ms ease both' }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
+      }}
     >
       {bg && <img src={bg} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/18 to-black/92" />
@@ -490,6 +705,7 @@ function CategoryGrid({
   loading,
   sentinelRef,
   ownedIds,
+  onOpenShow,
   onBack,
 }: {
   title: string
@@ -497,6 +713,7 @@ function CategoryGrid({
   loading: boolean
   sentinelRef: React.RefObject<HTMLDivElement | null>
   ownedIds: Set<number>
+  onOpenShow: (show: Show) => void
   onBack: () => void
 }) {
   const [showFloatingBack, setShowFloatingBack] = useState(false)
@@ -544,7 +761,7 @@ function CategoryGrid({
 
       <div className="grid grid-cols-2 gap-4">
         {items.map((show) => (
-          <PortraitCard key={`${title}-${show.id}`} show={show} isOwned={ownedIds.has(show.id)} />
+          <PortraitCard key={`${title}-${show.id}`} show={show} isOwned={ownedIds.has(show.id)} onOpenShow={onOpenShow} />
         ))}
       </div>
       <div ref={sentinelRef} className="h-8" />
@@ -584,10 +801,12 @@ function SearchResults({
   loading,
   results,
   ownedIds,
+  onOpenShow,
 }: {
   loading: boolean
   results: LootShow[]
   ownedIds: number[]
+  onOpenShow: (show: Show) => void
 }) {
   if (loading) {
     return (
@@ -608,7 +827,7 @@ function SearchResults({
     <div className="px-4 pb-8">
       <div className="grid grid-cols-2 gap-4">
         {results.map((show) => (
-          <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} />
+          <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onOpenShow={onOpenShow} />
         ))}
       </div>
     </div>
@@ -618,49 +837,72 @@ function SearchResults({
 function FeedRows({
   feed,
   ownedIds,
-  ownedShows,
-  tierAssignments,
+  profileOwnedIds,
+  profileShows,
+  profileTierAssignments,
   tasteRecommendations,
   recommendationBoost,
+  impressions,
+  discoverSeed,
+  onImpressions,
   onOpenCategory,
+  onOpenShow,
   featuredId,
 }: {
   feed: DiscoverFeed
   ownedIds: number[]
-  ownedShows: Show[]
-  tierAssignments: TierAssignment[]
+  profileOwnedIds: number[]
+  profileShows: Show[]
+  profileTierAssignments: TierAssignment[]
   tasteRecommendations: LootShow[]
   recommendationBoost: Map<number, number>
+  impressions: DiscoverImpressions
+  discoverSeed: number
+  onImpressions: (ids: number[]) => void
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
+  onOpenShow: (show: Show) => void
   featuredId?: number
 }) {
-  const ownedSet = useMemo(() => new Set(ownedIds), [ownedIds])
-  const tasteWeights = useMemo(() => buildTasteWeights(ownedShows, tierAssignments), [ownedShows, tierAssignments])
-  const row = (key: keyof DiscoverFeed) => {
-    const recommendationMatches = recommendationsForCategory(key, tasteRecommendations)
-    return personalizeShows([...recommendationMatches, ...feed[key]], tasteWeights, ownedSet, {
-      allowOwned: SURFACE_ALLOW_OWNED.has(key as DiscoverCategoryKey),
+  const profileOwnedSet = useMemo(() => new Set(profileOwnedIds), [profileOwnedIds])
+  const tasteWeights = useMemo(() => buildTasteWeights(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
+  const sourceRow = (key: keyof DiscoverFeed, options: { preserveOrder?: boolean } = {}) => {
+    const fresh = personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
       featuredId,
-      recommendationBoost,
-    }).slice(0, 10)
+      preserveOrder: options.preserveOrder,
+    })
+    const fallback = fresh.length >= 4
+      ? fresh
+      : personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
+        allowOwned: true,
+        featuredId,
+        preserveOrder: options.preserveOrder,
+      })
+    return fallback.slice(0, 10)
   }
-  const personalized = canonRow(feed, tasteWeights, ownedSet, tasteRecommendations, recommendationBoost, featuredId)
+  const personalized = useMemo(() => {
+    const diverse = diversifyShows(canonRow(feed, tasteWeights, profileOwnedSet, tasteRecommendations, recommendationBoost, impressions, featuredId), 24, 3)
+    return seededShuffle(diverse.slice(0, 18), discoverSeed + 17).slice(0, 12)
+  }, [discoverSeed, feed, featuredId, impressions, profileOwnedSet, recommendationBoost, tasteRecommendations, tasteWeights])
+
+  useEffect(() => {
+    onImpressions([...(featuredId ? [featuredId] : []), ...personalized.slice(0, 8).map((show) => show.id)])
+  }, [featuredId, onImpressions, personalized])
 
   return (
     <>
-      <CarouselRow title="For Your Taste" categoryKey="popular" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Trending This Week" categoryKey="trending" shows={row('trending')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Airing Today" categoryKey="airingToday" shows={row('airingToday')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Trending Now" categoryKey="popular" shows={row('popular')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On Netflix" categoryKey="netflix" shows={row('netflix')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Crime" categoryKey="crime" shows={row('crime')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On HBO" categoryKey="hbo" shows={row('hbo')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Sci-Fi & Fantasy" categoryKey="scifi" shows={row('scifi')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On Apple TV+" categoryKey="apple" shows={row('apple')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Animation" categoryKey="animation" shows={row('animation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Mystery" categoryKey="mystery" shows={row('mystery')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
-      <CarouselRow title="On Amazon Prime" categoryKey="amazon" shows={row('amazon')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} />
-      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={row('topRated')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} />
+      <CarouselRow title="For Your Taste" categoryKey="popular" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Trending This Week" categoryKey="trending" shows={sourceRow('trending', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Airing Today" categoryKey="airingToday" shows={sourceRow('airingToday', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Trending Now" categoryKey="popular" shows={sourceRow('popular', { preserveOrder: true })} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="On Netflix" categoryKey="netflix" shows={sourceRow('netflix')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Crime" categoryKey="crime" shows={sourceRow('crime')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="On HBO" categoryKey="hbo" shows={sourceRow('hbo')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Sci-Fi & Fantasy" categoryKey="scifi" shows={sourceRow('scifi')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="On Apple TV+" categoryKey="apple" shows={sourceRow('apple')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Animation" categoryKey="animation" shows={sourceRow('animation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Mystery" categoryKey="mystery" shows={sourceRow('mystery')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="On Amazon Prime" categoryKey="amazon" shows={sourceRow('amazon')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRow('topRated')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
     </>
   )
 }
@@ -695,6 +937,7 @@ function CarouselRow({
   ownedIds,
   landscape = false,
   onOpenCategory,
+  onOpenShow,
 }: {
   title: string
   categoryKey: DiscoverCategoryKey
@@ -702,6 +945,7 @@ function CarouselRow({
   ownedIds: number[]
   landscape?: boolean
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
+  onOpenShow: (show: Show) => void
 }) {
   if (shows.length === 0) return null
   return (
@@ -719,9 +963,9 @@ function CarouselRow({
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 px-4">
         {shows.map((show) =>
           landscape ? (
-            <LandscapeCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} />
+            <LandscapeCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onOpenShow={onOpenShow} />
           ) : (
-            <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} variant="carousel" />
+            <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} variant="carousel" onOpenShow={onOpenShow} />
           ),
         )}
         <button
@@ -741,11 +985,15 @@ function CarouselRow({
 }
 
 async function persistShow(show: LootShow) {
+  await upsertShow(lootToShow(show))
+}
+
+function lootToShow(show: LootShow): Show {
   const yr = show.year && show.year !== '—' ? Number(show.year) : undefined
   // Use genre from the discover feed directly — avoids an extra API round-trip
   // that could silently fail and make the add appear to do nothing.
   const genreStr = show.genre as Genre
-  const persisted: Show = {
+  return {
     id: show.id,
     name: show.title,
     year: yr,
@@ -757,7 +1005,6 @@ async function persistShow(show: LootShow) {
     addedAt: Date.now(),
     updatedAt: Date.now(),
   }
-  await upsertShow(persisted)
 }
 
 // ── Shared "collect" button — iOS App Store / Spotify pattern ────────────────
@@ -971,10 +1218,12 @@ async function getLandscapeArt(showId: number): Promise<LandscapeArt> {
 function PortraitCard({
   show,
   isOwned,
+  onOpenShow,
   variant = 'grid',
 }: {
   show: LootShow
   isOwned: boolean
+  onOpenShow: (show: Show) => void
   variant?: 'grid' | 'carousel'
 }) {
   const [adding, setAdding] = useState(false)
@@ -1003,6 +1252,12 @@ function PortraitCard({
   return (
     <motion.div
       animate={cardControls}
+      onClick={() => onOpenShow(lootToShow(show))}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
+      }}
       className={cn(
         'relative group cursor-pointer rounded-[24px] overflow-hidden bg-[#151117] shadow-[0_18px_44px_rgba(0,0,0,0.42)] transition-transform duration-300 active:scale-[0.98]',
         variant === 'carousel' ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]' : 'aspect-[2/3]',
@@ -1039,7 +1294,7 @@ function PortraitCard({
   )
 }
 
-function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) {
+function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
   const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
@@ -1105,6 +1360,12 @@ function LandscapeCard({ show, isOwned }: { show: LootShow; isOwned: boolean }) 
     <motion.div
       ref={cardRef}
       animate={cardControls}
+      onClick={() => onOpenShow(lootToShow(show))}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
+      }}
       className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[28px] overflow-hidden bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] w-[300px] aspect-[1.9/1] transition-transform duration-300 active:scale-[0.98]"
     >
       {bg && (

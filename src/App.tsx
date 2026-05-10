@@ -55,7 +55,7 @@ export default function App() {
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_-12%,rgba(255,190,106,0.18),transparent_34rem),radial-gradient(circle_at_88%_28%,rgba(74,222,128,0.08),transparent_22rem)]" aria-hidden />
       <div className="w-full max-w-md relative bg-[#08070a]/92 min-h-svh overflow-x-hidden shadow-[0_0_80px_rgba(0,0,0,0.75)]">
         {tab === 'discover' && (
-          <Discover onOpenSettings={() => setSettingsOpen(true)} />
+          <Discover onOpenSettings={() => setSettingsOpen(true)} onOpenShow={setDetail} />
         )}
         {tab === 'collection' && (
           <Collection onAddShow={() => setAdding(true)} onOpenShow={setDetail} />

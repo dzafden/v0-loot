@@ -94,6 +94,7 @@ export function EpisodeTracker({ show, onClose }: Props) {
   const totalEps = seasons.reduce((s, x) => s + x.episodes.length, 0)
   const watchedEps = progress.filter((p) => p.watched).length
   const allDone = totalEps > 0 && watchedEps >= totalEps
+  const heroImage = show.backdropPath ?? show.posterPath ?? null
 
   // Trigger confetti when transition to all done
   useEffect(() => {
@@ -143,43 +144,60 @@ export function EpisodeTracker({ show, onClose }: Props) {
         transition={{ type: 'spring', stiffness: 260, damping: 28 }}
         className="absolute inset-0 bg-[#0f0f13] overflow-hidden flex flex-col"
       >
-        <div className="px-4 pt-4 pb-3 bg-[#0f0f13]/95 backdrop-blur border-b border-white/5 z-20">
-          <div className="flex items-start justify-between gap-3">
+        <div className="relative z-20 min-h-[250px] overflow-hidden border-b border-white/[0.06] bg-black">
+          {heroImage ? (
+            <img
+              src={imgUrl(heroImage, show.backdropPath ? 'original' : 'w500')}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover opacity-70"
+              aria-hidden
+            />
+          ) : null}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/82 via-black/34 to-black/12" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f13] via-[#0f0f13]/38 to-black/16" />
+          <div className="relative z-10 flex h-full min-h-[250px] flex-col justify-between px-4 pb-4 pt-4">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={onClose}
+                className="grid h-11 w-11 place-items-center rounded-full bg-black/42 text-2xl leading-none text-white/88 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95"
+                aria-label="Back"
+              >
+                ‹
+              </button>
+            </div>
+
             <div>
-              <h2 className="text-2xl font-black tracking-tight">{show.name}</h2>
-              <p className="text-sm text-white/60 mt-0.5">
-                {totalEps ? `${watchedEps}/${totalEps} episodes watched` : 'Loading episodes…'}
+              <h2 className="max-w-[330px] text-[36px] font-black leading-[0.88] tracking-[-0.09em] text-white text-balance">{show.name}</h2>
+              <p className="mt-2 text-sm font-semibold text-white/62">
+                {totalEps ? `${watchedEps}/${totalEps} episodes watched` : 'Loading episodes...'}
               </p>
+              {totalEps > 0 && (
+                <div className="mt-4 h-2 rounded-full bg-white/[0.12] overflow-hidden">
+                  <motion.div
+                    className="h-full bg-emerald-300"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(watchedEps / totalEps) * 100}%` }}
+                    transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+                  />
+                </div>
+              )}
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => void markAll(true)}
+                  disabled={bulkBusy !== null || allDone}
+                  className="h-11 px-4 rounded-[18px] text-xs font-black uppercase tracking-widest bg-emerald-300/18 text-emerald-200 ring-1 ring-emerald-200/12 disabled:opacity-40 active:scale-[0.98]"
+                >
+                  {bulkBusy === 'mark' ? 'Marking...' : 'Mark All'}
+                </button>
+                <button
+                  onClick={() => void markAll(false)}
+                  disabled={bulkBusy !== null || watchedEps === 0}
+                  className="h-11 px-4 rounded-[18px] text-xs font-black uppercase tracking-widest bg-white/[0.09] text-white/72 ring-1 ring-white/[0.06] disabled:opacity-40 active:scale-[0.98]"
+                >
+                  {bulkBusy === 'unmark' ? 'Unmarking...' : 'Unmark All'}
+                </button>
+              </div>
             </div>
-            <button onClick={onClose} className="rounded-xl bg-white/10 px-3 h-10 text-sm font-semibold">
-              Back
-            </button>
-          </div>
-          {totalEps > 0 && (
-            <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
-              <motion.div
-                className="h-full bg-emerald-400"
-                initial={{ width: 0 }}
-                animate={{ width: `${(watchedEps / totalEps) * 100}%` }}
-                transition={{ type: 'spring', stiffness: 120, damping: 20 }}
-              />
-            </div>
-          )}
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={() => void markAll(true)}
-              disabled={bulkBusy !== null || allDone}
-              className="h-10 px-3 rounded-xl text-xs font-black uppercase tracking-widest bg-emerald-400/20 text-emerald-300 disabled:opacity-40"
-            >
-              {bulkBusy === 'mark' ? 'Marking…' : 'Mark All'}
-            </button>
-            <button
-              onClick={() => void markAll(false)}
-              disabled={bulkBusy !== null || watchedEps === 0}
-              className="h-10 px-3 rounded-xl text-xs font-black uppercase tracking-widest bg-white/10 text-white/80 disabled:opacity-40"
-            >
-              {bulkBusy === 'unmark' ? 'Unmarking…' : 'Unmark All'}
-            </button>
           </div>
         </div>
 
@@ -306,7 +324,7 @@ export function EpisodeTracker({ show, onClose }: Props) {
                                 <span className="text-xs text-white/45 w-8 tabular-nums">
                                   {s.seasonNumber}×{String(e.episode_number).padStart(2, '0')}
                                 </span>
-                                <span className={`text-base ${watched ? 'text-white/60 line-through' : ''}`}>
+                                <span className={cn('text-base transition-colors', watched ? 'text-white/56' : 'text-white/90')}>
                                   {e.name}
                                 </span>
                               </button>

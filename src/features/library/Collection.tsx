@@ -6,6 +6,7 @@ import { db } from '../../data/db'
 import { cn } from '../../lib/utils'
 import { getShowImages, hasTmdbKey, imgUrl } from '../../lib/tmdb'
 import type { Show, Tier } from '../../types'
+import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 type TierFilter = 'All' | Tier | 'Unsorted'
 
@@ -32,6 +33,8 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
   const [focusedId, setFocusedId] = useState<number | null>(null)
   const [logoPath, setLogoPath] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [tvOn, setTvOn] = useState(false)
+  const reduceMotion = useReducedMotion()
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const assignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
@@ -78,6 +81,16 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
     }
     setFocusedId((current) => (filtered.some((show) => show.id === current) ? current : filtered[0].id))
   }, [filtered])
+
+  useEffect(() => {
+    if (reduceMotion) return
+    const key = 'loot.collection.tvOn.v1'
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, '1')
+    setTvOn(true)
+    const timer = window.setTimeout(() => setTvOn(false), 960)
+    return () => window.clearTimeout(timer)
+  }, [reduceMotion])
 
   useEffect(() => {
     if (filtered.length <= 1) return
@@ -178,6 +191,21 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
           <div className="absolute inset-0 bg-gradient-to-r from-black/76 via-black/16 to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#08070a] via-black/14 to-black/18" />
           <div className="absolute -bottom-28 left-[-18%] h-80 w-80 rounded-full bg-[#f5c453]/12 blur-3xl" />
+          <AnimatePresence>
+            {tvOn && (
+              <motion.div
+                initial={{ opacity: 0.95, scaleY: 0.02 }}
+                animate={{ opacity: [0.95, 0.72, 0], scaleY: [0.02, 1.04, 1] }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.86, ease: [0.22, 1, 0.36, 1] }}
+                className="pointer-events-none absolute inset-0 origin-center mix-blend-screen"
+                aria-hidden
+              >
+                <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,0.16)_0px,rgba(255,255,255,0.16)_1px,transparent_1px,transparent_5px)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.92),rgba(255,255,255,0.16)_26%,transparent_58%)]" />
+              </motion.div>
+            )}
+          </AnimatePresence>
           <button onClick={() => onOpenShow(focusedShow)} className="absolute inset-0 text-left">
             <div className="absolute inset-x-0 bottom-[22%] left-0 px-6">
               <div className="min-w-0">
@@ -248,38 +276,82 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
               const large = index % 7 === 0
               const wide = index % 7 === 3
               return (
-                <button
-                  key={show.id}
-                  onClick={() => onOpenShow(show)}
-                  className={cn(
-                    'group relative overflow-hidden rounded-[26px] bg-[#151117] text-left shadow-[0_16px_34px_rgba(0,0,0,0.34)] transition-transform duration-300 active:scale-[0.97]',
-                    large ? 'col-span-2 row-span-2' : wide ? 'col-span-2' : 'col-span-1',
-                  )}
-                >
-                  {show.posterPath || show.backdropPath ? (
-                    <img
-                      src={imgUrl(wide && show.backdropPath ? show.backdropPath : show.posterPath, wide && show.backdropPath ? 'w500' : 'w342')}
-                      alt={show.name}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full grid place-items-center text-zinc-500 font-black text-xl">
-                      {show.name.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-transparent to-transparent" />
-                  {(large || wide) && (
-                    <div className="absolute bottom-0 inset-x-0 p-3">
-                      <p className="font-black text-white text-sm tracking-[-0.05em] line-clamp-2 leading-tight">{show.name}</p>
-                    </div>
-                  )}
-                </button>
+                <CollectionGridCard key={show.id} show={show} large={large} wide={wide} onOpenShow={onOpenShow} />
               )
             })}
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+function CollectionGridCard({
+  show,
+  large,
+  wide,
+  onOpenShow,
+}: {
+  show: Show
+  large: boolean
+  wide: boolean
+  onOpenShow: (show: Show) => void
+}) {
+  const [cardLogo, setCardLogo] = useState<string | null>(() => logoCache.get(show.id) ?? null)
+
+  useEffect(() => {
+    if (!wide || !hasTmdbKey()) return
+    const cached = logoCache.get(show.id)
+    if (cached !== undefined) {
+      setCardLogo(cached)
+      return
+    }
+    let cancelled = false
+    getShowImages(show.id)
+      .then((images) => {
+        const logo = bestLogo(images.logos)
+        logoCache.set(show.id, logo)
+        if (!cancelled) setCardLogo(logo)
+      })
+      .catch(() => {
+        logoCache.set(show.id, null)
+        if (!cancelled) setCardLogo(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [show.id, wide])
+
+  return (
+    <button
+      onClick={() => onOpenShow(show)}
+      className={cn(
+        'group relative overflow-hidden rounded-[26px] bg-[#151117] text-left shadow-[0_16px_34px_rgba(0,0,0,0.34)] transition-transform duration-300 active:scale-[0.97]',
+        large ? 'col-span-2 row-span-2' : wide ? 'col-span-2' : 'col-span-1',
+      )}
+    >
+      {show.posterPath || show.backdropPath ? (
+        <img
+          src={imgUrl(wide && show.backdropPath ? show.backdropPath : show.posterPath, wide && show.backdropPath ? 'w500' : 'w342')}
+          alt={show.name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full grid place-items-center text-zinc-500 font-black text-xl">
+          {show.name.slice(0, 2).toUpperCase()}
+        </div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-transparent to-transparent" />
+      {(large || wide) && (
+        <div className="absolute bottom-0 inset-x-0 p-3">
+          {wide && cardLogo ? (
+            <img src={imgUrl(cardLogo, 'w500')} alt={show.name} className="max-h-[44px] max-w-[74%] object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]" loading="lazy" />
+          ) : (
+            <p className="font-black text-white text-sm tracking-[-0.05em] line-clamp-2 leading-tight">{show.name}</p>
+          )}
+        </div>
+      )}
+    </button>
   )
 }

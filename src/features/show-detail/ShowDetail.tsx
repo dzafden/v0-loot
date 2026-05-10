@@ -13,6 +13,7 @@ import {
   setAllCachedSeasonsWatched,
   setTier,
   progressForShow,
+  upsertShow,
 } from '../../data/queries'
 import { getCredits, getSeason, getShowDetail, getShowImages, hasTmdbKey, imgUrl } from '../../lib/tmdb'
 import { getRarity, RARITIES } from '../../lib/rarity'
@@ -70,7 +71,9 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const [castLoading, setCastLoading] = useState(false)
   const [rankEditorOpen, setRankEditorOpen] = useState(false)
   const [storyOpen, setStoryOpen] = useState(false)
-  const liveShow = useDexieQuery(['shows'], () => db.shows.get(show.id), show, [show.id]) ?? show
+  const persistedShow = useDexieQuery<Show | undefined>(['shows'], () => db.shows.get(show.id), undefined, [show.id])
+  const liveShow = persistedShow ?? show
+  const owned = Boolean(persistedShow)
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
   const tierAssignment = useDexieQuery(['tierAssignments'], () => db.tierAssignments.get(show.id), undefined, [show.id])
   const cast = useDexieQuery(['castRoles'], () => db.castRoles.where({ showId: show.id }).toArray(), [], [show.id])
@@ -156,8 +159,18 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
   const metadata = [liveShow.year, liveShow.genres?.[0], seasonLabel(seasonInfo, progress)].filter(Boolean)
 
+  const handleAddToStash = async () => {
+    await upsertShow({
+      ...liveShow,
+      addedAt: liveShow.addedAt || Date.now(),
+      updatedAt: Date.now(),
+    })
+    navigator.vibrate?.([6, 20, 10])
+  }
+
   const handleTier = async (nextTier: Tier) => {
     const removing = tier === nextTier
+    if (!owned) await handleAddToStash()
     await setTier(show.id, tier === nextTier ? null : nextTier)
     setRankEditorOpen(removing)
     navigator.vibrate?.([6, 18, 8])
@@ -194,6 +207,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   }
 
   const handleEpisodeBulk = async (watchAll: boolean) => {
+    if (!owned) await handleAddToStash()
     setEpisodeBulkBusy(watchAll ? 'mark' : 'unmark')
     try {
       await ensureSeasonCache()
@@ -229,11 +243,14 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
             onClick={() => setRankEditorOpen((open) => !open)}
             initial={{ opacity: 0, y: -8, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            className="grid h-11 min-w-11 place-items-center rounded-full px-3 text-[11px] font-black uppercase tracking-[0.18em] backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95"
+            className={cn(
+              'grid h-[56px] min-w-[56px] place-items-center rounded-[22px] px-4 font-black uppercase backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95',
+              tier ? 'text-[18px] tracking-[-0.02em]' : 'text-[10px] tracking-[0.16em]',
+            )}
             style={{
               background: tier ? accent : 'rgba(0,0,0,0.42)',
               color: tier ? '#fff' : accent,
-              boxShadow: tier ? `0 14px 34px ${accent}44, inset 0 1px 0 rgba(255,255,255,0.22)` : undefined,
+              boxShadow: tier ? `0 16px 38px ${accent}42, inset 0 1px 0 rgba(255,255,255,0.22)` : undefined,
             }}
             aria-label={tier ? `Change ${tier} rank` : 'Rank this show'}
           >
@@ -253,7 +270,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           </div>
 
           <div className="mt-3">
-            <VibeRail showId={show.id} all={emojiCategories} applied={showEmojis} accent={accent} />
+            <VibeRail showId={show.id} applied={showEmojis} accent={accent} />
           </div>
         </div>
       </div>
@@ -272,6 +289,16 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           </section>
         )}
 
+        {!owned && (
+          <button
+            onClick={() => void handleAddToStash()}
+            className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-[24px] bg-[#f5c453] text-[12px] font-black uppercase tracking-[0.18em] text-black shadow-[0_18px_42px_rgba(245,196,83,0.18)] active:scale-[0.98]"
+          >
+            <Plus size={18} strokeWidth={3} />
+            Add to stash
+          </button>
+        )}
+
         {(!tier || rankEditorOpen) && (
           <motion.section
             initial={{ opacity: 0, y: -8 }}
@@ -287,18 +314,36 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           assigned={cast}
           members={showCast}
           loading={castLoading}
-          onCast={() => onAssignRole(liveShow)}
-          onCastPerson={(personId) => onAssignRole(liveShow, personId)}
+          onCast={async () => {
+            if (!owned) await handleAddToStash()
+            onAssignRole(liveShow)
+          }}
+          onCastPerson={async (personId) => {
+            if (!owned) await handleAddToStash()
+            onAssignRole(liveShow, personId)
+          }}
           accent={accent}
         />
-        <TrackingSection show={liveShow} progress={progress} busy={episodeBulkBusy} onOpen={() => onTrackEpisodes(liveShow)} onBulk={handleEpisodeBulk} accent={accent} />
+        <TrackingSection
+          show={liveShow}
+          progress={progress}
+          busy={episodeBulkBusy}
+          onOpen={async () => {
+            if (!owned) await handleAddToStash()
+            onTrackEpisodes(liveShow)
+          }}
+          onBulk={handleEpisodeBulk}
+          accent={accent}
+        />
 
-        <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
-          <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/18 transition-colors hover:text-rose-300 active:scale-95">
-            <Trash2 size={12} />
-            Remove from stash
-          </button>
-        </div>
+        {owned && (
+          <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
+            <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/18 transition-colors hover:text-rose-300 active:scale-95">
+              <Trash2 size={12} />
+              Remove from stash
+            </button>
+          </div>
+        )}
       </main>
     </div>
   )
@@ -380,7 +425,7 @@ function CastSection({
       {loading ? (
         <div className="flex gap-3 overflow-hidden">
           {[0, 1, 2].map((item) => (
-            <div key={item} className="h-[176px] w-[122px] shrink-0 animate-pulse rounded-[26px] bg-white/[0.06]" />
+            <div key={item} className="h-[152px] w-[106px] shrink-0 animate-pulse rounded-[22px] bg-white/[0.06]" />
           ))}
         </div>
       ) : members.length > 0 ? (
@@ -394,7 +439,7 @@ function CastSection({
                 onClick={() => !disabled && onCastPerson(member.id)}
                 disabled={disabled}
                 className={cn(
-                  'group relative h-[184px] w-[126px] shrink-0 overflow-hidden rounded-[26px] bg-black text-left shadow-[0_18px_42px_rgba(0,0,0,0.44)] ring-1 ring-white/[0.07] transition-transform active:scale-[0.97]',
+                  'group relative h-[154px] w-[108px] shrink-0 overflow-hidden rounded-[23px] bg-black text-left shadow-[0_16px_36px_rgba(0,0,0,0.42)] ring-1 ring-white/[0.07] transition-transform active:scale-[0.97]',
                   disabled && 'opacity-80',
                 )}
               >
@@ -407,15 +452,15 @@ function CastSection({
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/16 to-black/8" />
                 <span
-                  className={cn('absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full font-black shadow-[0_12px_24px_rgba(0,0,0,0.45)]', assignedRole ? 'bg-white text-black' : 'text-black')}
+                  className={cn('absolute right-1.5 top-1.5 grid h-8 w-8 place-items-center rounded-full font-black shadow-[0_12px_24px_rgba(0,0,0,0.45)]', assignedRole ? 'bg-white text-black' : 'text-black')}
                   style={assignedRole ? undefined : { background: accent }}
                 >
                   {assignedRole ? <Check size={16} strokeWidth={3} /> : <Plus size={18} strokeWidth={3} />}
                 </span>
                 <div className="absolute inset-x-0 bottom-0 p-3">
                   {assignedRole && <p className="mb-1 text-[9px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>{assignedRole.roleName}</p>}
-                  <p className="line-clamp-2 text-sm font-black leading-[0.95] tracking-[-0.05em] text-white">{member.character || member.name}</p>
-                  <p className="mt-1 truncate text-[10px] font-bold text-white/38">{member.name}</p>
+                  <p className="line-clamp-2 text-[13px] font-black leading-[0.95] tracking-[-0.05em] text-white">{member.character || member.name}</p>
+                  <p className="mt-1 truncate text-[9px] font-bold text-white/38">{member.name}</p>
                 </div>
               </button>
             )
@@ -454,9 +499,10 @@ function TrackingSection({
   const complete = progress.total > 0 && progress.watched >= progress.total
   const percent = progress.total > 0 ? Math.min(100, (progress.watched / progress.total) * 100) : 0
   const percentLabel = progress.total > 0 ? `${Math.round(percent)}% watched` : 'Choose seasons and episodes'
+  const statusLabel = progress.total > 0 ? (complete ? 'All watched' : `${progress.watched}/${progress.total}`) : 'Start'
   return (
-    <section className="mt-8">
-      <div className="relative overflow-hidden rounded-[32px] bg-[#101014] shadow-[0_22px_58px_rgba(0,0,0,0.46)] ring-1 ring-white/[0.07]">
+    <section className="mt-8 -mx-4">
+      <div className="relative overflow-hidden border-y border-white/[0.07] bg-[#101014] shadow-[0_22px_58px_rgba(0,0,0,0.46)]">
         {show.backdropPath ? (
           <img src={imgUrl(show.backdropPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-[0.42]" loading="lazy" />
         ) : null}
@@ -470,7 +516,7 @@ function TrackingSection({
                 <Tv size={14} /> Watch tracking
               </div>
               <p className="mt-3 text-[34px] font-black leading-none tracking-[-0.09em] text-white">
-                {progress.total > 0 ? (complete ? 'Caught up' : `${progress.watched}/${progress.total}`) : 'Start'}
+                {statusLabel}
               </p>
               <p className="mt-1 text-[12px] font-bold text-white/50">{percentLabel}</p>
             </div>
@@ -503,12 +549,12 @@ function TrackingSection({
   )
 }
 
-function VibeRail({ showId, all, applied, accent }: { showId: number; all: EmojiCategory[]; applied: EmojiCategory[]; accent: string }) {
+function VibeRail({ showId, applied, accent }: { showId: number; applied: EmojiCategory[]; accent: string }) {
   const [creating, setCreating] = useState(false)
   const [emoji, setEmoji] = useState('')
   const [label, setLabel] = useState('')
   const appliedIds = new Set(applied.map((a) => a.id))
-  const visible = (applied.length ? applied : all).slice(0, 5)
+  const visible = applied.slice(0, 5)
 
   return (
     <div>

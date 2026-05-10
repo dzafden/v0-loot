@@ -5,7 +5,6 @@ import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { listCastRoles, deleteCastRole } from '../../data/queries'
 import { db } from '../../data/db'
 import { imgUrl } from '../../lib/tmdb'
-import { cn } from '../../lib/utils'
 import type { CastRole, Show } from '../../types'
 import { CharacterRolePicker } from './CharacterRolePicker'
 
@@ -37,7 +36,7 @@ export function MyCast() {
   const showAddSlot = roles.length < MAX_ROSTER
 
   return (
-    <div className="px-3 pb-20">
+    <div className="pb-20">
       <motion.div className="grid grid-cols-3 gap-x-3 gap-y-4">
         <AnimatePresence>
           {roles.map((r) => (
@@ -53,13 +52,13 @@ export function MyCast() {
           >
             <button
               onClick={openPicker}
-              className="aspect-[2/3] rounded-[20px] border-2 border-dashed border-white/20 bg-[#1a1a24] hover:bg-white/[0.06] hover:border-white/30 transition-colors flex items-center justify-center group"
+              className="aspect-[2/3] rounded-[20px] border border-dashed border-white/18 bg-white/[0.035] hover:bg-white/[0.06] hover:border-white/30 transition-colors flex items-center justify-center group"
             >
               <Plus size={22} className="text-white/30 group-hover:text-white/60 transition-colors" />
             </button>
-            <div className="mt-2 pl-2 border-l-2 border-white/10">
+            <div className="mt-2">
               <span className="block text-[9px] font-black uppercase tracking-[0.12em] text-white/20">
-                Add member
+                Add character
               </span>
             </div>
           </motion.div>
@@ -152,7 +151,7 @@ function ShowPickerOverlay({
 // ── Cast role card ────────────────────────────────────────────────────────────
 
 function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
-  const accentColor = show?.outlineColor ?? '#4ade80'
+  const accentColor = show?.outlineColor ?? '#f5c453'
 
   return (
     <motion.div
@@ -162,7 +161,10 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
       exit={{ opacity: 0, scale: 0.7 }}
       className="flex flex-col"
     >
-      <div className="relative rounded-[20px] bg-[#1a1a24] border border-white/10 overflow-hidden aspect-[2/3]">
+      <div
+        className="relative overflow-hidden rounded-[20px] bg-[#1a1a24] aspect-[2/3] shadow-[0_16px_34px_rgba(0,0,0,0.34)]"
+        style={{ boxShadow: `0 16px 34px rgba(0,0,0,0.34), inset 0 0 0 1px ${accentColor}4a, 0 0 18px ${accentColor}1f` }}
+      >
         <div className="absolute inset-0">
           {role.profilePath ? (
             <img
@@ -176,12 +178,21 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
           )}
         </div>
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/22 to-transparent" />
+
+        <div className="absolute top-2 left-2 max-w-[calc(100%-44px)]">
+          <span
+            className="block truncate rounded-full bg-black/54 px-2 py-1 text-[8px] font-black uppercase tracking-[0.12em] text-white backdrop-blur-md ring-1 ring-white/[0.08]"
+            style={{ color: accentColor }}
+          >
+            {role.roleName}
+          </span>
+        </div>
 
         <div className="absolute top-2 right-2">
           <button
             onClick={() => void deleteCastRole(role.id)}
-            className="w-6 h-6 rounded-full bg-black/70 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all"
+            className="w-6 h-6 rounded-full bg-black/62 backdrop-blur border border-white/15 flex items-center justify-center text-white/60 hover:bg-red-500 hover:text-white hover:border-transparent transition-all"
             aria-label="Remove role"
           >
             <X size={11} />
@@ -189,7 +200,7 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
         </div>
 
         <div className="absolute inset-x-0 bottom-0 px-2 pb-2 pt-8">
-          <p className="font-black text-white text-[11px] leading-tight line-clamp-2">
+          <p className="font-black text-white text-[13px] leading-[0.94] tracking-[-0.045em] line-clamp-2">
             {role.characterName}
           </p>
           {show && (
@@ -202,20 +213,13 @@ function CastRoleCard({ role, show }: { role: CastRole; show?: Show }) {
                 />
               )}
               <span
-                className={cn('text-[9px] font-bold truncate', show.outlineColor ? '' : 'text-[#4ade80]')}
-                style={show.outlineColor ? { color: show.outlineColor } : undefined}
+                className="text-[9px] font-bold truncate text-white/45"
               >
                 {show.name}
               </span>
             </div>
           )}
         </div>
-      </div>
-
-      <div className="mt-2 pl-2" style={{ borderLeft: `2px solid ${accentColor}` }}>
-        <span className="block text-[9px] font-black uppercase tracking-[0.12em] text-white/70 leading-tight line-clamp-1">
-          {role.roleName}
-        </span>
       </div>
     </motion.div>
   )

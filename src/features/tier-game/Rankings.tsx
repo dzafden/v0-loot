@@ -230,22 +230,43 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
 
 function TierRow({ tier, shows, onOpenShow }: { tier: Tier; shows: Show[]; onOpenShow: (show: Show) => void }) {
   const style = TIER_STYLES[tier]
+  const [expanded, setExpanded] = useState(false)
+  const visibleShows = expanded ? shows : shows.slice(0, 7)
 
   return (
-    <div className="relative overflow-hidden rounded-[30px] bg-white/[0.035] shadow-[0_18px_46px_rgba(0,0,0,0.32)]" style={{ boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.045), 0 0 34px ${style.soft}` }}>
-      <div className="absolute inset-y-0 left-0 w-1.5" style={{ background: style.color }} />
+    <div
+      className="relative overflow-hidden rounded-[28px] bg-white/[0.032] shadow-[0_18px_46px_rgba(0,0,0,0.32)]"
+      style={{
+        boxShadow: `inset 0 0 0 1px ${style.color}2f, 0 0 34px ${style.soft}`,
+        background: `linear-gradient(90deg, ${style.color}20, rgba(255,255,255,0.032) 24%, rgba(255,255,255,0.02))`,
+      }}
+    >
+      <div className="absolute inset-y-0 left-0 w-[56px]" style={{ background: `linear-gradient(180deg, ${style.color}4d, ${style.color}12)` }} />
       <div className="flex items-stretch">
-        <div className="w-[58px] self-stretch flex items-center justify-center flex-shrink-0">
-          <span className={cn('font-black text-4xl leading-none', style.text)}>{tier}</span>
-        </div>
+        <button
+          onClick={() => setExpanded((value) => !value)}
+          className="relative z-10 w-[58px] self-stretch flex flex-col items-center justify-center gap-1 flex-shrink-0 active:scale-95"
+          aria-label={expanded ? `Collapse ${tier} tier` : `Expand ${tier} tier`}
+        >
+          <span className="font-black text-[38px] leading-none text-white">{tier}</span>
+          <span className="text-[9px] font-black tabular-nums text-white/48">{shows.length}</span>
+        </button>
         <div className="flex-1 min-w-0">
           {shows.length === 0 ? (
-            <div className="h-[96px]" />
+            <div className="h-[74px]" />
           ) : (
-            <div className="flex gap-3 overflow-x-auto no-scrollbar px-3 py-3">
-              {shows.map((show) => (
-                <button key={show.id} className="relative flex-shrink-0 group cursor-pointer w-[86px] transition-transform active:scale-[0.96]" onClick={() => onOpenShow(show)} title={show.name}>
-                  <div className="w-[86px] aspect-[2/3] rounded-[18px] overflow-hidden bg-black shadow-[0_14px_28px_rgba(0,0,0,0.38)]" style={{ boxShadow: `0 0 0 1px rgba(255,255,255,0.08), 0 12px 26px rgba(0,0,0,0.42), 0 0 18px ${style.soft}` }}>
+            <div className={cn('relative flex gap-2.5 overflow-x-auto no-scrollbar px-3 transition-all', expanded ? 'py-3' : 'h-[94px] py-2')}>
+              {visibleShows.map((show) => (
+                <button
+                  key={show.id}
+                  className={cn('relative flex-shrink-0 group cursor-pointer transition-transform active:scale-[0.96]', expanded ? 'w-[86px]' : 'w-[78px]')}
+                  onClick={() => onOpenShow(show)}
+                  title={show.name}
+                >
+                  <div
+                    className={cn('aspect-[2/3] overflow-hidden bg-black shadow-[0_14px_28px_rgba(0,0,0,0.38)]', expanded ? 'w-[86px] rounded-[18px]' : 'w-[78px] rounded-[17px]')}
+                    style={{ boxShadow: `0 0 0 1px rgba(255,255,255,0.08), 0 12px 26px rgba(0,0,0,0.42), 0 0 18px ${style.soft}` }}
+                  >
                     {show.posterPath ? (
                       <img src={imgUrl(show.posterPath, 'w342')} alt={show.name} className="w-full h-full object-cover" />
                     ) : (
@@ -256,6 +277,15 @@ function TierRow({ tier, shows, onOpenShow }: { tier: Tier; shows: Show[]; onOpe
                   </div>
                 </button>
               ))}
+              {!expanded && shows.length > visibleShows.length && (
+                <button
+                  onClick={() => setExpanded(true)}
+                  className="grid h-[78px] w-[44px] flex-shrink-0 place-items-center rounded-[18px] bg-black/36 text-[10px] font-black text-white/58 ring-1 ring-white/[0.06]"
+                >
+                  +{shows.length - visibleShows.length}
+                </button>
+              )}
+              {!expanded && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#101014]/95 to-transparent" />}
             </div>
           )}
         </div>
@@ -332,16 +362,16 @@ export function Rankings({ onGoDiscover, onOpenShow }: Props) {
           {rankingQueue.length > 0 && (
             <button
               onClick={() => setSorting(true)}
-              className="mb-6 flex h-24 items-center justify-between rounded-[30px] bg-white/[0.045] px-4 text-left shadow-[0_18px_46px_rgba(0,0,0,0.32)] transition-transform active:scale-[0.98]"
+              className="mb-4 flex h-[76px] items-center justify-between rounded-[26px] bg-white/[0.045] px-4 text-left shadow-[0_18px_46px_rgba(0,0,0,0.32)] transition-transform active:scale-[0.98]"
             >
               <div className="flex -space-x-5 overflow-hidden">
                 {rankingQueue.slice(0, 4).map((show) => (
-                  <div key={show.id} className="h-20 w-14 overflow-hidden rounded-[14px] bg-black shadow-[0_10px_24px_rgba(0,0,0,0.45)] ring-2 ring-[#111014]">
+                  <div key={show.id} className="h-16 w-11 overflow-hidden rounded-[12px] bg-black shadow-[0_10px_24px_rgba(0,0,0,0.45)] ring-2 ring-[#111014]">
                     {show.posterPath ? <img src={imgUrl(show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" /> : null}
                   </div>
                 ))}
               </div>
-              <span className="grid h-14 w-14 place-items-center rounded-[22px] bg-[#f5c453] text-black shadow-[0_0_20px_rgba(245,196,83,0.22)]">
+              <span className="grid h-12 w-12 place-items-center rounded-[19px] bg-[#f5c453] text-black shadow-[0_0_20px_rgba(245,196,83,0.22)]">
                 <Play size={18} className="fill-black" />
               </span>
             </button>
