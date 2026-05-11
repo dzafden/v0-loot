@@ -1,6 +1,6 @@
 import { useAnimation, motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, Plus, Check, X, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
@@ -20,6 +20,8 @@ import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import type { Genre, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
+import { SaveStateButton } from '../../components/ui/SaveStateButton'
+import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 
 interface Props {
   onOpenSettings: () => void
@@ -1030,109 +1032,17 @@ function AddButton({
   onError?: () => void
   size?: 'sm' | 'lg'
 }) {
-  const controls = useAnimation()
-  const [showBurst, setShowBurst] = useState(false)
-  const [addError, setAddError] = useState(false)
-
-  const w = size === 'lg' ? 'w-12 h-12 rounded-full' : 'w-8 h-8 rounded-lg'
-  const iconSize = size === 'lg' ? 20 : 14
-  const plusSize = size === 'lg' ? 28 : 16
-
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isOwned || adding) return
-    setAddError(false)
-    try {
-      await onAdd(e)
-      // success sequence
-      navigator.vibrate?.([6, 20, 10])
-      setShowBurst(true)
-      void controls.start({
-        scale: [1, 1.32, 0.9, 1],
-        transition: { duration: 0.4, times: [0, 0.28, 0.65, 1], ease: 'easeOut' },
-      })
-      setTimeout(() => setShowBurst(false), 600)
-      onSuccess?.()
-    } catch {
-      setAddError(true)
-      navigator.vibrate?.([80])
-      setTimeout(() => setAddError(false), 2000)
-      onError?.()
-    }
-  }
-
   return (
-    <div className="relative">
-      {/* burst ring — the "ripple outward" established pattern */}
-      <AnimatePresence>
-        {showBurst && (
-          <motion.div
-            key="burst"
-            initial={{ scale: 0.85, opacity: 0.9 }}
-            animate={{ scale: 2.4, opacity: 0 }}
-            transition={{ duration: 0.55, ease: 'easeOut' }}
-            className={`absolute inset-0 ${w} border-2 border-[#f5c453] pointer-events-none`}
-          />
-        )}
-      </AnimatePresence>
-
-      <motion.button
-        animate={controls}
-        whileTap={!isOwned ? { scale: 0.68 } : undefined}
-        onClick={handleClick}
-        disabled={isOwned || adding}
-        className={cn(
-          `${w} flex items-center justify-center shadow-lg z-30 relative`,
-          isOwned
-            ? 'bg-black/60 text-white cursor-default backdrop-blur-md border border-white/10'
-            : addError
-              ? 'bg-rose-500 text-white'
-              : 'bg-[#f5c453] text-black',
-        )}
-        aria-label={isOwned ? 'In collection' : 'Add to collection'}
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          {isOwned ? (
-            <motion.span
-              key="owned"
-              initial={{ scale: 0, rotate: -45 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 22 }}
-              className="flex items-center justify-center"
-            >
-              <Check size={iconSize} strokeWidth={3} />
-            </motion.span>
-          ) : adding ? (
-            <motion.span
-              key="spinner"
-              initial={{ opacity: 0, scale: 0.6 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.6 }}
-              transition={{ duration: 0.12 }}
-              className="flex items-center justify-center"
-            >
-              <div
-                className={cn(
-                  'border-2 border-black/30 border-t-black rounded-full animate-spin',
-                  size === 'lg' ? 'w-4 h-4' : 'w-3.5 h-3.5',
-                )}
-              />
-            </motion.span>
-          ) : (
-            <motion.span
-              key="plus"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0, rotate: 45 }}
-              transition={{ duration: 0.14 }}
-              className="flex items-center justify-center"
-            >
-              <Plus size={plusSize} strokeWidth={3} />
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </motion.button>
-    </div>
+    <SaveStateButton
+      saved={isOwned}
+      saving={adding}
+      onSave={onAdd}
+      onSuccess={onSuccess}
+      onError={onError}
+      size={size === 'lg' ? 'lg' : 'sm'}
+      shape={size === 'lg' ? 'round' : 'soft'}
+      ariaLabel={isOwned ? 'In collection' : 'Add to collection'}
+    />
   )
 }
 
@@ -1259,37 +1169,19 @@ function PortraitCard({
         if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
       }}
       className={cn(
-        'relative group cursor-pointer rounded-[24px] overflow-hidden bg-[#151117] shadow-[0_18px_44px_rgba(0,0,0,0.42)] transition-transform duration-300 active:scale-[0.98]',
+        'relative cursor-pointer transition-transform duration-300 active:scale-[0.98]',
         variant === 'carousel' ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]' : 'aspect-[2/3]',
       )}
     >
-      {show.posterPath ? (
-        <img
-          src={imgUrl(show.posterPath, 'w342')}
-          alt={show.title}
-          loading="lazy"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-      ) : (
-        <div className="absolute inset-0 bg-zinc-800" />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-black/4 to-transparent" />
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[radial-gradient(circle_at_50%_100%,rgba(245,196,83,0.18),transparent_62%)]" />
-
-      {/* Shine sweep on successful add */}
-      <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
-
-      <div className="absolute top-2 right-2 z-30">
-        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />
-      </div>
-      {variant === 'grid' && (
-        <div className="absolute bottom-0 inset-x-0 p-3 z-10 pointer-events-none">
-          <h3 className="font-black text-white text-xs leading-tight line-clamp-2 tracking-[-0.04em]">{show.title}</h3>
-          {show.year !== '—' && (
-            <span className="text-[10px] font-bold text-white/52">{show.year}</span>
-          )}
-        </div>
-      )}
+      <CollectibleMediaCard
+        id={show.id}
+        title={show.title}
+        imagePath={show.posterPath}
+        addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
+        shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
+        meta={variant === 'grid' && show.year !== '—' ? <span className="text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
+        children={variant === 'carousel' ? <></> : undefined}
+      />
     </motion.div>
   )
 }
@@ -1368,33 +1260,15 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
       }}
       className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[28px] overflow-hidden bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] w-[300px] aspect-[1.9/1] transition-transform duration-300 active:scale-[0.98]"
     >
-      {bg && (
-        <img src={bg} alt={show.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/82 via-black/22 to-black/5" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/10 to-black/8" />
-      <div className="absolute -left-12 bottom-0 h-32 w-32 rounded-full bg-[#f5c453]/12 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-
-      {/* Shine sweep on successful add */}
-      <AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>
-
-      <div className="absolute bottom-3 right-3 z-30">
-        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="lg" />
-      </div>
-      <div className="absolute inset-x-0 bottom-0 top-0 z-10 flex flex-col justify-between p-4 pr-16 pointer-events-none">
-        {art?.logoPath ? (
-          <img
-            src={imgUrl(art.logoPath, 'w500')}
-            alt={show.title}
-            loading="lazy"
-            className="max-h-[68px] max-w-[62%] object-contain object-left drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)]"
-          />
-        ) : (
-          <h3 className="max-w-[62%] text-2xl font-black leading-none tracking-tight text-white drop-shadow-[0_4px_10px_rgba(0,0,0,0.85)]">
-            {show.title}
-          </h3>
-        )}
-        {art?.tagline ? (
+      <CollectibleMediaCard
+        id={show.id}
+        title={show.title}
+        imageUrl={bg}
+        logoPath={art?.logoPath}
+        landscape
+        addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="lg" />}
+        shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
+        meta={art?.tagline ? (
           <p className="max-w-[190px] text-[13px] font-semibold leading-[1.05] text-white/76 line-clamp-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]">
             {art.tagline}
           </p>
@@ -1403,7 +1277,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
             {show.year !== '—' ? show.year : show.genre}
           </p>
         )}
-      </div>
+      />
     </motion.div>
   )
 }

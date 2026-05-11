@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Search, Plus, Check, Upload, AlertCircle } from 'lucide-react'
+import { X, Search, Check, Upload, AlertCircle } from 'lucide-react'
 import {
   getSeason,
   getShowDetail,
@@ -14,6 +14,8 @@ import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { db } from '../../data/db'
 import type { Genre, Show } from '../../types'
 import { cn } from '../../lib/utils'
+import { PickerTopBar, fullScreenOverlayClass } from '../../components/ui/FullScreenPickerShell'
+import { ShowSearchResultDeck } from '../../components/show/ShowSearchResultDeck'
 
 interface Props {
   open: boolean
@@ -141,19 +143,9 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-50 bg-[#0f0f13] flex flex-col"
+          className={cn(fullScreenOverlayClass, 'z-50')}
         >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
-              <h2 className="text-sm font-black uppercase tracking-widest text-white">Add to collection</h2>
-              <button
-                onClick={onClose}
-                className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all"
-                aria-label="Close"
-              >
-                <X size={18} className="text-white" />
-              </button>
-            </div>
+            <PickerTopBar onClose={onClose} />
 
             {/* Mode tabs */}
             <div className="flex gap-2 px-4 pt-4 pb-4 flex-shrink-0">
@@ -242,76 +234,15 @@ function SearchMode({
         {error && <p className="text-xs text-rose-400 mt-2 px-1">{error}</p>}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-8">
-        {loading && (
-          <div className="flex justify-center py-8">
-            <div className="w-7 h-7 border-2 border-[#f5c453] border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-        {!loading && q.trim() === '' && (
-          <p className="text-center text-xs text-zinc-600 py-12 uppercase tracking-widest font-bold">Type to search</p>
-        )}
-        {!loading && q.trim() !== '' && results.length === 0 && (
-          <p className="text-center text-xs text-zinc-600 py-12 uppercase tracking-widest font-bold">No results</p>
-        )}
-        {results.length > 0 && (
-          <div className="space-y-4">
-            {(() => {
-              const hero = results[0]
-              const isOwned = ownedIds.has(hero.id)
-              const isAdding = adding === hero.id
-              return (
-                <button
-                  onClick={() => onAdd(hero)}
-                  disabled={isAdding || isOwned}
-                  className="relative h-[320px] w-full overflow-hidden rounded-[34px] bg-black text-left shadow-[0_24px_70px_rgba(0,0,0,0.62)] disabled:opacity-70"
-                >
-                  {(hero.backdrop_path || hero.poster_path) && (
-                    <img
-                      src={imgUrl(hero.backdrop_path ?? hero.poster_path, hero.backdrop_path ? 'w500' : 'w342')}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover opacity-76"
-                    />
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/20 to-black/10" />
-                  <div className="absolute bottom-0 inset-x-0 p-5">
-                    <h3 className="max-w-[78%] text-4xl font-black leading-[0.86] tracking-[-0.11em] text-white text-balance">{hero.name}</h3>
-                    <div className="mt-3 flex items-center gap-3">
-                      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/46">{(hero.first_air_date ?? '').slice(0, 4) || '----'}</span>
-                      <span className={cn('grid h-11 w-11 place-items-center rounded-full', isOwned ? 'bg-[#f5c453]/20 text-[#f5c453]' : 'bg-[#f5c453] text-black')}>
-                        {isOwned ? <Check size={18} strokeWidth={3} /> : isAdding ? <div className="w-4 h-4 border-2 border-black/35 border-t-black rounded-full animate-spin" /> : <Plus size={18} strokeWidth={3} />}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              )
-            })()}
-            <div className="flex gap-3 overflow-x-auto no-scrollbar pb-3">
-              {results.slice(1).map((r) => {
-                const isOwned = ownedIds.has(r.id)
-                const isAdding = adding === r.id
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => onAdd(r)}
-                    disabled={isAdding || isOwned}
-                    className="relative h-44 w-28 flex-shrink-0 overflow-hidden rounded-[24px] bg-[#151117] shadow-[0_16px_34px_rgba(0,0,0,0.34)] disabled:opacity-70"
-                  >
-                    {r.poster_path && <img src={imgUrl(r.poster_path, 'w342')} alt={r.name} className="h-full w-full object-cover" />}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-transparent to-transparent" />
-                    <div className="absolute bottom-0 inset-x-0 p-2">
-                      <div className="line-clamp-2 text-left text-xs font-black leading-tight tracking-[-0.04em] text-white">{r.name}</div>
-                    </div>
-                    <div className={cn('absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full', isOwned ? 'bg-[#f5c453]/20 text-[#f5c453]' : 'bg-[#f5c453] text-black')}>
-                      {isOwned ? <Check size={14} strokeWidth={3} /> : isAdding ? <div className="w-3.5 h-3.5 border-2 border-black/35 border-t-black rounded-full animate-spin" /> : <Plus size={14} strokeWidth={3} />}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+      <ShowSearchResultDeck
+        query={q}
+        loading={loading}
+        results={results}
+        error={error}
+        isSaved={(result) => ownedIds.has(result.id)}
+        isSaving={(result) => adding === result.id}
+        onSave={onAdd}
+      />
     </>
   )
 }

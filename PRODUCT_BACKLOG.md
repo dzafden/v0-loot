@@ -1,6 +1,6 @@
 # Loot Product Backlog
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 Owner: Product
 
 ## North Star
@@ -28,43 +28,45 @@ Each item includes:
 
 ## Current Priority Stack
 
-### Visual QA / Ship Validation
-1. BL-029 - Watchlist Shelves / Mood Queues
+### Active / Needs Product Validation
+1. BL-015 - Discover Recommendation Quality + Freshness Tuning
 2. BL-032 - Add to Watchlist Entry Points + Add to Collection Rename
-3. BL-026 - Collection Add Button Affordance Clarification
-4. BL-027 - Top 8 Card Tap Actions
-5. BL-017 - Profile / Top 8 Showcase Upgrade
-6. BL-007 - Favorite Characters / Cast Role Card Upgrade
-7. BL-018 - Episode Tracker Visual Hierarchy + Graceful Watched States
-8. BL-019 - Detail Cast/Tracking Vertical Rhythm Pass
-9. BL-023 - Detail Rank/Vibe Indicator Cohesion
-10. BL-024 - Collection TV-On Moment + Landscape Logos
-11. BL-021 - Ranking Tier Shelf Compression + Stronger Color System
+3. BL-006 - Motion Language System (Squeeze/Stretch)
 
 ### Next Build Work
-1. BL-015 - Discover Recommendation Quality + Freshness Tuning
-2. BL-030 - Watchlist First-Run Shelf Tutorial
-3. BL-028 - Import From External Tracking Services
-4. BL-005 - Hold-Drag-Rank Prototype / Ranking Flow Rethink
-5. BL-006 - Motion Language System (Squeeze/Stretch)
-6. BL-004 - Non-Redundant Navigation Principle
-7. BL-010 - Personal Packets (Small Set Recommendations)
+1. BL-028 - Import From External Tracking Services
+2. BL-005 - Hold-Drag-Rank Prototype / Ranking Flow Rethink
+3. BL-004 - Non-Redundant Navigation Principle
+4. BL-010 - Personal Packets (Small Set Recommendations)
+5. BL-031 - Not Interested / Hater State
+6. BL-030 - Watchlist First-Run Shelf Tutorial
+
+### Shipped / Monitor
+1. BL-029 - Watchlist Shelves / Mood Queues
+2. BL-026 - Collection Add Button Affordance Clarification
+3. BL-027 - Top 8 Card Tap Actions
+4. BL-017 - Profile / Top 8 Showcase Upgrade
+5. BL-007 - Favorite Characters / Cast Role Card Upgrade
+6. BL-018 - Episode Tracker Visual Hierarchy + Graceful Watched States
+7. BL-019 - Detail Cast/Tracking Vertical Rhythm Pass
+8. BL-023 - Detail Rank/Vibe Indicator Cohesion
+9. BL-024 - Collection TV-On Moment + Landscape Logos
+10. BL-021 - Ranking Tier Shelf Compression + Stronger Color System
 
 ### Later / Concept
 1. BL-011 - Quest Crates (Progression Challenges)
-2. BL-031 - Not Interested / Hater State
-3. BL-022 - Rank Review / Comment Layer
-4. BL-025 - Episode and Season Ranking Foundation
-5. BL-012 - Mind Map / Show Connections
-6. BL-013 - AI Persona Recommender UI
-7. BL-016 - Tier / Genre Object Effects
+2. BL-022 - Rank Review / Comment Layer
+3. BL-025 - Episode and Season Ranking Foundation
+4. BL-012 - Mind Map / Show Connections
+5. BL-013 - AI Persona Recommender UI
+6. BL-016 - Tier / Genre Object Effects
 
 ---
 
 ## P0 - Discovery Trust and Freshness
 
 ### BL-015 - Discover Recommendation Quality + Freshness Tuning
-Status: in-dev
+Status: test
 
 Problem:
 Discover can technically personalize now, but recommendation quality is the highest current product risk. Bad personalization feels worse than generic discovery because it breaks trust.
@@ -91,6 +93,7 @@ Changelog:
 - 2026-05-10: Current implementation uses full-library taste, 18 candidate anchors, 8 rotating daily anchors, 24h cache, local impression decay, and source-honest rows.
 - 2026-05-10: Added session-stable Discover composition so adding a show updates owned/check state but does not live-recompose hero/rows. Added explicit refresh control for intentional recomposition.
 - 2026-05-10: Still open. Next pass should focus on measured quality: diversity, freshness, source-truthfulness, and avoiding genre overfitting.
+- 2026-05-11: Reviewed current implementation. Core mechanics are built and should be validated with real libraries rather than treated as unbuilt. Remaining work is quality tuning/debug visibility, not feature construction.
 
 ### BL-014 - Discover Personalization v1
 Status: shipped
@@ -141,7 +144,8 @@ Scope:
 
 Changelog:
 - 2026-05-04: Explicitly prioritized for Gen Alpha onboarding.
-- 2026-05-10: Shipped. Discover cards now open detail; unowned detail previews show Add to stash and hide Remove from stash. Rank/cast/tracking claim the show before saving user-specific data.
+- 2026-05-10: Shipped. Discover cards now open detail; unowned detail previews support Add to collection/Watchlist and hide destructive collection actions. Rank/cast/tracking claim the show before saving user-specific data.
+- 2026-05-11: Copy note: current touched flows have moved from stash language to collection/watchlist language.
 
 ### BL-004 - Non-Redundant Navigation Principle
 Status: idea
@@ -172,7 +176,7 @@ Changelog:
 ## P0 - Object Inspection and Collection Feel
 
 ### BL-018 - Episode Tracker Visual Hierarchy + Graceful Watched States
-Status: test
+Status: shipped
 
 Problem:
 The episode tracker still feels too much like a task checklist. The back button is inconsistent, the top area is visually plain, and watched episodes use strikethrough, which makes watching feel like clearing chores instead of enjoying media.
@@ -197,10 +201,11 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from annotated tracker screenshots. Prioritized because it is concrete, shippable, and protects a core utility flow from feeling like a todo list.
-- 2026-05-10: Implemented first pass: backdrop header, left-side back control, and non-strikethrough watched episode state. Needs visual QA.
+- 2026-05-10: Implemented first pass: backdrop header, left-side back control, and non-strikethrough watched episode state.
+- 2026-05-11: Reviewed code state. Tracker now has a cinematic backdrop header, consistent left-side back control, season posters, season progress, and softer watched episode state. Future episode/season ranking stays separate in BL-025.
 
 ### BL-019 - Detail Cast/Tracking Vertical Rhythm Pass
-Status: test
+Status: shipped
 
 Problem:
 The detail page is much stronger, but the cast and tracking areas still compete for vertical space. Cast assignment is usually a one-time action, while tracking is a recurring action that should be easier to reach and understand.
@@ -226,10 +231,11 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from annotated detail screenshots. User explicitly wants cast lower-height and tracking to become the center of episode information.
-- 2026-05-10: Implemented first pass: tighter cast cards, full-width tracking treatment, and clearer "All watched" language. Needs visual QA.
+- 2026-05-10: Implemented first pass: tighter cast cards, full-width tracking treatment, and clearer "All watched" language.
+- 2026-05-11: Reviewed code state. Detail now uses compact real-cast rails with add/check controls, plus a full-width tracking card with clear progress and episode entry. Any future tuning should be treated as polish, not missing base implementation.
 
 ### BL-023 - Detail Rank/Vibe Indicator Cohesion
-Status: test
+Status: shipped
 
 Problem:
 The rank indicator on detail is useful, but it is too small and visually disconnected from the rank controls. Vibe is currently close to metadata but not yet integrated as a coherent secondary identity attribute.
@@ -254,10 +260,11 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from annotated detail screenshots. This is a quick cohesion pass after the detail redesign.
-- 2026-05-10: Implemented first pass: larger rank chip matching tier-button language and smaller vibe treatment near metadata. Needs visual QA.
+- 2026-05-10: Implemented first pass: larger rank chip matching tier-button language and smaller vibe treatment near metadata.
+- 2026-05-11: Reviewed code state. Detail has a tier-colored top-right rank chip, rank controls collapse after selection, and vibe lives near metadata as a secondary control.
 
 ### BL-024 - Collection TV-On Moment + Landscape Logos
-Status: test
+Status: shipped
 
 Problem:
 Collection already has a personal-TV direction, but opening it could feel more special. Landscape cards in the collection should also communicate show identity through logos, not plain title overlays.
@@ -266,7 +273,7 @@ Hypothesis:
 A first-session CRT/white-noise-on transition plus show-logo overlays on landscape cards will make the collection feel more like a personal channel/vault.
 
 Target user:
-Users opening their collection/stash.
+Users opening their collection.
 
 Success metric:
 - First collection open feels memorable without becoming annoying.
@@ -281,10 +288,11 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from annotated collection screenshot.
-- 2026-05-10: Implemented first pass: once-per-session CRT/TV-on hero transition and logo overlays on collection landscape cards. Needs visual QA.
+- 2026-05-10: Implemented first pass: once-per-session CRT/TV-on hero transition and logo overlays on collection landscape cards.
+- 2026-05-11: Reviewed code state. Collection plays a once-per-session TV-on treatment, cycles the hero rhythmically, and landscape collection cards request logo overlays with title fallback.
 
 ### BL-029 - Watchlist Shelves / Mood Queues
-Status: test
+Status: shipped
 
 Problem:
 Collection currently answers "what have I claimed?", but not "what do I want to pick from tonight?" Users need a personal, mood-based holding area for future watches that feels more like shelves they built than a generic queue.
@@ -314,7 +322,8 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from product direction: watchlist as self-made shelves for different moods, days, binges, and future picks. Promoted to next build work because it gives Discover a second meaningful save action beyond collection ownership.
-- 2026-05-10: Implemented first MVP: Watchlist mode inside Collection, local watchlist show storage, default shelves, custom shelf creation, shelf search/add flow, remove-from-shelf, and drag/reorder/move behavior across shelves. Needs visual QA and interaction tuning.
+- 2026-05-10: Implemented first MVP: Watchlist mode inside Collection, local watchlist show storage, default shelves, custom shelf creation, shelf search/add flow, remove-from-shelf, and drag/reorder/move behavior across shelves.
+- 2026-05-11: Reviewed current state after follow-up polish. Watchlist is now a full-screen collection-adjacent surface with no collection/watchlist tabs, no intro container/backdrop, default "Watch next" and "Someday" shelves, poster-object shelf search results, shelf creation, remove, reorder, and move-between-shelf behavior.
 
 ### BL-032 - Add to Watchlist Entry Points + Add to Collection Rename
 Status: test
@@ -344,7 +353,8 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added after watchlist concept. This is the smallest shippable bridge from current add flows into shelves.
-- 2026-05-10: Implemented first MVP: detail page now separates Add to collection from Watchlist, collection copy replaces stash copy in touched flows, and the Collection top action switches to shelf search when Watchlist is active. Needs copy/affordance QA.
+- 2026-05-10: Implemented first MVP: detail page now separates Add to collection from Watchlist, collection copy replaces stash copy in touched flows, and the Collection top action switches to shelf search when Watchlist is active.
+- 2026-05-11: Reviewed code state. Detail and Collection entry points are implemented, and add/import copy now uses collection language in touched flows. Remaining gap: Discover card-level watchlist/overflow entry is still not present, so this stays in test instead of shipped.
 
 ### BL-030 - Watchlist First-Run Shelf Tutorial
 Status: spec
@@ -374,6 +384,7 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from product note about a satisfying first-time Watchlist tutorial with rotating shelf names/content.
+- 2026-05-11: Reprioritized lower after shelves were simplified into a full-screen surface. If built, this should be a one-time lightweight onboarding moment or overlay, not a persistent "build shelves" card/container.
 
 ### BL-031 - Not Interested / Hater State
 Status: idea
@@ -404,7 +415,7 @@ Changelog:
 - 2026-05-10: Added from watchlist/discover product note. Kept as later/concept because the hide mechanics are useful, but the profile-facing "hater" identity needs tone and reversibility safeguards.
 
 ### BL-026 - Collection Add Button Affordance Clarification
-Status: test
+Status: shipped
 
 Problem:
 The add button in the top-right corner of the collection page visually matches Discover card add buttons, so it can read as "add this backdrop show" instead of "add a show to my collection."
@@ -413,7 +424,7 @@ Hypothesis:
 Changing the collection-level add control into a distinct collection/import affordance will reduce ambiguity and make the hero backdrop feel less actionable in the wrong way.
 
 Target user:
-Users on the collection page, especially users with an empty or small stash.
+Users on the collection page, especially users with an empty or small collection.
 
 Success metric:
 - Users understand the control opens add/import collection flow, not an action on the hero show.
@@ -428,7 +439,8 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from product review after the collection hero/add affordance was confused with Discover card add.
-- 2026-05-10: Implemented first pass: changed collection add control into a library-level pill with collection icon + add label, visually distinct from card plus buttons. Needs visual QA.
+- 2026-05-10: Implemented first pass: changed collection add control into a library-level pill with collection icon + add label, visually distinct from card plus buttons.
+- 2026-05-11: Reviewed code state. Collection top controls now separate Watchlist and Add with black glassy pills and collection/watchlist icons, no yellow hero-card-style floating add.
 
 ### BL-001 - Visual Depth and Saturation Pass
 Status: shipped
@@ -507,9 +519,10 @@ Scope:
 Changelog:
 - 2026-05-04: Connected to Discover preview work.
 - 2026-05-10: Shipped major detail redesign. Removed hero poster, removed add/search controls, added logo/metadata, larger description, direct rank controls, real cast image role assignment, visual tracking card, season images in episode tracker, and preview support for unowned Discover shows.
+- 2026-05-11: Current touched flows use Collection/Watchlist language rather than stash language.
 
 ### BL-021 - Ranking Tier Shelf Compression + Stronger Color System
-Status: test
+Status: shipped
 
 Problem:
 The ranked tiers page takes too much vertical space, the queue header pushes content down, and tier colors are too thin/subtle to distinguish ranks confidently.
@@ -535,7 +548,8 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from annotated ranking tier screenshot. Prioritized because it is a structural fix to the ranking page rather than extra decoration.
-- 2026-05-10: Implemented first pass: smaller queue launcher, stronger tier color blocks, compact tier shelves, counts, and tap-to-expand rows. Needs visual QA.
+- 2026-05-10: Implemented first pass: smaller queue launcher, stronger tier color blocks, compact tier shelves, counts, and tap-to-expand rows.
+- 2026-05-11: Reviewed code state. Rankings now has compact tier rows with stronger color wash/side rail treatment, peeking cards, counts, and expandable shelves.
 
 ---
 
@@ -559,7 +573,7 @@ Success metric:
 Scope:
 - Prototype on Discover/Collection cards first.
 - Hold card -> lift state -> tier targets appear -> drop to rank.
-- If show is unowned, ranking also adds to stash.
+- If show is unowned, ranking also adds to collection.
 - Include undo / visual confirmation.
 - Consider whether full-screen ranking should become more detail-like before drag work; a poster-only ranking object may not justify a dedicated full-screen flow.
 
@@ -567,6 +581,7 @@ Changelog:
 - 2026-05-04: Includes idea to auto-mark watched with quick correction affordance.
 - 2026-05-10: Ranking screen and detail rank controls improved, with tier-colored states and auto-collapse after ranking. Drag-to-rank itself remains unbuilt.
 - 2026-05-10: Added critique that full-screen ranking currently over-indexes on poster art; future work should either make it more like a lightweight detail page or support faster list/shelf ranking.
+- 2026-05-11: Shipped ranking-flow polish: skip now advances with the same queue pointer as rank placement, duplicate controls were reduced to Skip + Undo, Undo moved beside Skip, and post-placement advance was shortened. Hold/drag and rank notes remain separate future work.
 
 ### BL-006 - Motion Language System (Squeeze/Stretch)
 Status: in-dev
@@ -596,7 +611,7 @@ Changelog:
 ## P1 - Identity and Profile Expression
 
 ### BL-007 - Favorite Characters / Cast Role Card Upgrade
-Status: test
+Status: shipped
 
 Problem:
 Cast role cards and profile cast surfaces still do not fully deliver the "favorite characters / personal roster" fantasy. The mechanic is promising, but cards can be hard to read and do not immediately explain why assigning a role is fun.
@@ -624,10 +639,10 @@ Changelog:
 - 2026-05-10: Detail-page cast interaction improved: actual cast images now appear, add/check controls live on character images, and role picker can preselect tapped cast member. Profile/My Cast card upgrade remains open.
 - 2026-05-10: Reframed from cast-role cards to favorite-character identity cards based on annotated profile feedback.
 - 2026-05-10: Implemented first profile roster pass: role label moved onto character card, character name enlarged, show cue quieted, and add slot reframed as "Add character".
-- 2026-05-10: Ready for visual QA. Remaining question: whether the roster reads immediately as favorite characters with roles, not admin cards.
+- 2026-05-11: Reviewed code state. Profile roster cards are character-first with role overlays, quieter show cues, image-led cards, and an Add character picker. Future character-social depth should be a new item, not a blocker for this pass.
 
 ### BL-017 - Profile / Top 8 Showcase Upgrade
-Status: test
+Status: shipped
 
 Problem:
 Profile still risks feeling like account/profile UI instead of a loadout or showcase of taste.
@@ -655,10 +670,11 @@ Changelog:
 - 2026-05-10: Added after detail/discover redesign made profile the next weakest identity surface.
 - 2026-05-10: Expanded from annotated profile screenshot: compact header, stronger Top 8 rank/vibe states, and clearer character-roster module.
 - 2026-05-10: Implemented first pass: compact profile header and Top 8 rank-color outlines, tier chips, position chips, vibe emoji overlays, and title treatment.
-- 2026-05-10: Implemented additional pass: rank/vibe treatment made more alive, with seeded non-synchronous emoji bubble motion and stronger Top 8 object states. Ready for visual QA.
+- 2026-05-10: Implemented additional pass: rank/vibe treatment made more alive, with seeded non-synchronous emoji bubble motion and stronger Top 8 object states.
+- 2026-05-11: Reviewed code state. Profile header is compact, Top 8 cards show rank outlines/chips and position chips, and vibe emojis use seeded non-synchronous bubble motion.
 
 ### BL-027 - Top 8 Card Tap Actions
-Status: test
+Status: shipped
 
 Problem:
 Tapping a Top 8 card currently removes it immediately. That is too destructive and blocks the more likely intent: inspecting the show or managing the slot.
@@ -682,7 +698,8 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from product review after Top 8 cards became more important showcase objects.
-- 2026-05-10: Implemented first pass: tapping a filled Top 8 card opens an action sheet with View details, Replace slot, and Remove from Top 8. Needs visual QA.
+- 2026-05-10: Implemented first pass: tapping a filled Top 8 card opens an action sheet with View details, Replace slot, and Remove from Top 8.
+- 2026-05-11: Reviewed code state. Filled Top 8 cards now open an action sheet instead of removing immediately; options are View details, Replace slot, and Remove from Top 8.
 
 ---
 
@@ -711,7 +728,7 @@ Scope:
 - Import watch status/progress where available.
 - Import ratings into a temporary "source rating" field; do not auto-map to S/A/B/C/D without user confirmation.
 - Add a source-specific import option under the existing import/add flow.
-- Include a preview/reconciliation screen: matched, uncertain, skipped, already in stash.
+- Include a preview/reconciliation screen: matched, uncertain, skipped, already in collection.
 - Keep OAuth tokens local-only unless/until accounts/backend exist.
 
 Provider candidates and initial feasibility:
@@ -927,19 +944,12 @@ Changelog:
 
 ---
 
-## In Test / Ready For Visual QA
+## In Test / Ready For Product QA
 
-### 2026-05-10
-- Watchlist shelves MVP is implemented: Collection now has a Watchlist mode with local shelves, shelf creation, show search, add/remove, and drag/drop between shelves.
-- Detail/add flows now separate Add to collection from Watchlist and touched "stash" copy has moved toward collection language.
-- Collection add control now reads as a collection-level action instead of a hero-card add.
-- Top 8 card tap now opens an action sheet instead of removing immediately.
-- Profile Top 8 cards have stronger rank/vibe object states and non-synchronous vibe emoji motion.
-- Favorite-character roster cards have clearer character-first role treatment.
-- Episode tracker has cinematic header, left-side back, season imagery, and no watched-title strikethrough.
-- Detail cast/tracking/rank/vibe polish is implemented and ready for real-device review.
-- Collection TV-on moment and landscape logos are implemented and ready for visual review.
-- Ranking tier shelves are compressed with stronger tier color and tap-to-expand behavior.
+### 2026-05-11
+- BL-015 Discover quality is ready for real-library validation: mechanics exist, but quality still needs tuning/debug visibility against 50+ and 200+ show libraries.
+- BL-032 Add to Watchlist entry points is mostly complete: Detail and Collection are implemented, but Discover card-level watchlist entry remains the only explicit gap.
+- BL-006 Motion language is partially implemented across cards, rank states, tracker progress, and vibe bubbles, but still needs reusable motion tokens/system language.
 
 ---
 
@@ -947,7 +957,7 @@ Changelog:
 
 ### 2026-05-10
 - Discover detail preview from all Discover surfaces.
-- Unowned show detail state with Add to stash and safe rank/cast/tracking.
+- Unowned show detail state with Add to collection / Watchlist and safe rank/cast/tracking.
 - Full-library Discover personalization v1 with rotating anchors, caching, diversity, and impression decay.
 - Source-honest Trending/Airing/Popular rows.
 - Show Detail object-inspection redesign.
@@ -955,6 +965,14 @@ Changelog:
 - Tracking card redesign and season imagery in episode tracker.
 - Collection/discover visual object-card treatment.
 - Rank chip collapse behavior and tier-colored state.
+
+### 2026-05-11
+- Watchlist shelves MVP: full-screen shelves, default Watch next/Someday, shelf creation, add/search, poster-object search results, remove, reorder, and move-between-shelves behavior.
+- Collection top controls: no tabs, distinct Watchlist and Add controls, collection-level add affordance no longer resembles card add.
+- Detail polish: compact cast rail, real cast images with add/check controls, full-width tracking, tier-colored rank chip, collapsed rank controls after selection, and vibe near metadata.
+- Episode tracker polish: cinematic backdrop header, left-side back, season posters, progress, and non-strikethrough watched rows.
+- Profile polish: compact header, stronger Top 8 rank/vibe states, non-synchronous vibe bubble motion, and safe Top 8 action sheet.
+- Ranking tier page: compact tier shelves with stronger color treatment, peeking cards, counts, and expandable rows.
 
 ---
 

@@ -1,5 +1,5 @@
-import { useMemo, useState, type CSSProperties } from 'react'
-import { Plus, X, Check, User, Edit3, Eye, RotateCcw, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Plus, X, Check, User, Edit3, Eye, RotateCcw, Trash2, Search } from 'lucide-react'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { setTop8 } from '../../data/queries'
@@ -7,6 +7,8 @@ import { imgUrl } from '../../lib/tmdb'
 import { cn } from '../../lib/utils'
 import type { Show, Tier } from '../../types'
 import { MyCast } from '../cast-roles/MyCast'
+import { RankMark, TIER_COLORS, VibeBubbles } from '../../components/show/CollectibleMediaCard'
+import { FullScreenOverlayShell, PickerTopBar } from '../../components/ui/FullScreenPickerShell'
 
 const PROFILE_COLORS = [
   'from-rose-500 to-orange-500',
@@ -18,23 +20,6 @@ const PROFILE_COLORS = [
 ]
 
 const MAX = 8
-
-const TIER_PROFILE: Record<Tier, string> = {
-  S: '#fb7185',
-  A: '#fb923c',
-  B: '#d9a92f',
-  C: '#84cc16',
-  D: '#38bdf8',
-}
-
-function particleUnit(seed: number) {
-  const x = Math.sin(seed * 12.9898) * 43758.5453
-  return x - Math.floor(x)
-}
-
-function particleRange(seed: number, min: number, max: number) {
-  return min + particleUnit(seed) * (max - min)
-}
 
 interface Props {
   onOpenShow: (show: Show) => void
@@ -49,6 +34,7 @@ export function ProfileTab({ onOpenShow }: Props) {
   const [name, setName] = useState('PLAYER ONE')
   const [colorIndex, setColorIndex] = useState(0)
   const [activeSlot, setActiveSlot] = useState<number | null>(null)
+  const [top8Search, setTop8Search] = useState('')
 
   const top8 = useMemo(
     () =>
@@ -60,6 +46,19 @@ export function ProfileTab({ onOpenShow }: Props) {
 
   const slots: (Show | null)[] = Array.from({ length: MAX }).map((_, i) => top8[i] ?? null)
   const availableShows = shows.filter((s) => !top8.some((t) => t.id === s.id))
+  const filteredAvailableShows = useMemo(() => {
+    const query = top8Search.trim().toLowerCase()
+    if (!query) return availableShows
+    return availableShows.filter((show) => {
+      const searchable = [
+        show.name,
+        show.year?.toString(),
+        ...(show.genres ?? []),
+        ...(show.rawGenres ?? []),
+      ].filter(Boolean).join(' ').toLowerCase()
+      return searchable.includes(query)
+    })
+  }, [availableShows, top8Search])
   const activeShow = activeSlot === null ? null : slots[activeSlot]
   const tierByShowId = useMemo(() => new Map(tiers.map((tier) => [tier.showId, tier.tier])), [tiers])
   const vibesByShowId = useMemo(() => {
@@ -85,6 +84,7 @@ export function ProfileTab({ onOpenShow }: Props) {
 
     await setTop8(show.id, slotIdx)
     setSelectingSlot(null)
+    setTop8Search('')
   }
 
   const removeAt = async (idx: number) => {
@@ -199,22 +199,37 @@ export function ProfileTab({ onOpenShow }: Props) {
       </div>
 
       {selectingSlot !== null && (
-        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col">
-          <div className="flex justify-between items-center px-4 pt-12 pb-4 flex-shrink-0">
-            <h2 className="text-3xl font-black text-white tracking-[-0.08em]">Equip</h2>
-            <button onClick={() => setSelectingSlot(null)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all" aria-label="Close">
-              <X size={22} className="text-white" />
-            </button>
-          </div>
+        <FullScreenOverlayShell>
+          <PickerTopBar onClose={() => { setSelectingSlot(null); setTop8Search('') }} />
+          {availableShows.length > 0 && (
+            <div className="px-4 pb-3">
+              <div className="relative">
+                <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/34" />
+                <input
+                  autoFocus
+                  type="search"
+                  value={top8Search}
+                  onChange={(event) => setTop8Search(event.target.value)}
+                  placeholder="Find a show"
+                  className="h-12 w-full rounded-full bg-white/[0.075] pl-11 pr-4 text-sm font-bold text-white outline-none ring-1 ring-white/[0.08] placeholder:text-white/28 focus:ring-[#f5c453]/50"
+                />
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto">
             {availableShows.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4 opacity-50">
                 <Plus size={40} />
                 <p className="font-bold uppercase tracking-widest">Collection Empty</p>
               </div>
+            ) : filteredAvailableShows.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4 opacity-50">
+                <Search size={36} />
+                <p className="font-bold uppercase tracking-widest">No matches</p>
+              </div>
             ) : (
               <div className="grid grid-cols-3 gap-3 p-4 pb-16">
-                {availableShows.map((show) => (
+                {filteredAvailableShows.map((show) => (
                   <div key={show.id} className="relative group cursor-pointer aspect-[2/3] rounded-[22px] overflow-hidden bg-[#151117] shadow-[0_16px_34px_rgba(0,0,0,0.34)]" onClick={() => void assign(selectingSlot, show)}>
                     {show.posterPath ? (
                       <img src={imgUrl(show.posterPath, 'w342')} alt={show.name} className="w-full h-full object-cover object-top" />
@@ -231,7 +246,7 @@ export function ProfileTab({ onOpenShow }: Props) {
               </div>
             )}
           </div>
-        </div>
+        </FullScreenOverlayShell>
       )}
       <Top8ActionSheet
         show={activeShow}
@@ -324,11 +339,8 @@ function Top8Card({
   onPick: () => void
   onOpenActions: () => void
 }) {
-  const tierColor = tier ? TIER_PROFILE[tier] : '#f5c453'
+  const tierColor = tier ? TIER_COLORS[tier] : '#f5c453'
   const featured = index < 2
-  const vibeParticles = show && vibes.length
-    ? Array.from({ length: Math.min(9, Math.max(5, vibes.length * 3)) }, (_, particleIndex) => vibes[particleIndex % vibes.length])
-    : []
 
   return (
     <div
@@ -355,61 +367,8 @@ function Top8Card({
             </div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-transparent to-black/10" />
-          <div className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[#f5c453] text-[11px] font-black text-black shadow-[0_0_18px_rgba(245,196,83,0.42)]">
-            {index + 1}
-          </div>
-          {tier && (
-            <div
-              className="absolute right-2 top-2 grid h-11 min-w-11 place-items-center rounded-[17px] px-3 text-[19px] font-black text-white shadow-[0_14px_28px_rgba(0,0,0,0.46)]"
-              style={{
-                background: `linear-gradient(180deg, color-mix(in srgb, ${tierColor} 92%, white 8%), ${tierColor})`,
-                boxShadow: `0 14px 30px rgba(0,0,0,0.42), 0 0 22px ${tierColor}66, inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -1px 0 rgba(0,0,0,0.14)`,
-              }}
-            >
-              {tier}
-            </div>
-          )}
-          {vibeParticles.length > 0 && (
-            <div className="pointer-events-none absolute bottom-7 right-0 h-32 w-28 overflow-visible">
-              {vibeParticles.map((emoji, vibeIndex) => {
-                const seed = (show?.id ?? 1) * 97 + index * 53 + vibeIndex * 31 + emoji.codePointAt(0)!
-                const originX = particleRange(seed + 1, -4, 18)
-                const originY = particleRange(seed + 2, -2, 14)
-                const endX = particleRange(seed + 3, -92, -18)
-                const endY = particleRange(seed + 4, -126, -48)
-                const drift = particleRange(seed + 5, -22, 22)
-                const startScale = particleRange(seed + 6, 0.44, 0.74)
-                const peakScale = particleRange(seed + 7, 1.08, 1.38)
-                const endScale = particleRange(seed + 8, 0.72, 1.12)
-                const rotate = particleRange(seed + 9, -28, 28)
-                const duration = particleRange(seed + 10, 3.1, 5.9)
-                const delay = -particleRange(seed + 11, 0, duration)
-                const fontSize = particleRange(seed + 12, 16, 23)
-                return (
-                <span
-                  key={`${emoji}-${vibeIndex}`}
-                  className="absolute leading-none"
-                  style={{
-                    right: `${originX}px`,
-                    bottom: `${originY}px`,
-                    fontSize: `${fontSize}px`,
-                    filter: 'drop-shadow(0 8px 10px rgba(0,0,0,0.45))',
-                    animation: `vibe-bubble ${duration}s ease-out ${delay}s infinite`,
-                    ['--vibe-x']: `${endX}px`,
-                    ['--vibe-y']: `${endY}px`,
-                    ['--vibe-drift']: `${drift}px`,
-                    ['--vibe-start-scale']: startScale,
-                    ['--vibe-peak-scale']: peakScale,
-                    ['--vibe-end-scale']: endScale,
-                    ['--vibe-rotate']: `${rotate}deg`,
-                  } as CSSProperties}
-                >
-                  {emoji}
-                </span>
-                )
-              })}
-            </div>
-          )}
+          <RankMark tier={tier} featured={featured} compact className="absolute right-2 top-2 z-20" />
+          {show && <VibeBubbles showId={show.id} vibes={vibes} seedOffset={index} />}
           <div className="absolute inset-x-0 bottom-0 p-3">
             <p className="line-clamp-2 text-sm font-black leading-[0.95] tracking-[-0.055em] text-white">{show.name}</p>
           </div>

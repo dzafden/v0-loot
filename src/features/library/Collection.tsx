@@ -9,6 +9,7 @@ import type { Show, Tier } from '../../types'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { WatchlistShelves } from '../watchlist/WatchlistShelves'
 import { WatchlistSearchSheet } from '../watchlist/WatchlistSearchSheet'
+import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 
 type TierFilter = 'All' | Tier | 'Unsorted'
 
@@ -44,6 +45,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const assignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const shelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
+  const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
   const firstWatchlistShelfId = shelves.find((shelf) => shelf.name === 'Watch next')?.id ?? shelves[0]?.id ?? null
 
   const tierByShowId = useMemo(() => {
@@ -51,6 +53,18 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
     for (const assignment of assignments) map.set(assignment.showId, assignment.tier)
     return map
   }, [assignments])
+
+  const vibesByShowId = useMemo(() => {
+    const map = new Map<number, string[]>()
+    for (const category of emojiCategories) {
+      for (const showId of category.showIds) {
+        const list = map.get(showId) ?? []
+        list.push(category.emoji)
+        map.set(showId, list)
+      }
+    }
+    return map
+  }, [emojiCategories])
 
   const genres = useMemo(() => {
     const set = new Set(shows.map((show) => show.genres[0]).filter(Boolean) as string[])
@@ -332,7 +346,15 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
               const large = index % 7 === 0
               const wide = index % 7 === 3
               return (
-                <CollectionGridCard key={show.id} show={show} large={large} wide={wide} onOpenShow={onOpenShow} />
+                <CollectionGridCard
+                  key={show.id}
+                  show={show}
+                  large={large}
+                  wide={wide}
+                  tier={tierByShowId.get(show.id)}
+                  vibes={vibesByShowId.get(show.id) ?? []}
+                  onOpenShow={onOpenShow}
+                />
               )
             })}
           </div>
@@ -352,11 +374,15 @@ function CollectionGridCard({
   show,
   large,
   wide,
+  tier,
+  vibes,
   onOpenShow,
 }: {
   show: Show
   large: boolean
   wide: boolean
+  tier?: Tier
+  vibes: string[]
   onOpenShow: (show: Show) => void
 }) {
   const [cardLogo, setCardLogo] = useState<string | null>(() => logoCache.get(show.id) ?? null)
@@ -388,32 +414,22 @@ function CollectionGridCard({
     <button
       onClick={() => onOpenShow(show)}
       className={cn(
-        'group relative overflow-hidden rounded-[26px] bg-[#151117] text-left shadow-[0_16px_34px_rgba(0,0,0,0.34)] transition-transform duration-300 active:scale-[0.97]',
+        'group relative overflow-hidden rounded-[26px] text-left transition-transform duration-300 active:scale-[0.97]',
         large ? 'col-span-2 row-span-2' : wide ? 'col-span-2' : 'col-span-1',
       )}
     >
-      {show.posterPath || show.backdropPath ? (
-        <img
-          src={imgUrl(wide && show.backdropPath ? show.backdropPath : show.posterPath, wide && show.backdropPath ? 'w500' : 'w342')}
-          alt={show.name}
-          className="h-full w-full object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-full h-full grid place-items-center text-zinc-500 font-black text-xl">
-          {show.name.slice(0, 2).toUpperCase()}
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-transparent to-transparent" />
-      {(large || wide) && (
-        <div className="absolute bottom-0 inset-x-0 p-3">
-          {wide && cardLogo ? (
-            <img src={imgUrl(cardLogo, 'w500')} alt={show.name} className="max-h-[44px] max-w-[74%] object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]" loading="lazy" />
-          ) : (
-            <p className="font-black text-white text-sm tracking-[-0.05em] line-clamp-2 leading-tight">{show.name}</p>
-          )}
-        </div>
-      )}
+      <CollectibleMediaCard
+        id={show.id}
+        title={show.name}
+        imagePath={wide && show.backdropPath ? show.backdropPath : show.posterPath ?? show.backdropPath}
+        imageSize={wide && show.backdropPath ? 'w500' : 'w342'}
+        logoPath={wide ? cardLogo : null}
+        landscape={wide}
+        featured={large}
+        tier={tier}
+        vibes={vibes}
+        meta={show.year ? <span className="text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
+      />
     </button>
   )
 }

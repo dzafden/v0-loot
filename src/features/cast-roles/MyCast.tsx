@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, ChevronLeft } from 'lucide-react'
+import { X, Plus, ChevronLeft, Search } from 'lucide-react'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { listCastRoles, deleteCastRole } from '../../data/queries'
 import { db } from '../../data/db'
 import { imgUrl } from '../../lib/tmdb'
 import type { CastRole, Show } from '../../types'
 import { CharacterRolePicker } from './CharacterRolePicker'
+import { FullScreenOverlayShell, PickerTopBar } from '../../components/ui/FullScreenPickerShell'
 
 const MAX_ROSTER = 8
 
@@ -98,28 +99,53 @@ function ShowPickerOverlay({
   onSelect: (show: Show) => void
   onClose: () => void
 }) {
+  const [query, setQuery] = useState('')
+  const filteredShows = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) return shows
+    return shows.filter((show) => {
+      const searchable = [
+        show.name,
+        show.year?.toString(),
+        ...(show.genres ?? []),
+        ...(show.rawGenres ?? []),
+      ].filter(Boolean).join(' ').toLowerCase()
+      return searchable.includes(normalized)
+    })
+  }, [query, shows])
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col">
-      <div className="flex justify-between items-center px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
-        <div className="w-20" />
-        <h2 className="text-sm font-black uppercase tracking-widest text-white">Pick a Show</h2>
-        <button
-          onClick={onClose}
-          className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all"
-          aria-label="Close"
-        >
-          <X size={18} className="text-white" />
-        </button>
-      </div>
+    <FullScreenOverlayShell>
+      <PickerTopBar onClose={onClose} />
+      {shows.length > 0 && (
+        <div className="px-4 pb-3">
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/34" />
+            <input
+              autoFocus
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find a show"
+              className="h-12 w-full rounded-full bg-white/[0.075] pl-11 pr-4 text-sm font-bold text-white outline-none ring-1 ring-white/[0.08] placeholder:text-white/28 focus:ring-[#f5c453]/50"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {shows.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4 opacity-50">
             <p className="font-bold uppercase tracking-widest text-sm">No shows in collection</p>
           </div>
+        ) : filteredShows.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4 opacity-50">
+            <Search size={36} />
+            <p className="font-bold uppercase tracking-widest text-sm">No matches</p>
+          </div>
         ) : (
           <div className="grid grid-cols-3 gap-3 p-4 pb-16">
-            {shows.map((show) => (
+            {filteredShows.map((show) => (
               <button
                 key={show.id}
                 onClick={() => onSelect(show)}
@@ -144,7 +170,7 @@ function ShowPickerOverlay({
           </div>
         )}
       </div>
-    </div>
+    </FullScreenOverlayShell>
   )
 }
 

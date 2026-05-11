@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { X, ChevronLeft, Check } from 'lucide-react'
+import { ChevronLeft, Check } from 'lucide-react'
 import { getCredits, imgUrl } from '../../lib/tmdb'
 import { createCastRole } from '../../data/queries'
 import { cn } from '../../lib/utils'
 import type { Show } from '../../types'
 import { useEffect } from 'react'
+import { FullScreenOverlayShell, PickerTopBar } from '../../components/ui/FullScreenPickerShell'
 
 export type CastMember = {
   id: number
@@ -87,45 +88,30 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col">
-      {/* Header */}
-      <div className="flex justify-between items-center px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
-        {onBack ? (
+    <FullScreenOverlayShell>
+      <PickerTopBar
+        onClose={onClose}
+        left={onBack ? (
           <button
             onClick={onBack}
-            className="h-9 px-3 rounded-xl bg-white/10 text-white text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5"
+            className="inline-flex h-11 items-center gap-1.5 rounded-full bg-white/10 px-4 text-[10px] font-black uppercase tracking-[0.16em] text-white transition-all hover:bg-white/20 active:scale-95"
           >
             <ChevronLeft size={14} /> Back
           </button>
-        ) : (
-          <div className="w-20" />
-        )}
-
-        <h2 className="text-sm font-black uppercase tracking-widest text-white truncate max-w-[160px]">
-          {show.name}
-        </h2>
-
-        <button
-          onClick={onClose}
-          className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all"
-          aria-label="Close"
-        >
-          <X size={18} className="text-white" />
-        </button>
-      </div>
+        ) : null}
+      />
 
       {/* Role selector */}
-      <div className="px-4 pt-4 pb-3 flex-shrink-0 border-b border-white/10">
-        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Assign a role</p>
-        <div className="flex flex-wrap gap-2">
+      <div className="shrink-0 px-4 pb-4">
+        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {PRESET_ROLES.map((r) => (
             <button
               key={r}
               onClick={() => setRole(r)}
               className={cn(
-                'h-7 px-3 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors',
+                'h-9 shrink-0 rounded-full px-4 text-[10px] font-black uppercase tracking-[0.14em] transition-colors',
                 role === r
-                  ? 'bg-[#4ade80] text-black'
+                  ? 'bg-[#f5c453] text-black'
                   : 'bg-white/10 text-white/60 hover:bg-white/15',
               )}
             >
@@ -135,9 +121,9 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
           <button
             onClick={() => setRole('__custom__')}
             className={cn(
-              'h-7 px-3 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors',
+              'h-9 shrink-0 rounded-full px-4 text-[10px] font-black uppercase tracking-[0.14em] transition-colors',
               role === '__custom__'
-                ? 'bg-[#4ade80] text-black'
+                ? 'bg-[#f5c453] text-black'
                 : 'bg-white/10 text-white/60 hover:bg-white/15',
             )}
           >
@@ -150,7 +136,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
             value={customRole}
             onChange={(e) => setCustomRole(e.target.value.toUpperCase())}
             placeholder="ROLE NAME"
-            className="mt-2 w-full bg-[#1a1a24] border border-white/10 rounded-xl px-3 py-2 text-xs font-black uppercase tracking-widest text-white placeholder:text-zinc-600 outline-none focus:border-[#4ade80] transition-colors"
+            className="mt-3 h-12 w-full rounded-full bg-white/[0.07] px-4 text-xs font-black uppercase tracking-widest text-white outline-none ring-1 ring-white/[0.07] transition-colors placeholder:text-white/24 focus:ring-[#f5c453]/50"
           />
         )}
       </div>
@@ -159,7 +145,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
       <div className="flex-1 overflow-y-auto">
         {castLoading ? (
           <div className="flex justify-center py-16">
-            <div className="w-7 h-7 border-2 border-[#4ade80] border-t-transparent rounded-full animate-spin" />
+            <div className="w-7 h-7 border-2 border-[#f5c453] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : cast.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-zinc-500 opacity-50">
@@ -178,7 +164,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
                   className={cn(
                     'relative aspect-[2/3] rounded-[16px] overflow-hidden border transition-all active:scale-95',
                     isPicked
-                      ? 'border-[#4ade80] shadow-[0_0_0_2px_#4ade8066]'
+                      ? 'border-[#f5c453] shadow-[0_0_0_2px_rgba(245,196,83,0.32)]'
                       : 'border-white/10',
                     alreadyCast ? 'opacity-40' : '',
                   )}
@@ -202,7 +188,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
                     </div>
                   </div>
                   {isPicked && (
-                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#4ade80] flex items-center justify-center">
+                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#f5c453] flex items-center justify-center">
                       <Check size={11} strokeWidth={3} className="text-black" />
                     </div>
                   )}
@@ -218,7 +204,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
         <button
           onClick={() => void handleCast()}
           disabled={!canCast || saving}
-          className="w-full h-12 rounded-2xl bg-[#4ade80] text-black font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 disabled:opacity-30 active:scale-[0.98] transition-transform"
+          className="w-full h-12 rounded-2xl bg-[#f5c453] text-black font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 disabled:opacity-30 active:scale-[0.98] transition-transform"
         >
           {saving ? (
             <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -230,6 +216,6 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
           )}
         </button>
       </div>
-    </div>
+    </FullScreenOverlayShell>
   )
 }

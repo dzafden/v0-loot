@@ -52,9 +52,9 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
   const [hoverTier, setHoverTier] = useState<Tier | null>(null)
   const [settlingTier, setSettlingTier] = useState<Tier | null>(null)
   const [lastPlacement, setLastPlacement] = useState<null | { show: Show; tier: Tier; index: number }>(null)
-  const [skipped, setSkipped] = useState<Set<number>>(new Set())
-  const current = sessionQueue.find((show, i) => i >= index && !skipped.has(show.id))
-  const currentIndex = current ? sessionQueue.findIndex((show) => show.id === current.id) : -1
+  const [cardVisible, setCardVisible] = useState(true)
+  const current = sessionQueue[index] ?? null
+  const currentIndex = current ? index : -1
   const activeTier = settlingTier ?? hoverTier
   const activeGlow = activeTier ? TIER_STYLES[activeTier].soft : NEUTRAL_GLOW
   const activeColor = activeTier ? TIER_STYLES[activeTier].color : 'rgba(255,255,255,0.14)'
@@ -71,6 +71,7 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
 
   async function place(tier: Tier) {
     if (!current || settlingTier) return
+    if (advanceTimer.current) window.clearTimeout(advanceTimer.current)
     const placedShow = current
     const placedIndex = currentIndex
     setHoverTier(tier)
@@ -78,35 +79,30 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
     await setTier(placedShow.id, tier)
     setLastPlacement({ show: placedShow, tier, index: placedIndex })
     advanceTimer.current = window.setTimeout(() => {
-      setIndex((value) => Math.max(value + 1, placedIndex + 1))
-      window.setTimeout(() => {
-        setHoverTier(null)
-        setSettlingTier(null)
-      }, 120)
-    }, 560)
+      jumpTo(placedIndex + 1)
+    }, 260)
   }
 
   const jumpTo = (nextIndex: number) => {
-    setHoverTier(null)
-    setSettlingTier(null)
-    setIndex(nextIndex)
+    if (advanceTimer.current) window.clearTimeout(advanceTimer.current)
+    setCardVisible(false)
+    window.setTimeout(() => {
+      setHoverTier(null)
+      setSettlingTier(null)
+      setIndex(nextIndex)
+      window.requestAnimationFrame(() => setCardVisible(true))
+    }, 40)
   }
 
   const skip = () => {
-    if (!current) return
-    setSkipped((prev) => new Set(prev).add(current.id))
-    jumpTo(Math.max(index + 1, currentIndex + 1))
+    if (!current || settlingTier) return
+    jumpTo(currentIndex + 1)
   }
 
   async function undoLast() {
     if (!lastPlacement) return
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current)
     await setTier(lastPlacement.show.id, null)
-    setSkipped((prev) => {
-      const next = new Set(prev)
-      next.delete(lastPlacement.show.id)
-      return next
-    })
     setIndex(lastPlacement.index)
     setHoverTier(null)
     setSettlingTier(null)
@@ -139,31 +135,26 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
       <div className="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl transition-colors duration-300" style={{ background: activeGlow }} />
 
       <div className="relative z-10 flex items-center justify-between px-5 pt-12 pb-2 flex-shrink-0">
-        {lastPlacement ? (
-          <button onClick={() => void undoLast()} className="h-10 rounded-full bg-black/62 px-4 text-[10px] font-black uppercase tracking-[0.18em] text-white/78 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95">
-            Undo {lastPlacement.tier}
-          </button>
-        ) : (
-          <div className="h-10 w-10" />
-        )}
+        <div className="h-10 w-10" />
         <button onClick={onFinish} className="grid h-11 w-11 place-items-center rounded-full bg-black/54 text-white/84 ring-1 ring-white/[0.1] backdrop-blur-xl active:scale-95">
           <X size={22} />
         </button>
       </div>
 
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 min-h-0">
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence initial={false}>
+          {cardVisible && (
           <motion.div
             key={displayShow.id}
-            initial={{ opacity: 0, y: 36, scale: 0.88, rotateX: 9, filter: 'blur(10px)' }}
-            animate={{ opacity: 1, y: [0, -7, 0], scale: settlingTier ? 1.035 : 1, rotateX: 0, filter: 'blur(0px)' }}
-            exit={{ opacity: 0, y: -42, scale: 0.88, rotate: -1.5, filter: 'blur(12px)' }}
+            initial={{ opacity: 0, scale: 0.965, filter: 'blur(7px)' }}
+            animate={{ opacity: 1, y: settlingTier ? 0 : [0, -7, 0], scale: settlingTier ? 1.025 : 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, scale: 0.975, filter: 'blur(7px)' }}
             whileTap={!settlingTier ? { scale: 1.045, y: -16, rotate: 1.2 } : undefined}
             transition={{
-              y: settlingTier ? { duration: 0.2 } : { duration: 3.4, repeat: Infinity, ease: 'easeInOut' },
-              opacity: { duration: 0.26 },
-              scale: { duration: 0.28, ease: [0.22, 1, 0.36, 1] },
-              filter: { duration: 0.24 },
+              y: settlingTier ? { duration: 0.16 } : { duration: 3.4, repeat: Infinity, ease: 'easeInOut' },
+              opacity: { duration: 0.12 },
+              scale: { duration: 0.14, ease: [0.22, 1, 0.36, 1] },
+              filter: { duration: 0.12 },
             }}
             className="relative w-[74vw] max-w-[335px] min-w-[245px] aspect-[2/3] overflow-hidden rounded-[38px] bg-black shadow-[0_38px_110px_rgba(0,0,0,0.78)]"
             style={{ boxShadow: `0 36px 110px rgba(0,0,0,0.78), 0 0 0 1px rgba(255,255,255,0.12), 0 0 42px ${activeGlow}, inset 0 0 0 ${activeTier ? 2 : 1}px ${activeColor}` }}
@@ -180,6 +171,7 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
               <h2 className="text-3xl font-black leading-[0.88] tracking-[-0.1em] text-white text-balance">{displayShow.name}</h2>
             </div>
           </motion.div>
+          )}
         </AnimatePresence>
       </div>
 
@@ -216,11 +208,21 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
               )
             })}
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            <button onClick={skip} className="h-11 rounded-[17px] bg-black/72 text-[10px] font-black uppercase tracking-widest text-white/82 ring-1 ring-white/[0.07]">Skip</button>
-            <button onClick={skip} className="h-11 rounded-[17px] bg-black/72 text-[10px] font-black uppercase tracking-widest text-white/82 ring-1 ring-white/[0.07]">Not sure</button>
-            <button onClick={onFinish} className="h-11 rounded-[17px] bg-black/72 text-[10px] font-black uppercase tracking-widest text-white/82 ring-1 ring-white/[0.07]">Later</button>
-            <button onClick={onFinish} className="h-11 rounded-[17px] bg-black/72 text-[10px] font-black uppercase tracking-widest text-white/82 ring-1 ring-white/[0.07]">Stop</button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => void undoLast()}
+              disabled={!lastPlacement || Boolean(settlingTier)}
+              className="h-11 rounded-[17px] bg-black/72 text-[10px] font-black uppercase tracking-widest text-white/82 ring-1 ring-white/[0.07] disabled:opacity-30 disabled:active:scale-100 active:scale-[0.98]"
+            >
+              {lastPlacement ? `Undo ${lastPlacement.tier}` : 'Undo'}
+            </button>
+            <button
+              onClick={skip}
+              disabled={Boolean(settlingTier)}
+              className="h-11 rounded-[17px] bg-black/72 text-[10px] font-black uppercase tracking-widest text-white/82 ring-1 ring-white/[0.07] disabled:opacity-30 active:scale-[0.98]"
+            >
+              Skip
+            </button>
           </div>
         </motion.div>
       </div>
@@ -337,7 +339,9 @@ export function Rankings({ onGoDiscover, onOpenShow }: Props) {
 
   const filteredIds = useMemo(() => new Set(filteredShows.map((s) => s.id)), [filteredShows])
   const rankingQueue = useMemo(
-    () => [...filteredShows].sort(prioritySort(progressByShow, tierByShow)),
+    () => filteredShows
+      .filter((show) => !tierByShow.has(show.id))
+      .sort(prioritySort(progressByShow, tierByShow)),
     [filteredShows, progressByShow, tierByShow],
   )
 
