@@ -46,6 +46,14 @@ export interface Collection {
   createdAt: number
 }
 
+export interface WatchlistShelf {
+  id: string
+  name: string
+  showIds: number[]
+  createdAt: number
+  updatedAt: number
+}
+
 export interface EmojiCategory {
   id: string
   emoji: string

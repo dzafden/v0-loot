@@ -28,39 +28,43 @@ Each item includes:
 
 ## Current Priority Stack
 
-### Next Sprint
-1. BL-018 - Episode Tracker Visual Hierarchy + Graceful Watched States
-2. BL-019 - Detail Cast/Tracking Vertical Rhythm Pass
-3. BL-023 - Detail Rank/Vibe Indicator Cohesion
-4. BL-024 - Collection TV-On Moment + Landscape Logos
-5. BL-021 - Ranking Tier Shelf Compression + Stronger Color System
-6. BL-015 - Discover Recommendation Quality + Freshness Tuning
-7. BL-026 - Collection Add Button Affordance Clarification
-8. BL-027 - Top 8 Card Tap Actions
+### Visual QA / Ship Validation
+1. BL-029 - Watchlist Shelves / Mood Queues
+2. BL-032 - Add to Watchlist Entry Points + Add to Collection Rename
+3. BL-026 - Collection Add Button Affordance Clarification
+4. BL-027 - Top 8 Card Tap Actions
+5. BL-017 - Profile / Top 8 Showcase Upgrade
+6. BL-007 - Favorite Characters / Cast Role Card Upgrade
+7. BL-018 - Episode Tracker Visual Hierarchy + Graceful Watched States
+8. BL-019 - Detail Cast/Tracking Vertical Rhythm Pass
+9. BL-023 - Detail Rank/Vibe Indicator Cohesion
+10. BL-024 - Collection TV-On Moment + Landscape Logos
+11. BL-021 - Ranking Tier Shelf Compression + Stronger Color System
 
-### Next After That
-1. BL-017 - Profile / Top 8 Showcase Upgrade
-2. BL-007 - Favorite Characters / Cast Role Card Upgrade
-3. BL-005 - Hold-Drag-Rank Prototype
-4. BL-010 - Personal Packets (Small Set Recommendations)
-5. BL-028 - Import From External Tracking Services
-6. BL-006 - Motion Language System (Squeeze/Stretch)
-7. BL-004 - Non-Redundant Navigation Principle
+### Next Build Work
+1. BL-015 - Discover Recommendation Quality + Freshness Tuning
+2. BL-030 - Watchlist First-Run Shelf Tutorial
+3. BL-028 - Import From External Tracking Services
+4. BL-005 - Hold-Drag-Rank Prototype / Ranking Flow Rethink
+5. BL-006 - Motion Language System (Squeeze/Stretch)
+6. BL-004 - Non-Redundant Navigation Principle
+7. BL-010 - Personal Packets (Small Set Recommendations)
 
 ### Later / Concept
 1. BL-011 - Quest Crates (Progression Challenges)
-2. BL-022 - Rank Review / Comment Layer
-3. BL-025 - Episode and Season Ranking Foundation
-4. BL-012 - Mind Map / Show Connections
-5. BL-013 - AI Persona Recommender UI
-6. BL-016 - Tier / Genre Object Effects
+2. BL-031 - Not Interested / Hater State
+3. BL-022 - Rank Review / Comment Layer
+4. BL-025 - Episode and Season Ranking Foundation
+5. BL-012 - Mind Map / Show Connections
+6. BL-013 - AI Persona Recommender UI
+7. BL-016 - Tier / Genre Object Effects
 
 ---
 
 ## P0 - Discovery Trust and Freshness
 
 ### BL-015 - Discover Recommendation Quality + Freshness Tuning
-Status: spec
+Status: in-dev
 
 Problem:
 Discover can technically personalize now, but recommendation quality is the highest current product risk. Bad personalization feels worse than generic discovery because it breaks trust.
@@ -86,6 +90,7 @@ Changelog:
 - 2026-05-10: Added after Discover v1 showed over-personalization and repeated cards.
 - 2026-05-10: Current implementation uses full-library taste, 18 candidate anchors, 8 rotating daily anchors, 24h cache, local impression decay, and source-honest rows.
 - 2026-05-10: Added session-stable Discover composition so adding a show updates owned/check state but does not live-recompose hero/rows. Added explicit refresh control for intentional recomposition.
+- 2026-05-10: Still open. Next pass should focus on measured quality: diversity, freshness, source-truthfulness, and avoiding genre overfitting.
 
 ### BL-014 - Discover Personalization v1
 Status: shipped
@@ -278,8 +283,128 @@ Changelog:
 - 2026-05-10: Added from annotated collection screenshot.
 - 2026-05-10: Implemented first pass: once-per-session CRT/TV-on hero transition and logo overlays on collection landscape cards. Needs visual QA.
 
-### BL-026 - Collection Add Button Affordance Clarification
+### BL-029 - Watchlist Shelves / Mood Queues
+Status: test
+
+Problem:
+Collection currently answers "what have I claimed?", but not "what do I want to pick from tonight?" Users need a personal, mood-based holding area for future watches that feels more like shelves they built than a generic queue.
+
+Hypothesis:
+User-created watchlist shelves with tactile show objects, custom labels, and drag/reorder behavior will turn future watching into identity curation instead of a passive backlog.
+
+Target user:
+Users who discover more shows than they can watch immediately, especially users who choose based on mood, binge context, friends, or current obsession.
+
+Success metric:
+- Users create at least one shelf after adding shows to watchlist.
+- Shows added from Discover/detail are later opened from Watchlist.
+- Users describe shelves as "mine" or "for a mood", not as a task list.
+
+Scope:
+- Add a Watchlist mode/surface inside Collection or as a clearly related collection tab.
+- Users can create shelves and name them freely.
+- Suggested shelf names appear when creating a shelf, such as "Watching next", "Comfort chaos", "Cry later", "Binge with friends", "Animated brainrot", "One serious episode", "Weekend canon", or "Maybe actually".
+- Shows can be added to shelves without being added to Collection.
+- Shows can live on multiple shelves if that feels better than forcing one location.
+- Drag and drop shows to reorder within a shelf.
+- Drag and drop shows between shelves.
+- Add shows directly from the shelves page through search.
+- Keep the page object-led and Gen Alpha: tactile, physical, playful, not a millennial productivity board.
+- MVP can be local-only and does not need collaboration/accounts yet.
+
+Changelog:
+- 2026-05-10: Added from product direction: watchlist as self-made shelves for different moods, days, binges, and future picks. Promoted to next build work because it gives Discover a second meaningful save action beyond collection ownership.
+- 2026-05-10: Implemented first MVP: Watchlist mode inside Collection, local watchlist show storage, default shelves, custom shelf creation, shelf search/add flow, remove-from-shelf, and drag/reorder/move behavior across shelves. Needs visual QA and interaction tuning.
+
+### BL-032 - Add to Watchlist Entry Points + Add to Collection Rename
+Status: test
+
+Problem:
+The app currently overuses "add" without clearly separating owned/claimed collection from future-watch intent. "Add to stash" also no longer matches the product language the user wants.
+
+Hypothesis:
+Clear entry points for "Add to Collection" and "Add to Watchlist" will make user intent explicit and reduce the feeling that every interaction means claiming a show forever.
+
+Target user:
+All users discovering or inspecting shows, especially users who are interested but not ready to add a show to their core collection.
+
+Success metric:
+- Users understand the difference between Collection and Watchlist without explanation.
+- Watchlist saves happen from Discover/detail at a meaningful rate.
+- Fewer confused comments about whether plus means hero action, card action, or collection action.
+
+Scope:
+- Rename "Add to stash" to "Add to collection" across detail/import language.
+- Add "Add to watchlist" near "Add to collection" on unowned show detail.
+- Provide a compact shelf picker after adding to watchlist, with create-new-shelf available.
+- Add watchlist entry point from Discover cards or overflow, without making cards cluttered.
+- Add watchlist entry point from Collection/Watchlist itself.
+- Keep destructive/negative actions visually separate from add/save actions.
+- Reserve space for "Not interested" but do not ship the permanent hater profile loop until BL-031 is designed.
+
+Changelog:
+- 2026-05-10: Added after watchlist concept. This is the smallest shippable bridge from current add flows into shelves.
+- 2026-05-10: Implemented first MVP: detail page now separates Add to collection from Watchlist, collection copy replaces stash copy in touched flows, and the Collection top action switches to shelf search when Watchlist is active. Needs copy/affordance QA.
+
+### BL-030 - Watchlist First-Run Shelf Tutorial
 Status: spec
+
+Problem:
+If Watchlist shelves are just an empty state with text, users may read it as another list-management feature instead of a physical, mood-based picking system.
+
+Hypothesis:
+A short first-run animated tutorial showing shelf names and contents transforming in place will teach the concept emotionally before users read anything.
+
+Target user:
+First-time Watchlist users.
+
+Success metric:
+- Users can explain shelves after seeing the tutorial once.
+- Users create or accept a suggested shelf within the first Watchlist session.
+- Tutorial is memorable but not annoying on repeat visits.
+
+Scope:
+- Show only the first time a user enters Watchlist in a session/account state.
+- Animate example shelves whose names and contents rotate in place.
+- Example shelf names/content can include "Watching next", "Maybe crazy", "Love cry dance", "Endgame night", "Space opera", "Sunday cartoons", "Friend bait", and "Don't judge me".
+- Motion should feel physical: vertical reel/slot-machine rotation, stretch/squeeze, snap, smear if feasible.
+- Avoid casino reward language despite using a reel-like motion reference; this is a physical selector, not gambling.
+- Include a quick skip/dismiss.
+- Respect reduced-motion preferences.
+
+Changelog:
+- 2026-05-10: Added from product note about a satisfying first-time Watchlist tutorial with rotating shelf names/content.
+
+### BL-031 - Not Interested / Hater State
+Status: idea
+
+Problem:
+Discover needs a way for users to say "not this" without adding or ranking a show. Repeatedly surfacing unwanted shows makes recommendation quality feel worse.
+
+Hypothesis:
+A lightweight "Not interested" action with temporary hiding, escalation to permanent hide after repeated rejection, and a playful profile-facing identity state can improve recommendation trust while keeping the app's personality.
+
+Target user:
+Users who are actively curating taste and want the app to stop showing certain shows.
+
+Success metric:
+- Hidden shows stop reappearing in Discover during the hide window.
+- Users use "Not interested" without confusing it with removal from Collection.
+- Permanent hides are rare, intentional, and reversible.
+
+Scope:
+- Add "Not interested" as a quiet action on show detail and/or Discover overflow.
+- First hide removes the show from recommendations for 3 months.
+- If the user hides the same show 3 times with less than a month between hides, convert it to a permanent hidden state.
+- Permanent hidden shows should be manageable/reversible from profile/settings.
+- Explore a playful "hater" profile marker only after the base hide mechanics feel safe and non-shaming.
+- Feed hidden-state data into Discover ranking and Watchlist suggestions.
+
+Changelog:
+- 2026-05-10: Added from watchlist/discover product note. Kept as later/concept because the hide mechanics are useful, but the profile-facing "hater" identity needs tone and reversibility safeguards.
+
+### BL-026 - Collection Add Button Affordance Clarification
+Status: test
 
 Problem:
 The add button in the top-right corner of the collection page visually matches Discover card add buttons, so it can read as "add this backdrop show" instead of "add a show to my collection."
@@ -303,6 +428,7 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from product review after the collection hero/add affordance was confused with Discover card add.
+- 2026-05-10: Implemented first pass: changed collection add control into a library-level pill with collection icon + add label, visually distinct from card plus buttons. Needs visual QA.
 
 ### BL-001 - Visual Depth and Saturation Pass
 Status: shipped
@@ -470,7 +596,7 @@ Changelog:
 ## P1 - Identity and Profile Expression
 
 ### BL-007 - Favorite Characters / Cast Role Card Upgrade
-Status: in-dev
+Status: test
 
 Problem:
 Cast role cards and profile cast surfaces still do not fully deliver the "favorite characters / personal roster" fantasy. The mechanic is promising, but cards can be hard to read and do not immediately explain why assigning a role is fun.
@@ -498,9 +624,10 @@ Changelog:
 - 2026-05-10: Detail-page cast interaction improved: actual cast images now appear, add/check controls live on character images, and role picker can preselect tapped cast member. Profile/My Cast card upgrade remains open.
 - 2026-05-10: Reframed from cast-role cards to favorite-character identity cards based on annotated profile feedback.
 - 2026-05-10: Implemented first profile roster pass: role label moved onto character card, character name enlarged, show cue quieted, and add slot reframed as "Add character".
+- 2026-05-10: Ready for visual QA. Remaining question: whether the roster reads immediately as favorite characters with roles, not admin cards.
 
 ### BL-017 - Profile / Top 8 Showcase Upgrade
-Status: in-dev
+Status: test
 
 Problem:
 Profile still risks feeling like account/profile UI instead of a loadout or showcase of taste.
@@ -528,9 +655,10 @@ Changelog:
 - 2026-05-10: Added after detail/discover redesign made profile the next weakest identity surface.
 - 2026-05-10: Expanded from annotated profile screenshot: compact header, stronger Top 8 rank/vibe states, and clearer character-roster module.
 - 2026-05-10: Implemented first pass: compact profile header and Top 8 rank-color outlines, tier chips, position chips, vibe emoji overlays, and title treatment.
+- 2026-05-10: Implemented additional pass: rank/vibe treatment made more alive, with seeded non-synchronous emoji bubble motion and stronger Top 8 object states. Ready for visual QA.
 
 ### BL-027 - Top 8 Card Tap Actions
-Status: spec
+Status: test
 
 Problem:
 Tapping a Top 8 card currently removes it immediately. That is too destructive and blocks the more likely intent: inspecting the show or managing the slot.
@@ -554,13 +682,14 @@ Scope:
 
 Changelog:
 - 2026-05-10: Added from product review after Top 8 cards became more important showcase objects.
+- 2026-05-10: Implemented first pass: tapping a filled Top 8 card opens an action sheet with View details, Replace slot, and Remove from Top 8. Needs visual QA.
 
 ---
 
 ## P1 - Recommendation, Crates, and Quest Loops
 
 ### BL-028 - Import From External Tracking Services
-Status: idea
+Status: spec
 
 Problem:
 Current import is manual/search-based. Users with existing libraries in other tools should not have to rebuild hundreds of shows by hand.
@@ -595,6 +724,7 @@ Provider candidates and initial feasibility:
 
 Changelog:
 - 2026-05-10: Added after import-flow planning request. Initial recommendation: research spike first, then implement Trakt + AniList before MAL/Kitsu/Simkl.
+- 2026-05-10: Promoted to spec/research spike. Next step is connector feasibility: auth model, CORS constraints, mapping strategy, import preview UX, and whether this requires a backend.
 
 ### BL-009 - Curated Crate Ontology and Quality Gates
 Status: in-dev
@@ -797,6 +927,22 @@ Changelog:
 
 ---
 
+## In Test / Ready For Visual QA
+
+### 2026-05-10
+- Watchlist shelves MVP is implemented: Collection now has a Watchlist mode with local shelves, shelf creation, show search, add/remove, and drag/drop between shelves.
+- Detail/add flows now separate Add to collection from Watchlist and touched "stash" copy has moved toward collection language.
+- Collection add control now reads as a collection-level action instead of a hero-card add.
+- Top 8 card tap now opens an action sheet instead of removing immediately.
+- Profile Top 8 cards have stronger rank/vibe object states and non-synchronous vibe emoji motion.
+- Favorite-character roster cards have clearer character-first role treatment.
+- Episode tracker has cinematic header, left-side back, season imagery, and no watched-title strikethrough.
+- Detail cast/tracking/rank/vibe polish is implemented and ready for real-device review.
+- Collection TV-on moment and landscape logos are implemented and ready for visual review.
+- Ranking tier shelves are compressed with stronger tier color and tap-to-expand behavior.
+
+---
+
 ## Shipped Recently
 
 ### 2026-05-10
@@ -820,3 +966,9 @@ Changelog:
 - 2026-05-10: Treat full collection as taste profile; use rotating anchor subset only for bounded TMDB candidate generation.
 - 2026-05-10: Keep live rows source-honest. Personalization can filter/reorder source rows lightly, but should not inject unrelated recommendations into Trending/Airing.
 - 2026-05-10: AI/persona recommendation UI remains blocked until recommendation trust is strong.
+- 2026-05-10: Discover should not recompose live while a user is adding shows. Ownership state can update immediately, but content mix should refresh only intentionally or in a later session.
+- 2026-05-10: Profile showcase cards are not destructive tap targets. Filled Top 8 cards open management options; removal is explicit.
+- 2026-05-10: Importing from external services needs a research spike before build. Likely first targets are Trakt for TV/movie and AniList for anime; MAL/Kitsu/Simkl/CSV remain candidates.
+- 2026-05-10: Watchlist is distinct from Collection. Collection means claimed/owned taste objects; Watchlist means future-pick shelves the user builds for moods, days, binges, or social contexts.
+- 2026-05-10: "Add to stash" should become "Add to collection". Watchlist needs its own add action and shelf picker so save intent is not overloaded.
+- 2026-05-10: Negative taste actions should start as reversible recommendation controls. The playful "hater" identity can exist later, but not before hide/permanent-hide behavior is clear and undoable.

@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react'
-import { Plus, X, Check, User, Edit3 } from 'lucide-react'
+import { Plus, X, Check, User, Edit3, Eye, RotateCcw, Trash2 } from 'lucide-react'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { setTop8 } from '../../data/queries'
@@ -36,7 +36,11 @@ function particleRange(seed: number, min: number, max: number) {
   return min + particleUnit(seed) * (max - min)
 }
 
-export function ProfileTab() {
+interface Props {
+  onOpenShow: (show: Show) => void
+}
+
+export function ProfileTab({ onOpenShow }: Props) {
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const tiers = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
@@ -44,6 +48,7 @@ export function ProfileTab() {
   const [isEditing, setIsEditing] = useState(false)
   const [name, setName] = useState('PLAYER ONE')
   const [colorIndex, setColorIndex] = useState(0)
+  const [activeSlot, setActiveSlot] = useState<number | null>(null)
 
   const top8 = useMemo(
     () =>
@@ -55,6 +60,7 @@ export function ProfileTab() {
 
   const slots: (Show | null)[] = Array.from({ length: MAX }).map((_, i) => top8[i] ?? null)
   const availableShows = shows.filter((s) => !top8.some((t) => t.id === s.id))
+  const activeShow = activeSlot === null ? null : slots[activeSlot]
   const tierByShowId = useMemo(() => new Map(tiers.map((tier) => [tier.showId, tier.tier])), [tiers])
   const vibesByShowId = useMemo(() => {
     const map = new Map<number, string[]>()
@@ -179,7 +185,7 @@ export function ProfileTab() {
                   tier={show ? tierByShowId.get(show.id) : undefined}
                   vibes={show ? vibesByShowId.get(show.id) ?? [] : []}
                   onPick={() => setSelectingSlot(index)}
-                  onRemove={() => void removeAt(index)}
+                  onOpenActions={() => setActiveSlot(index)}
                 />
               ))}
             </div>
@@ -227,7 +233,79 @@ export function ProfileTab() {
           </div>
         </div>
       )}
+      <Top8ActionSheet
+        show={activeShow}
+        slot={activeSlot}
+        onClose={() => setActiveSlot(null)}
+        onView={() => {
+          if (activeShow) onOpenShow(activeShow)
+          setActiveSlot(null)
+        }}
+        onReplace={() => {
+          if (activeSlot === null) return
+          setSelectingSlot(activeSlot)
+          setActiveSlot(null)
+        }}
+        onRemove={() => {
+          if (activeSlot === null) return
+          void removeAt(activeSlot)
+          setActiveSlot(null)
+        }}
+      />
     </>
+  )
+}
+
+function Top8ActionSheet({
+  show,
+  slot,
+  onClose,
+  onView,
+  onReplace,
+  onRemove,
+}: {
+  show: Show | null
+  slot: number | null
+  onClose: () => void
+  onView: () => void
+  onReplace: () => void
+  onRemove: () => void
+}) {
+  if (!show || slot === null) return null
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md" onClick={onClose}>
+      <div className="absolute inset-x-3 bottom-4 overflow-hidden rounded-[30px] bg-[#101014]/96 text-white shadow-[0_28px_80px_rgba(0,0,0,0.72)] ring-1 ring-white/[0.08]" onClick={(event) => event.stopPropagation()}>
+        <div className="relative h-32 overflow-hidden">
+          {show.backdropPath || show.posterPath ? (
+            <img src={imgUrl(show.backdropPath ?? show.posterPath, show.backdropPath ? 'w500' : 'w342')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-62" />
+          ) : null}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/88 via-black/48 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#101014] to-transparent" />
+          <div className="absolute bottom-4 left-4 right-14">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f5c453]">Top {slot + 1}</p>
+            <h3 className="mt-1 line-clamp-2 text-2xl font-black leading-[0.9] tracking-[-0.08em]">{show.name}</h3>
+          </div>
+          <button onClick={onClose} className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-black/44 text-white/80 backdrop-blur-md ring-1 ring-white/[0.08]" aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="grid gap-2 p-3">
+          <button onClick={onView} className="flex h-12 items-center gap-3 rounded-[22px] bg-white/[0.08] px-4 text-left font-black uppercase tracking-[0.12em] text-white active:scale-[0.99]">
+            <Eye size={18} />
+            View details
+          </button>
+          <button onClick={onReplace} className="flex h-12 items-center gap-3 rounded-[22px] bg-white/[0.08] px-4 text-left font-black uppercase tracking-[0.12em] text-white active:scale-[0.99]">
+            <RotateCcw size={18} />
+            Replace slot
+          </button>
+          <button onClick={onRemove} className="flex h-12 items-center gap-3 rounded-[22px] bg-rose-500/12 px-4 text-left font-black uppercase tracking-[0.12em] text-rose-200 active:scale-[0.99]">
+            <Trash2 size={18} />
+            Remove from Top 8
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -237,14 +315,14 @@ function Top8Card({
   tier,
   vibes,
   onPick,
-  onRemove,
+  onOpenActions,
 }: {
   show: Show | null
   index: number
   tier?: Tier
   vibes: string[]
   onPick: () => void
-  onRemove: () => void
+  onOpenActions: () => void
 }) {
   const tierColor = tier ? TIER_PROFILE[tier] : '#f5c453'
   const featured = index < 2
@@ -259,7 +337,7 @@ function Top8Card({
         featured && 'col-span-2',
         !show ? 'bg-white/[0.035] hover:bg-white/[0.07] flex items-center justify-center' : '',
       )}
-      onClick={show ? onRemove : onPick}
+      onClick={show ? onOpenActions : onPick}
       style={show ? {
         boxShadow: `0 18px 38px rgba(0,0,0,0.42), 0 0 0 2px ${tierColor}b8, 0 0 34px ${tierColor}44, inset 0 0 0 1px rgba(255,255,255,0.12)`,
       } : undefined}
@@ -335,8 +413,8 @@ function Top8Card({
           <div className="absolute inset-x-0 bottom-0 p-3">
             <p className="line-clamp-2 text-sm font-black leading-[0.95] tracking-[-0.055em] text-white">{show.name}</p>
           </div>
-          <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-            <X size={22} className="text-white" />
+          <div className="absolute inset-0 bg-black/36 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+            <span className="rounded-full bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-black">Options</span>
           </div>
         </>
       )}

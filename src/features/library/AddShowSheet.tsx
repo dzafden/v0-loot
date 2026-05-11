@@ -145,7 +145,7 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
         >
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0 border-b border-white/10">
-              <h2 className="text-sm font-black uppercase tracking-widest text-white">Add a show</h2>
+              <h2 className="text-sm font-black uppercase tracking-widest text-white">Add to collection</h2>
               <button
                 onClick={onClose}
                 className="p-3 bg-white/10 rounded-full hover:bg-white/20 active:scale-90 transition-all"

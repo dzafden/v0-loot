@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, ChevronLeft, Drama, Plus, Trash2, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronLeft, Drama, Plus, Trash2, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
@@ -18,6 +18,7 @@ import {
 import { getCredits, getSeason, getShowDetail, getShowImages, hasTmdbKey, imgUrl } from '../../lib/tmdb'
 import { getRarity, RARITIES } from '../../lib/rarity'
 import { cn } from '../../lib/utils'
+import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
 
 const TIERS: Tier[] = ['S', 'A', 'B', 'C', 'D']
 const SUGGESTED_EMOJI = ['❤️', '🔥', '💀', '🥶', '😭', '🍔', '🥲', '🌹', '🥀', '👑', '🎯', '🤡', '🧠', '🎲', '🌶️', '⭐']
@@ -71,6 +72,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const [castLoading, setCastLoading] = useState(false)
   const [rankEditorOpen, setRankEditorOpen] = useState(false)
   const [storyOpen, setStoryOpen] = useState(false)
+  const [watchlistOpen, setWatchlistOpen] = useState(false)
   const persistedShow = useDexieQuery<Show | undefined>(['shows'], () => db.shows.get(show.id), undefined, [show.id])
   const liveShow = persistedShow ?? show
   const owned = Boolean(persistedShow)
@@ -159,7 +161,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
   const metadata = [liveShow.year, liveShow.genres?.[0], seasonLabel(seasonInfo, progress)].filter(Boolean)
 
-  const handleAddToStash = async () => {
+  const handleAddToCollection = async () => {
     await upsertShow({
       ...liveShow,
       addedAt: liveShow.addedAt || Date.now(),
@@ -170,14 +172,14 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
 
   const handleTier = async (nextTier: Tier) => {
     const removing = tier === nextTier
-    if (!owned) await handleAddToStash()
+    if (!owned) await handleAddToCollection()
     await setTier(show.id, tier === nextTier ? null : nextTier)
     setRankEditorOpen(removing)
     navigator.vibrate?.([6, 18, 8])
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Remove "${show.name}" from your stash?`)) return
+    if (!confirm(`Remove "${show.name}" from your collection?`)) return
     await deleteShow(show.id)
     onBack()
   }
@@ -207,7 +209,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   }
 
   const handleEpisodeBulk = async (watchAll: boolean) => {
-    if (!owned) await handleAddToStash()
+    if (!owned) await handleAddToCollection()
     setEpisodeBulkBusy(watchAll ? 'mark' : 'unmark')
     try {
       await ensureSeasonCache()
@@ -289,13 +291,30 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           </section>
         )}
 
-        {!owned && (
+        {!owned ? (
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => void handleAddToCollection()}
+              className="flex h-14 items-center justify-center gap-2 rounded-[24px] bg-[#f5c453] text-[11px] font-black uppercase tracking-[0.16em] text-black shadow-[0_18px_42px_rgba(245,196,83,0.18)] active:scale-[0.98]"
+            >
+              <Plus size={17} strokeWidth={3} />
+              Collection
+            </button>
+            <button
+              onClick={() => setWatchlistOpen(true)}
+              className="flex h-14 items-center justify-center gap-2 rounded-[24px] bg-white/[0.08] text-[11px] font-black uppercase tracking-[0.16em] text-white ring-1 ring-white/[0.08] active:scale-[0.98]"
+            >
+              <Bookmark size={16} fill="currentColor" />
+              Watchlist
+            </button>
+          </div>
+        ) : (
           <button
-            onClick={() => void handleAddToStash()}
-            className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-[24px] bg-[#f5c453] text-[12px] font-black uppercase tracking-[0.18em] text-black shadow-[0_18px_42px_rgba(245,196,83,0.18)] active:scale-[0.98]"
+            onClick={() => setWatchlistOpen(true)}
+            className="mt-5 inline-flex h-10 items-center gap-2 rounded-full bg-white/[0.07] px-4 text-[10px] font-black uppercase tracking-[0.16em] text-white/58 ring-1 ring-white/[0.07] active:scale-95"
           >
-            <Plus size={18} strokeWidth={3} />
-            Add to stash
+            <Bookmark size={13} fill="currentColor" />
+            Add to watchlist
           </button>
         )}
 
@@ -315,11 +334,11 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           members={showCast}
           loading={castLoading}
           onCast={async () => {
-            if (!owned) await handleAddToStash()
+            if (!owned) await handleAddToCollection()
             onAssignRole(liveShow)
           }}
           onCastPerson={async (personId) => {
-            if (!owned) await handleAddToStash()
+            if (!owned) await handleAddToCollection()
             onAssignRole(liveShow, personId)
           }}
           accent={accent}
@@ -329,7 +348,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           progress={progress}
           busy={episodeBulkBusy}
           onOpen={async () => {
-            if (!owned) await handleAddToStash()
+            if (!owned) await handleAddToCollection()
             onTrackEpisodes(liveShow)
           }}
           onBulk={handleEpisodeBulk}
@@ -340,11 +359,12 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
             <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/18 transition-colors hover:text-rose-300 active:scale-95">
               <Trash2 size={12} />
-              Remove from stash
+              Remove from collection
             </button>
           </div>
         )}
       </main>
+      <WatchlistShelfPicker open={watchlistOpen} show={liveShow} onClose={() => setWatchlistOpen(false)} />
     </div>
   )
 }

@@ -8,9 +8,22 @@ import type {
   Show,
   Tier,
   TierAssignment,
+  WatchlistShelf,
 } from '../types'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+
+export const WATCHLIST_SHELF_SUGGESTIONS = [
+  'Watch next',
+  'Someday',
+  'Comfort chaos',
+  'Cry later',
+  'Binge with friends',
+  'Animated brainrot',
+  'One serious episode',
+  'Weekend canon',
+  'Maybe actually',
+]
 
 // ---------- shows ----------
 
@@ -115,6 +128,133 @@ export async function removeFromCollection(id: string, showId: number) {
   if (!c) return
   await db.collections.update(id, {
     showIds: c.showIds.filter((s) => s !== showId),
+  })
+}
+
+// ---------- watchlist shelves ----------
+
+export async function createWatchlistShelf(name: string): Promise<WatchlistShelf> {
+  const shelf: WatchlistShelf = {
+    id: uid(),
+    name,
+    showIds: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  await db.watchlistShelves.add(shelf)
+  return shelf
+}
+
+export async function ensureDefaultWatchlistShelves(): Promise<WatchlistShelf[]> {
+  return db.transaction('rw', db.watchlistShelves, async () => {
+    const existing = await db.watchlistShelves.toArray()
+    const defaultNames = ['Watch next', 'Someday']
+    const legacyDefaultNames = ['Watching next', 'Maybe actually', 'Binge with friends']
+
+    if (!existing.length) {
+      const now = Date.now()
+      const defaults: WatchlistShelf[] = defaultNames.map((name, index) => ({
+        id: `default-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        name,
+        showIds: [],
+        createdAt: now + index,
+        updatedAt: now + index,
+      }))
+      await db.watchlistShelves.bulkPut(defaults)
+      return defaults
+    }
+
+    // React StrictMode can double-run first-mount effects. Only clean up duplicate
+    // empty defaults; never delete a shelf once the user has put shows into it.
+    const byDefaultName = new Map<string, WatchlistShelf[]>()
+    for (const shelf of existing) {
+      if (![...defaultNames, ...legacyDefaultNames].includes(shelf.name)) continue
+      byDefaultName.set(shelf.name, [...(byDefaultName.get(shelf.name) ?? []), shelf])
+    }
+    for (const shelves of byDefaultName.values()) {
+      const sorted = [...shelves].sort((a, b) => a.createdAt - b.createdAt)
+      const emptyDuplicates = sorted.slice(1).filter((shelf) => shelf.showIds.length === 0)
+      for (const shelf of emptyDuplicates) await db.watchlistShelves.delete(shelf.id)
+    }
+
+    for (const legacyName of legacyDefaultNames) {
+      const legacy = await db.watchlistShelves
+        .filter((shelf) => shelf.name === legacyName && shelf.showIds.length === 0)
+        .toArray()
+      for (const shelf of legacy) await db.watchlistShelves.delete(shelf.id)
+    }
+
+    const current = await db.watchlistShelves.toArray()
+    const currentNames = new Set(current.map((shelf) => shelf.name))
+    const now = Date.now()
+    for (const name of defaultNames) {
+      if (currentNames.has(name)) continue
+      await db.watchlistShelves.put({
+        id: `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        name,
+        showIds: [],
+        createdAt: now + defaultNames.indexOf(name),
+        updatedAt: now + defaultNames.indexOf(name),
+      })
+    }
+
+    return db.watchlistShelves.toArray()
+  }).then((shelves) => shelves.sort((a, b) => a.createdAt - b.createdAt))
+}
+
+export async function renameWatchlistShelf(id: string, name: string) {
+  await db.watchlistShelves.update(id, { name, updatedAt: Date.now() })
+}
+
+export async function deleteWatchlistShelf(id: string) {
+  await db.watchlistShelves.delete(id)
+}
+
+export async function addToWatchlistShelf(shelfId: string, show: Show) {
+  await db.transaction('rw', [db.watchlistShows, db.watchlistShelves], async () => {
+    await db.watchlistShows.put({
+      ...show,
+      addedAt: show.addedAt || Date.now(),
+      updatedAt: Date.now(),
+    })
+    const shelf = await db.watchlistShelves.get(shelfId)
+    if (!shelf || shelf.showIds.includes(show.id)) return
+    await db.watchlistShelves.update(shelfId, {
+      showIds: [...shelf.showIds, show.id],
+      updatedAt: Date.now(),
+    })
+  })
+}
+
+export async function removeFromWatchlistShelf(shelfId: string, showId: number) {
+  const shelf = await db.watchlistShelves.get(shelfId)
+  if (!shelf) return
+  await db.watchlistShelves.update(shelfId, {
+    showIds: shelf.showIds.filter((id) => id !== showId),
+    updatedAt: Date.now(),
+  })
+}
+
+export async function updateWatchlistShelfShows(shelfId: string, showIds: number[]) {
+  await db.watchlistShelves.update(shelfId, {
+    showIds,
+    updatedAt: Date.now(),
+  })
+}
+
+export async function moveWatchlistShow(showId: number, fromShelfId: string, toShelfId: string, toIndex?: number) {
+  await db.transaction('rw', db.watchlistShelves, async () => {
+    const fromShelf = await db.watchlistShelves.get(fromShelfId)
+    const toShelf = await db.watchlistShelves.get(toShelfId)
+    if (!fromShelf || !toShelf) return
+
+    const fromIds = fromShelf.showIds.filter((id) => id !== showId)
+    const nextToIds = toShelf.id === fromShelf.id ? fromIds : toShelf.showIds.filter((id) => id !== showId)
+    const insertAt = Math.max(0, Math.min(toIndex ?? nextToIds.length, nextToIds.length))
+    nextToIds.splice(insertAt, 0, showId)
+
+    await db.watchlistShelves.update(fromShelfId, { showIds: fromIds, updatedAt: Date.now() })
+    await db.watchlistShelves.update(toShelfId, { showIds: nextToIds, updatedAt: Date.now() })
   })
 }
 

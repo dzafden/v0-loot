@@ -172,7 +172,7 @@ export function Library({
                   type="search"
                   value={filter.search ?? ''}
                   onChange={(e) => setFilter({ ...filter, search: e.target.value })}
-                  placeholder="Search your stash"
+                  placeholder="Search your collection"
                   className="w-full rounded-xl bg-white/[0.06] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
                 />
               </div>
@@ -255,7 +255,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
           <IconStar size={28} className="text-white/30" />
         </div>
       </motion.div>
-      <h2 className="text-xl font-extrabold tracking-tight">Your stash is empty</h2>
+      <h2 className="text-xl font-extrabold tracking-tight">Your collection is empty</h2>
       <p className="mt-2 text-sm text-white/55 max-w-[260px]">
         Drop your first show to start the inventory.
       </p>

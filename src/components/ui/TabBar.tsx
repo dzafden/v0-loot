@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 export type Tab = 'library' | 'tier' | 'collections' | 'cast' | 'settings'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'library', label: 'Stash', icon: '📦' },
+  { id: 'library', label: 'Collection', icon: '📦' },
   { id: 'tier', label: 'Tiers', icon: '🏆' },
   { id: 'collections', label: 'Sets', icon: '📁' },
   { id: 'cast', label: 'Cast', icon: '🎭' },

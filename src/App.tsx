@@ -63,7 +63,7 @@ export default function App() {
         {tab === 'rankings' && (
           <Rankings onGoDiscover={() => setTab('discover')} onOpenShow={setDetail} />
         )}
-        {tab === 'profile' && <ProfileTab />}
+        {tab === 'profile' && <ProfileTab onOpenShow={setDetail} />}
 
         {detail && !tracking && (
           <ShowDetail
