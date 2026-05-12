@@ -347,7 +347,7 @@ export function Rankings({ onGoDiscover, onOpenShow }: Props) {
 
   return (
     <>
-      <div className="relative flex flex-col min-h-full pb-28 overflow-hidden">
+      <div className="relative flex flex-col min-h-full pb-40 overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[260px] bg-[radial-gradient(circle_at_24%_0%,rgba(255,255,255,0.08),transparent_18rem)]" aria-hidden />
 
         <div className="relative z-10 px-4 pt-5 pb-6 flex flex-col">
@@ -362,24 +362,6 @@ export function Rankings({ onGoDiscover, onOpenShow }: Props) {
               Done
             </button>
           </div>
-
-          {rankingQueue.length > 0 && (
-            <button
-              onClick={() => setSorting(true)}
-              className="mb-4 flex h-[76px] items-center justify-between rounded-[26px] bg-white/[0.045] px-4 text-left shadow-[0_18px_46px_rgba(0,0,0,0.32)] transition-transform active:scale-[0.98]"
-            >
-              <div className="flex -space-x-5 overflow-hidden">
-                {rankingQueue.slice(0, 4).map((show) => (
-                  <div key={show.id} className="h-16 w-11 overflow-hidden rounded-[12px] bg-black shadow-[0_10px_24px_rgba(0,0,0,0.45)] ring-2 ring-[#111014]">
-                    {show.posterPath ? <img src={imgUrl(show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" /> : null}
-                  </div>
-                ))}
-              </div>
-              <span className="grid h-12 w-12 place-items-center rounded-[19px] bg-[#f5c453] text-black shadow-[0_0_20px_rgba(245,196,83,0.22)]">
-                <Play size={18} className="fill-black" />
-              </span>
-            </button>
-          )}
 
           <div className="flex flex-col gap-3 pb-8">
             {filteredShows.length === 0 ? (
@@ -406,6 +388,26 @@ export function Rankings({ onGoDiscover, onOpenShow }: Props) {
             )}
           </div>
         </div>
+
+        {rankingQueue.length > 0 && (
+          <div className="pointer-events-none fixed inset-x-0 bottom-[104px] z-40 px-5">
+            <button
+              onClick={() => setSorting(true)}
+              className="pointer-events-auto mx-auto flex h-[74px] w-full max-w-[560px] items-center justify-between rounded-[26px] bg-black/58 px-4 text-left shadow-[0_24px_70px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.08] backdrop-blur-2xl transition-transform active:scale-[0.98]"
+            >
+              <div className="flex -space-x-5 overflow-hidden">
+                {rankingQueue.slice(0, 4).map((show) => (
+                  <div key={show.id} className="h-16 w-11 overflow-hidden rounded-[12px] bg-black shadow-[0_10px_24px_rgba(0,0,0,0.45)] ring-2 ring-[#111014]">
+                    {show.posterPath ? <img src={imgUrl(show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" /> : null}
+                  </div>
+                ))}
+              </div>
+              <span className="grid h-12 w-12 place-items-center rounded-[19px] bg-[#f5c453] text-black shadow-[0_0_20px_rgba(245,196,83,0.22)]">
+                <Play size={18} className="fill-black" />
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {sorting && rankingQueue.length > 0 && (

@@ -134,10 +134,16 @@ export async function removeFromCollection(id: string, showId: number) {
 // ---------- watchlist shelves ----------
 
 export async function createWatchlistShelf(name: string): Promise<WatchlistShelf> {
+  const existing = await db.watchlistShelves.toArray()
+  const lastPosition = existing.reduce((max, shelf, index) => {
+    const position = typeof shelf.position === 'number' ? shelf.position : index
+    return Math.max(max, position)
+  }, -1)
   const shelf: WatchlistShelf = {
     id: uid(),
     name,
     showIds: [],
+    position: lastPosition + 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -157,6 +163,7 @@ export async function ensureDefaultWatchlistShelves(): Promise<WatchlistShelf[]>
         id: `default-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         name,
         showIds: [],
+        position: index,
         createdAt: now + index,
         updatedAt: now + index,
       }))
@@ -193,13 +200,30 @@ export async function ensureDefaultWatchlistShelves(): Promise<WatchlistShelf[]>
         id: `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         name,
         showIds: [],
+        position: current.length + defaultNames.indexOf(name),
         createdAt: now + defaultNames.indexOf(name),
         updatedAt: now + defaultNames.indexOf(name),
       })
     }
 
+    const normalized = await db.watchlistShelves.toArray()
+    const priority = new Map(defaultNames.map((name, index) => [name, index]))
+    const ordered = [...normalized].sort((a, b) => {
+      const ap = typeof a.position === 'number' ? a.position : undefined
+      const bp = typeof b.position === 'number' ? b.position : undefined
+      if (ap !== undefined || bp !== undefined) return (ap ?? 999) - (bp ?? 999)
+      const ad = priority.get(a.name)
+      const bd = priority.get(b.name)
+      if (ad !== undefined || bd !== undefined) return (ad ?? 99) - (bd ?? 99)
+      return a.createdAt - b.createdAt
+    })
+    for (let index = 0; index < ordered.length; index++) {
+      if (ordered[index].position === index) continue
+      await db.watchlistShelves.update(ordered[index].id, { position: index, updatedAt: Date.now() })
+    }
+
     return db.watchlistShelves.toArray()
-  }).then((shelves) => shelves.sort((a, b) => a.createdAt - b.createdAt))
+  }).then((shelves) => shelves.sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.createdAt - b.createdAt))
 }
 
 export async function renameWatchlistShelf(id: string, name: string) {
@@ -208,6 +232,14 @@ export async function renameWatchlistShelf(id: string, name: string) {
 
 export async function deleteWatchlistShelf(id: string) {
   await db.watchlistShelves.delete(id)
+}
+
+export async function reorderWatchlistShelves(orderedIds: string[]) {
+  await db.transaction('rw', db.watchlistShelves, async () => {
+    for (let index = 0; index < orderedIds.length; index++) {
+      await db.watchlistShelves.update(orderedIds[index], { position: index, updatedAt: Date.now() })
+    }
+  })
 }
 
 export async function addToWatchlistShelf(shelfId: string, show: Show) {

@@ -27,14 +27,10 @@ export function WatchlistShelfPicker({ open, show, onClose }: Props) {
 
   const sortedShelves = useMemo(
     () => {
-      const priority = new Map([
-        ['Watch next', 0],
-        ['Someday', 1],
-      ])
       return [...shelves].sort((a, b) => {
-        const ap = priority.get(a.name)
-        const bp = priority.get(b.name)
-        if (ap !== undefined || bp !== undefined) return (ap ?? 99) - (bp ?? 99)
+        const ap = typeof a.position === 'number' ? a.position : undefined
+        const bp = typeof b.position === 'number' ? b.position : undefined
+        if (ap !== undefined || bp !== undefined) return (ap ?? 999) - (bp ?? 999)
         return a.createdAt - b.createdAt
       })
     },

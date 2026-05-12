@@ -50,6 +50,7 @@ export interface WatchlistShelf {
   id: string
   name: string
   showIds: number[]
+  position?: number
   createdAt: number
   updatedAt: number
 }

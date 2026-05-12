@@ -40,13 +40,12 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
   const [tvOn, setTvOn] = useState(false)
   const [watchlistSearchOpen, setWatchlistSearchOpen] = useState(false)
   const [watchlistSearchShelfId, setWatchlistSearchShelfId] = useState<string | null>(null)
+  const [newShelfSignal, setNewShelfSignal] = useState(0)
   const reduceMotion = useReducedMotion()
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const assignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
-  const shelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
-  const firstWatchlistShelfId = shelves.find((shelf) => shelf.name === 'Watch next')?.id ?? shelves[0]?.id ?? null
 
   const tierByShowId = useMemo(() => {
     const map = new Map<number, Tier>()
@@ -191,17 +190,16 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
           <button
             onClick={() => {
               if (view === 'watchlist') {
-                setWatchlistSearchShelfId(firstWatchlistShelfId)
-                setWatchlistSearchOpen(true)
+                setNewShelfSignal((value) => value + 1)
                 return
               }
               onAddShow()
             }}
             className="flex h-11 items-center gap-2 rounded-full bg-black/38 px-3 text-white/86 backdrop-blur-2xl shadow-[0_12px_32px_rgba(0,0,0,0.38)] border border-white/[0.08] active:scale-95"
-            aria-label={view === 'watchlist' ? 'Add to watchlist' : 'Add to collection'}
+            aria-label={view === 'watchlist' ? 'Create new shelf' : 'Add to collection'}
           >
-            {view === 'watchlist' ? <Bookmark size={16} fill="currentColor" /> : <LibraryBig size={16} />}
-            <span className="text-[10px] font-black uppercase tracking-[0.14em]">{view === 'watchlist' ? 'Shelf' : 'Add'}</span>
+            {view === 'watchlist' ? null : <LibraryBig size={16} />}
+            <span className="text-[10px] font-black uppercase tracking-[0.14em]">{view === 'watchlist' ? 'New shelf' : 'Add'}</span>
             <span className="grid h-6 w-6 place-items-center rounded-full bg-[#f5c453] text-black">
               <Plus size={13} strokeWidth={3} />
             </span>
@@ -283,7 +281,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
         </section>
       )}
 
-      <div className={cn('relative z-10 px-4', view === 'watchlist' ? 'pt-[86px] pb-1' : 'py-1.5')}>
+      <div className={cn('relative z-10 px-4', view === 'watchlist' ? 'pt-[66px] pb-0' : 'py-1.5')}>
         {view === 'collection' && (
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
             <div className="flex items-center justify-center p-2 bg-white/[0.045] rounded-full flex-shrink-0">
@@ -326,6 +324,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
       <div className={cn('relative z-10 flex-1 px-4 pb-6', view === 'watchlist' ? 'pt-1' : 'pt-3')}>
         {view === 'watchlist' ? (
           <WatchlistShelves
+            newShelfSignal={newShelfSignal}
             onOpenShow={onOpenShow}
             onAddToShelf={(shelfId) => {
               setWatchlistSearchShelfId(shelfId)
