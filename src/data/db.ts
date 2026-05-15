@@ -8,6 +8,7 @@ import type {
   SeasonCache,
   CastRole,
   WatchlistShelf,
+  CanvasItem,
 } from '../types'
 
 export class LootDB extends Dexie {
@@ -20,6 +21,7 @@ export class LootDB extends Dexie {
   castRoles!: Table<CastRole, string>
   watchlistShows!: Table<Show, number>
   watchlistShelves!: Table<WatchlistShelf, string>
+  canvasItems!: Table<CanvasItem, string>
 
   constructor() {
     super('loot')
@@ -42,6 +44,18 @@ export class LootDB extends Dexie {
       castRoles: 'id, showId, roleName, createdAt',
       watchlistShows: 'id, name, addedAt, updatedAt',
       watchlistShelves: 'id, name, createdAt, updatedAt',
+    })
+    this.version(3).stores({
+      shows: 'id, name, addedAt, updatedAt, top8Position',
+      collections: 'id, name, createdAt',
+      emojiCategories: 'id, emoji, createdAt',
+      tierAssignments: 'showId, tier, updatedAt',
+      episodeProgress: 'key, showId, [showId+seasonNumber], watched, watchedAt',
+      seasonCache: 'key, showId, fetchedAt',
+      castRoles: 'id, showId, roleName, createdAt',
+      watchlistShows: 'id, name, addedAt, updatedAt',
+      watchlistShelves: 'id, name, createdAt, updatedAt',
+      canvasItems: 'id, showId, kind, createdAt, updatedAt',
     })
   }
 }

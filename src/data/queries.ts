@@ -1,6 +1,7 @@
 import { db } from './db'
 import type {
   CastRole,
+  CanvasItem,
   Collection,
   EmojiCategory,
   EpisodeProgress,
@@ -25,6 +26,12 @@ export const WATCHLIST_SHELF_SUGGESTIONS = [
   'Maybe actually',
 ]
 
+type CanvasDraft = Omit<CanvasItem, 'id' | 'x' | 'y' | 'scale' | 'createdAt' | 'updatedAt'> & {
+  x?: number
+  y?: number
+  scale?: number
+}
+
 // ---------- shows ----------
 
 export async function upsertShow(show: Show) {
@@ -40,6 +47,7 @@ export async function deleteShow(id: number) {
       db.episodeProgress,
       db.seasonCache,
       db.castRoles,
+      db.canvasItems,
       db.collections,
       db.emojiCategories,
     ],
@@ -49,6 +57,7 @@ export async function deleteShow(id: number) {
       await db.episodeProgress.where({ showId: id }).delete()
       await db.seasonCache.where({ showId: id }).delete()
       await db.castRoles.where({ showId: id }).delete()
+      await db.canvasItems.where({ showId: id }).delete()
       // remove from collections / emoji categories
       const cols = await db.collections.toArray()
       for (const c of cols) {
@@ -68,6 +77,33 @@ export async function deleteShow(id: number) {
       }
     },
   )
+}
+
+// ---------- canvas ----------
+
+export async function addCanvasItem(item: CanvasDraft): Promise<CanvasItem> {
+  const now = Date.now()
+  const existing = await db.canvasItems.toArray()
+  const offset = existing.length % 8
+  const canvasItem: CanvasItem = {
+    ...item,
+    id: uid(),
+    x: item.x ?? 120 + offset * 34,
+    y: item.y ?? 120 + offset * 42,
+    scale: item.scale ?? 1,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await db.canvasItems.add(canvasItem)
+  return canvasItem
+}
+
+export async function updateCanvasItem(id: string, patch: Partial<Pick<CanvasItem, 'x' | 'y' | 'scale'>>) {
+  await db.canvasItems.update(id, { ...patch, updatedAt: Date.now() })
+}
+
+export async function deleteCanvasItem(id: string) {
+  await db.canvasItems.delete(id)
 }
 
 // ---------- top 8 ----------

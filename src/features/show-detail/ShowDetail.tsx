@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Bookmark, Check, ChevronLeft, Drama, Plus, Trash2, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronLeft, Drama, MessageCircle, Plus, Sparkles, Star, Trash2, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import {
   applyEmoji,
+  addCanvasItem,
   cacheSeason,
   createEmojiCategory,
   deleteShow,
@@ -15,7 +16,7 @@ import {
   progressForShow,
   upsertShow,
 } from '../../data/queries'
-import { getCredits, getSeason, getShowDetail, getShowImages, hasTmdbKey, imgUrl } from '../../lib/tmdb'
+import { getCredits, getSeason, getShowDetail, getShowImages, getShowKeywords, hasTmdbKey, imgUrl } from '../../lib/tmdb'
 import { getRarity, RARITIES } from '../../lib/rarity'
 import { cn } from '../../lib/utils'
 import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
@@ -31,6 +32,7 @@ type DetailCastMember = {
   character: string
   profile_path: string | null
 }
+type DetailFactState = { tagline: string; rating: number | null; keywords: string[] }
 
 const TIER_DETAIL: Record<Tier, TierDetailStyle> = {
   S: { color: '#fb7185', soft: 'rgba(251,113,133,0.22)', wash: 'rgba(251,113,133,0.10)' },
@@ -73,6 +75,8 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const [rankEditorOpen, setRankEditorOpen] = useState(false)
   const [storyOpen, setStoryOpen] = useState(false)
   const [watchlistOpen, setWatchlistOpen] = useState(false)
+  const [dataMode, setDataMode] = useState(false)
+  const [detailFacts, setDetailFacts] = useState<DetailFactState>({ tagline: '', rating: null, keywords: [] })
   const persistedShow = useDexieQuery<Show | undefined>(['shows'], () => db.shows.get(show.id), undefined, [show.id])
   const liveShow = persistedShow ?? show
   const owned = Boolean(persistedShow)
@@ -84,6 +88,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   useEffect(() => {
     if (scrollEl) scrollEl.scrollTo({ top: 0, behavior: 'auto' })
     setStoryOpen(false)
+    setDataMode(false)
   }, [show.id, scrollEl])
 
   useEffect(() => {
@@ -113,12 +118,27 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
 
     getShowDetail(show.id)
       .then((detail) => {
+        if (cancelled) return
         const seasons = detail.seasons.filter((season) => season.season_number !== 0)
         const episodes = seasons.reduce((sum, season) => sum + (season.episode_count ?? 0), 0)
-        if (!cancelled) setSeasonInfo({ seasons: detail.number_of_seasons || seasons.length, episodes })
+        setDetailFacts((current) => ({
+          ...current,
+          tagline: detail.tagline?.trim() ?? '',
+          rating: detail.vote_average ?? null,
+        }))
+        setSeasonInfo({ seasons: detail.number_of_seasons || seasons.length, episodes })
       })
       .catch(() => {
+        setDetailFacts((current) => ({ ...current, tagline: '', rating: null }))
         if (!cancelled) setSeasonInfo(null)
+      })
+
+    getShowKeywords(show.id)
+      .then((keywords) => {
+        if (!cancelled) setDetailFacts((current) => ({ ...current, keywords: keywords.results.slice(0, 12).map((keyword) => keyword.name) }))
+      })
+      .catch(() => {
+        if (!cancelled) setDetailFacts((current) => ({ ...current, keywords: [] }))
       })
 
     return () => {
@@ -159,7 +179,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const r = RARITIES[rarity]
   const accent = tier ? TIER_DETAIL[tier].color : r.hex
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
-  const metadata = [liveShow.year, liveShow.genres?.[0], seasonLabel(seasonInfo, progress)].filter(Boolean)
+  const metadata = [liveShow.year, liveShow.genres?.[0], seasonLabel(seasonInfo, progress)].filter((item): item is string | number => item !== null && item !== undefined && item !== '')
 
   const handleAddToCollection = async () => {
     await upsertShow({
@@ -240,6 +260,18 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           <button onClick={onBack} className="grid h-11 w-11 place-items-center rounded-full bg-black/34 text-white/86 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95" aria-label="Back">
             <ChevronLeft size={21} />
           </button>
+          <button
+            onClick={() => setDataMode((value) => !value)}
+            className="rounded-full bg-black/34 p-1 text-[10px] font-black uppercase tracking-[0.14em] text-white/58 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95"
+            aria-pressed={dataMode}
+          >
+            <span className={cn('inline-flex h-9 items-center rounded-full px-3 transition-colors', !dataMode && 'bg-white text-black')}>
+              Object
+            </span>
+            <span className={cn('inline-flex h-9 items-center rounded-full px-3 transition-colors', dataMode && 'bg-white text-black')}>
+              Data
+            </span>
+          </button>
           <motion.button
             key={tier ?? 'rank'}
             onClick={() => setRankEditorOpen((open) => !open)}
@@ -277,6 +309,20 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
         </div>
       </div>
 
+      {dataMode ? (
+        <DataPointPlayground
+          show={liveShow}
+          logoPath={logoPath}
+          metadata={metadata}
+          facts={detailFacts}
+          cast={showCast}
+          castLoading={castLoading}
+          seasonInfo={seasonInfo}
+          progress={progress}
+          emojis={showEmojis}
+          accent={accent}
+        />
+      ) : (
       <main className="relative z-20 -mt-8 px-4">
         {liveShow.overview && (
           <section>
@@ -364,6 +410,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           </div>
         )}
       </main>
+      )}
       <WatchlistShelfPicker open={watchlistOpen} show={liveShow} onClose={() => setWatchlistOpen(false)} />
     </div>
   )
@@ -392,6 +439,460 @@ function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) 
         )
       })}
     </div>
+  )
+}
+
+function DataPointPlayground({
+  show,
+  logoPath,
+  metadata,
+  facts,
+  cast,
+  castLoading,
+  seasonInfo,
+  progress,
+  emojis,
+  accent,
+}: {
+  show: Show
+  logoPath: string | null
+  metadata: (string | number)[]
+  facts: DetailFactState
+  cast: DetailCastMember[]
+  castLoading: boolean
+  seasonInfo: SeasonInfo | null
+  progress: { watched: number; total: number }
+  emojis: EmojiCategory[]
+  accent: string
+}) {
+  const [activeId, setActiveId] = useState('title')
+  const [draft, setDraft] = useState('')
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [canvasToast, setCanvasToast] = useState<string | null>(null)
+  const [chipHolding, setChipHolding] = useState<string | null>(null)
+  const chipHoldTimer = useRef<number | null>(null)
+  const suppressChipClick = useRef(false)
+  const activeNote = notes[activeId]
+  const rating = facts.rating ? facts.rating.toFixed(1) : '—'
+  const episodeCount = seasonInfo?.episodes ?? progress.total
+  const seasonCount = seasonInfo?.seasons ?? null
+  const activeLabel = activeId
+    .replace(/^keyword-/, '')
+    .replace(/^cast-/, 'cast')
+    .replace(/^vibe-/, 'vibe')
+    .replace(/-/g, ' ')
+
+  const saveNote = () => {
+    const next = draft.trim()
+    setNotes((current) => {
+      if (!next) {
+        const copy = { ...current }
+        delete copy[activeId]
+        return copy
+      }
+      return { ...current, [activeId]: next }
+    })
+    setDraft('')
+    navigator.vibrate?.([4, 12, 4])
+  }
+
+  const clearNote = () => {
+    setNotes((current) => {
+      const copy = { ...current }
+      delete copy[activeId]
+      return copy
+    })
+    setDraft('')
+    navigator.vibrate?.(4)
+  }
+
+  const selectArtifact = (id: string, note = '') => {
+    setActiveId(id)
+    setDraft(notes[id] ?? note)
+  }
+
+  const addArtifactToCanvas = async (
+    kind: string,
+    label: string,
+    value: string,
+    options: { imagePath?: string | null; imageType?: 'logo' | 'poster' | 'backdrop' | 'person' } = {},
+  ) => {
+    await addCanvasItem({
+      showId: show.id,
+      show,
+      kind,
+      label,
+      value,
+      accent,
+      imagePath: options.imagePath,
+      imageType: options.imageType,
+    })
+    setCanvasToast(`${label} added`)
+    window.setTimeout(() => setCanvasToast(null), 1300)
+    navigator.vibrate?.([8, 18, 8])
+  }
+
+  const startChipHold = (id: string, save: () => void) => {
+    if (chipHoldTimer.current) window.clearTimeout(chipHoldTimer.current)
+    suppressChipClick.current = false
+    setChipHolding(id)
+    chipHoldTimer.current = window.setTimeout(() => {
+      suppressChipClick.current = true
+      setChipHolding(null)
+      save()
+    }, 520)
+  }
+
+  const cancelChipHold = () => {
+    if (chipHoldTimer.current) window.clearTimeout(chipHoldTimer.current)
+    chipHoldTimer.current = null
+    setChipHolding(null)
+  }
+
+  const consumeChipClick = () => {
+    if (!suppressChipClick.current) return false
+    suppressChipClick.current = false
+    return true
+  }
+
+  return (
+    <main className="relative z-20 -mt-8 px-4 pb-10">
+      <section className="relative overflow-hidden rounded-[30px] bg-white/[0.045] p-4 ring-1 ring-white/[0.06]">
+        <div className="absolute inset-0 opacity-60" style={{ background: `radial-gradient(circle at 14% 0%, ${accent}1c, transparent 16rem)` }} />
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[16px] bg-white text-black shadow-[0_18px_40px_rgba(0,0,0,0.4)]">
+            <Sparkles size={20} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: accent }}>Data mode</p>
+            <p className="mt-1 text-[15px] font-black leading-[0.95] tracking-[-0.045em] text-white/82">Tap a fact. Pin a take.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className={cn('mt-5 grid grid-cols-2 gap-2.5 transition-all duration-300', activeId && '[&_.data-artifact:not(.is-active)]:opacity-45 [&_.data-artifact:not(.is-active)]:blur-[0.2px]')}>
+        <DataArtifact
+          id="title"
+          activeId={activeId}
+          note={notes.title}
+          label="Title"
+          value={show.name}
+          accent={accent}
+          className="col-span-2 min-h-[126px]"
+          onSelect={() => selectArtifact('title')}
+          onLongPress={() => addArtifactToCanvas(logoPath ? 'logo' : 'title', logoPath ? 'Logo' : 'Title', show.name, logoPath ? { imagePath: logoPath, imageType: 'logo' } : {})}
+        >
+          {logoPath ? (
+            <img src={imgUrl(logoPath, 'w500')} alt={show.name} className="max-h-[76px] max-w-[92%] object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.8)]" />
+          ) : (
+            <p className="max-w-[92%] text-[36px] font-black leading-[0.82] tracking-[-0.12em] text-white text-balance">{show.name}</p>
+          )}
+        </DataArtifact>
+
+        <DataArtifact id="rating" activeId={activeId} note={notes.rating} label="Rating" value={rating} accent={accent} onSelect={() => selectArtifact('rating')} onLongPress={() => addArtifactToCanvas('rating', 'Rating', rating)}>
+          <div className="flex items-end gap-2">
+            <span className="text-[46px] font-black leading-none tracking-[-0.1em] text-white">{rating}</span>
+            <Star size={19} className="mb-1.5" fill={accent} color={accent} />
+          </div>
+        </DataArtifact>
+
+        <DataArtifact id="metadata" activeId={activeId} note={notes.metadata} label="Metadata" value={metadata.join(' / ')} accent={accent} onSelect={() => selectArtifact('metadata')} onLongPress={() => addArtifactToCanvas('metadata', 'Metadata', metadata.join(' / '))}>
+          <div className="space-y-1.5">
+            {metadata.slice(0, 3).map((item) => (
+              <span key={item} className="block text-[15px] font-black uppercase tracking-[0.1em] text-white/82">{item}</span>
+            ))}
+          </div>
+        </DataArtifact>
+
+        {(facts.tagline || show.overview) && (
+          <DataArtifact
+            id="tagline"
+            activeId={activeId}
+            note={notes.tagline}
+            label={facts.tagline ? 'Tagline' : 'Signal'}
+            value={facts.tagline || show.overview || ''}
+            accent={accent}
+            className="col-span-2"
+            onSelect={() => selectArtifact('tagline')}
+            onLongPress={() => addArtifactToCanvas('tagline', facts.tagline ? 'Tagline' : 'Signal', facts.tagline || show.overview || '')}
+          >
+            <p className="text-[23px] font-black leading-[0.98] tracking-[-0.065em] text-white text-balance">
+              {facts.tagline || show.overview}
+            </p>
+          </DataArtifact>
+        )}
+
+        {show.overview && (
+          <DataArtifact
+            id="description"
+            activeId={activeId}
+            note={notes.description}
+            label="Description"
+            value={show.overview}
+            accent={accent}
+            className="col-span-2"
+            onSelect={() => selectArtifact('description')}
+            onLongPress={() => addArtifactToCanvas('description', 'Description', show.overview ?? '')}
+          >
+            <p className="line-clamp-5 text-[18px] font-semibold leading-[1.15] tracking-[-0.035em] text-white/78">{show.overview}</p>
+          </DataArtifact>
+        )}
+      </section>
+
+      <section className="mt-5">
+        <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/36">
+          <MessageCircle size={13} /> Keywords
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(facts.keywords.length ? facts.keywords : show.rawGenres ?? show.genres).slice(0, 12).map((keyword) => {
+            const id = `keyword-${keyword}`
+            return (
+              <button
+                key={id}
+                onPointerDown={() => startChipHold(id, () => void addArtifactToCanvas('keyword', 'Keyword', keyword))}
+                onPointerMove={cancelChipHold}
+                onPointerUp={cancelChipHold}
+                onPointerCancel={cancelChipHold}
+                onClick={(event) => {
+                  if (consumeChipClick()) {
+                    event.preventDefault()
+                    return
+                  }
+                  selectArtifact(id, `This is the ${keyword} part.`)
+                }}
+                className={cn(
+                  'relative rounded-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.12em] ring-1 transition-all duration-300 active:scale-95',
+                  activeId === id ? 'scale-[1.06] bg-white text-black ring-white shadow-[0_14px_32px_rgba(0,0,0,0.42)]' : 'bg-white/[0.065] text-white/42 ring-white/[0.07]',
+                  chipHolding === id && 'scale-[1.08] ring-white/70',
+                )}
+              >
+                {keyword}
+                {notes[id] && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full" style={{ background: accent }} />}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="mt-7">
+        <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/36">
+          <Drama size={13} /> Cast data
+        </div>
+        {castLoading ? (
+          <div className="flex gap-3 overflow-hidden">
+            {[0, 1, 2].map((item) => <div key={item} className="h-[138px] w-[98px] shrink-0 animate-pulse rounded-[24px] bg-white/[0.06]" />)}
+          </div>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+            {cast.slice(0, 12).map((member) => {
+              const id = `cast-${member.id}`
+              return (
+                <button
+                  key={id}
+                  onPointerDown={() => startChipHold(id, () => void addArtifactToCanvas('cast', 'Cast', `${member.character || member.name} / ${member.name}`, { imagePath: member.profile_path, imageType: member.profile_path ? 'person' : undefined }))}
+                  onPointerMove={cancelChipHold}
+                  onPointerUp={cancelChipHold}
+                  onPointerCancel={cancelChipHold}
+                  onClick={(event) => {
+                    if (consumeChipClick()) {
+                      event.preventDefault()
+                      return
+                    }
+                    selectArtifact(id, `${member.character || member.name} is...`)
+                  }}
+                  className={cn(
+                    'relative h-[142px] w-[100px] shrink-0 overflow-hidden rounded-[24px] bg-white/[0.055] text-left ring-1 ring-white/[0.07] transition-all duration-300 active:scale-95',
+                    activeId === id ? 'scale-[1.06] opacity-100 shadow-[0_20px_42px_rgba(0,0,0,0.5)]' : 'opacity-48',
+                    chipHolding === id && 'scale-[1.08] opacity-100 ring-white/70',
+                  )}
+                >
+                  {member.profile_path ? (
+                    <img src={imgUrl(member.profile_path, 'w342')} alt={member.name} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="absolute inset-0 grid place-items-center text-xl font-black text-white/30">{member.name.slice(0, 2).toUpperCase()}</div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/18 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-0 p-2.5">
+                    <p className="line-clamp-2 text-[12px] font-black leading-[0.95] tracking-[-0.04em] text-white">{member.character || member.name}</p>
+                    <p className="mt-1 truncate text-[9px] font-bold text-white/42">{member.name}</p>
+                  </div>
+                  {notes[id] && <span className="absolute right-2 top-2 h-3 w-3 rounded-full shadow-[0_0_18px_rgba(255,255,255,0.3)]" style={{ background: accent }} />}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-7 grid grid-cols-2 gap-2.5">
+        <DataArtifact id="episodes" activeId={activeId} note={notes.episodes} label="Episodes" value={`${episodeCount || 0} episodes`} accent={accent} onSelect={() => selectArtifact('episodes')} onLongPress={() => addArtifactToCanvas('episodes', 'Episodes', `${episodeCount || 0} episodes`)}>
+          <p className="text-[34px] font-black leading-none tracking-[-0.1em] text-white">{episodeCount || '—'}</p>
+          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-white/42">{progress.watched}/{progress.total || episodeCount || 0} watched</p>
+        </DataArtifact>
+        <DataArtifact id="seasons" activeId={activeId} note={notes.seasons} label="Seasons" value={`${seasonCount ?? '—'} seasons`} accent={accent} onSelect={() => selectArtifact('seasons')} onLongPress={() => addArtifactToCanvas('seasons', 'Seasons', `${seasonCount ?? '—'} seasons`)}>
+          <p className="text-[34px] font-black leading-none tracking-[-0.1em] text-white">{seasonCount ?? '—'}</p>
+          <div className="mt-3 flex gap-1">
+            {Array.from({ length: Math.min(seasonCount ?? 0, 6) }).map((_, index) => (
+              <span key={index} className="h-2 flex-1 rounded-full" style={{ background: index < Math.ceil((progress.watched / Math.max(progress.total || 1, 1)) * Math.min(seasonCount ?? 0, 6)) ? accent : 'rgba(255,255,255,0.12)' }} />
+            ))}
+          </div>
+        </DataArtifact>
+      </section>
+
+      {emojis.length > 0 && (
+        <section className="mt-5 flex flex-wrap gap-2">
+          {emojis.map((emoji) => (
+            <button
+              key={emoji.id}
+              onPointerDown={() => startChipHold(`vibe-${emoji.id}`, () => void addArtifactToCanvas('vibe', 'Vibe', `${emoji.emoji} ${emoji.label ?? 'vibe'}`))}
+              onPointerMove={cancelChipHold}
+              onPointerUp={cancelChipHold}
+              onPointerCancel={cancelChipHold}
+              onClick={(event) => {
+                if (consumeChipClick()) {
+                  event.preventDefault()
+                  return
+                }
+                selectArtifact(`vibe-${emoji.id}`, `${emoji.emoji} means...`)
+              }}
+              className={cn('rounded-full bg-white/[0.065] px-3 py-2 text-[12px] font-black uppercase tracking-[0.1em] text-white/70 ring-1 ring-white/[0.07] active:scale-95', chipHolding === `vibe-${emoji.id}` && 'scale-[1.08] ring-white/70')}
+            >
+              <span className="mr-1 text-base">{emoji.emoji}</span>{emoji.label ?? 'vibe'}
+            </button>
+          ))}
+        </section>
+      )}
+
+      <motion.section
+        key={activeId}
+        initial={{ opacity: 0, y: 16, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="sticky bottom-24 z-20 mt-7 overflow-hidden rounded-[30px] border border-white/[0.1] bg-black/58 text-white shadow-[0_24px_70px_rgba(0,0,0,0.62)] backdrop-blur-2xl"
+        style={{ boxShadow: `0 24px 70px rgba(0,0,0,0.62), 0 0 48px ${accent}22` }}
+      >
+        <div className="absolute inset-0 opacity-80" style={{ background: `radial-gradient(circle at 12% 0%, ${accent}2b, transparent 15rem)` }} />
+        <div className="relative z-10 p-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>{activeLabel}</p>
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={activeNote || 'What is the take?'}
+              className="mt-2 min-h-[58px] w-full resize-none bg-transparent text-[23px] font-black leading-[0.98] tracking-[-0.065em] text-white outline-none placeholder:text-white/26"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button onClick={saveNote} className="h-9 rounded-full px-4 text-[10px] font-black uppercase tracking-[0.16em] text-black active:scale-95" style={{ background: accent }}>
+                Pin
+              </button>
+              {activeNote && (
+                <button onClick={clearNote} className="h-9 rounded-full bg-white/[0.07] px-4 text-[10px] font-black uppercase tracking-[0.16em] text-white/42 active:scale-95">
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.section>
+      {canvasToast && (
+        <motion.div
+          initial={{ opacity: 0, y: 14, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 10, scale: 0.96 }}
+          className="fixed bottom-8 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.16em] text-black shadow-[0_20px_56px_rgba(0,0,0,0.52)]"
+        >
+          {canvasToast}
+        </motion.div>
+      )}
+    </main>
+  )
+}
+
+function DataArtifact({
+  id,
+  activeId,
+  note,
+  label,
+  value,
+  accent,
+  className,
+  children,
+  onSelect,
+  onLongPress,
+}: {
+  id: string
+  activeId: string
+  note?: string
+  label: string
+  value: string | number
+  accent: string
+  className?: string
+  children: ReactNode
+  onSelect: () => void
+  onLongPress?: () => void
+}) {
+  const active = activeId === id
+  const longPressTimer = useRef<number | null>(null)
+  const longPressed = useRef(false)
+  const [holding, setHolding] = useState(false)
+  const clearLongPress = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current)
+    longPressTimer.current = null
+    setHolding(false)
+  }
+  return (
+    <motion.button
+      layout
+      onPointerDown={() => {
+        longPressed.current = false
+        clearLongPress()
+        if (!onLongPress) return
+        setHolding(true)
+        longPressTimer.current = window.setTimeout(() => {
+          longPressed.current = true
+          setHolding(false)
+          onLongPress()
+        }, 520)
+      }}
+      onPointerMove={clearLongPress}
+      onPointerUp={clearLongPress}
+      onPointerCancel={clearLongPress}
+      onClick={(event) => {
+        if (longPressed.current) {
+          event.preventDefault()
+          longPressed.current = false
+          return
+        }
+        onSelect()
+      }}
+      className={cn(
+        'data-artifact relative min-h-[118px] overflow-hidden rounded-[30px] bg-white/[0.055] p-4 text-left ring-1 transition-all duration-300 active:scale-[0.985]',
+        active ? 'is-active z-10 scale-[1.045] ring-white/24' : 'ring-white/[0.07]',
+        holding && 'scale-[1.055] ring-white/60',
+        className,
+      )}
+      style={{
+        boxShadow: active ? `0 24px 58px rgba(0,0,0,0.54), 0 0 42px ${accent}30` : '0 14px 34px rgba(0,0,0,0.28)',
+      }}
+    >
+      <div className="absolute inset-0 opacity-70" style={{ background: `radial-gradient(circle at 88% 10%, ${active ? `${accent}34` : 'rgba(255,255,255,0.045)'}, transparent 13rem)` }} />
+      {holding && (
+        <motion.div
+          className="absolute inset-x-3 bottom-3 z-20 h-1 overflow-hidden rounded-full bg-white/12"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <motion.div className="h-full rounded-full" style={{ background: accent }} initial={{ width: '0%' }} animate={{ width: '100%' }} transition={{ duration: 0.52, ease: 'linear' }} />
+        </motion.div>
+      )}
+      <div className="relative z-10">
+        <div className="mb-3 flex items-center gap-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: active ? accent : 'rgba(255,255,255,0.34)' }}>{label}</p>
+          {note && <span className="h-2.5 w-2.5 rounded-full shadow-[0_0_18px_rgba(255,255,255,0.25)]" style={{ background: accent }} />}
+        </div>
+        {children}
+        <span className="sr-only">{value}</span>
+      </div>
+    </motion.button>
   )
 }
 

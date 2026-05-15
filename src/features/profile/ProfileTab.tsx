@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, X, Check, User, Edit3, Eye, RotateCcw, Trash2, Search } from 'lucide-react'
+import { Plus, X, Check, User, Edit3, Eye, RotateCcw, Trash2, Search, Sparkles } from 'lucide-react'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { setTop8 } from '../../data/queries'
@@ -9,6 +9,7 @@ import type { Show, Tier } from '../../types'
 import { MyCast } from '../cast-roles/MyCast'
 import { RankMark, TIER_COLORS, VibeBubbles } from '../../components/show/CollectibleMediaCard'
 import { FullScreenOverlayShell, PickerTopBar } from '../../components/ui/FullScreenPickerShell'
+import { ProfileCanvas } from './ProfileCanvas'
 
 const PROFILE_COLORS = [
   'from-rose-500 to-orange-500',
@@ -35,6 +36,8 @@ export function ProfileTab({ onOpenShow }: Props) {
   const [colorIndex, setColorIndex] = useState(0)
   const [activeSlot, setActiveSlot] = useState<number | null>(null)
   const [top8Search, setTop8Search] = useState('')
+  const [canvasOpen, setCanvasOpen] = useState(false)
+  const canvasItems = useDexieQuery(['canvasItems'], () => db.canvasItems.toArray(), [], [])
 
   const top8 = useMemo(
     () =>
@@ -175,6 +178,24 @@ export function ProfileTab({ onOpenShow }: Props) {
             )}
           </div>
 
+          <button
+            onClick={() => setCanvasOpen(true)}
+            className="mb-5 flex h-14 w-full items-center justify-between overflow-hidden rounded-[24px] bg-white/[0.065] px-4 text-left ring-1 ring-white/[0.07] active:scale-[0.99]"
+          >
+            <span className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-[16px] bg-white text-black shadow-[0_14px_30px_rgba(0,0,0,0.34)]">
+                <Sparkles size={18} />
+              </span>
+              <span>
+                <span className="block text-[13px] font-black uppercase tracking-[0.16em] text-white">Canvas</span>
+                <span className="mt-0.5 block text-[10px] font-black uppercase tracking-[0.16em] text-white/30">
+                  {canvasItems.length} object{canvasItems.length === 1 ? '' : 's'}
+                </span>
+              </span>
+            </span>
+            <span className="text-[22px] font-black text-white/34">+</span>
+          </button>
+
           <div className="mb-7">
             <div className="grid grid-cols-4 gap-3">
               {slots.map((show, index) => (
@@ -267,6 +288,15 @@ export function ProfileTab({ onOpenShow }: Props) {
           setActiveSlot(null)
         }}
       />
+      {canvasOpen && (
+        <ProfileCanvas
+          onClose={() => setCanvasOpen(false)}
+          onOpenShow={(show) => {
+            setCanvasOpen(false)
+            onOpenShow(show)
+          }}
+        />
+      )}
     </>
   )
 }

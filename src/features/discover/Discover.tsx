@@ -6,6 +6,8 @@ import {
   getDiscoverFeed,
   getCachedDiscoverFeed,
   getDiscoverCategoryPage,
+  getSeason,
+  getShowDetail,
   getTmdbKey,
   getShowRecommendations,
   hasTmdbKey,
@@ -15,10 +17,10 @@ import {
   type DiscoverFeed,
   type LootShow,
 } from '../../lib/tmdb'
-import { upsertShow } from '../../data/queries'
+import { cacheSeason, upsertShow } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import type { Genre, Show, Tier, TierAssignment } from '../../types'
+import type { Genre, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
@@ -51,6 +53,161 @@ type DiscoverLibrarySnapshot = {
   signature: string
   createdAt: number
 }
+
+type WatchDropMode = 'mixed' | 'rank' | 'top8' | 'watchlist'
+type MoodKey = 'happy' | 'action' | 'slow' | 'love' | 'dark' | 'comfort' | 'funny' | 'tense' | 'sad' | 'weird'
+type EpisodeModifier = 'sweet' | 'messy' | 'breakup' | 'violence' | 'betrayal' | 'family' | 'friendship' | 'party' | 'case' | 'work'
+
+type EpisodeOption = {
+  showId: number
+  seasonNumber: number
+  episodeNumber: number
+  name: string
+  stillPath?: string | null
+}
+
+type EpisodePick = {
+  show: Show
+  episode: EpisodeOption
+}
+
+type MoodDefinition = {
+  key: MoodKey
+  label: string
+  colors: string
+  genreHints: string[]
+  words: string[]
+  related: EpisodeModifier[]
+  avoid: EpisodeModifier[]
+}
+
+const WATCH_DROP_MOODS: MoodDefinition[] = [
+  {
+    key: 'happy',
+    label: 'Happy',
+    colors: 'from-[#ffe86f] via-[#ff9f6e] to-[#66f2b5]',
+    genreHints: ['Comedy', 'Animation', 'Family'],
+    words: ['happy', 'joy', 'fun', 'party', 'birthday', 'wedding', 'holiday', 'laugh', 'smile', 'win', 'good', 'best'],
+    related: ['party', 'friendship', 'sweet'],
+    avoid: ['breakup', 'betrayal', 'violence'],
+  },
+  {
+    key: 'action',
+    label: 'Action',
+    colors: 'from-[#ff4f70] via-[#ffb13d] to-[#faff70]',
+    genreHints: ['Action', 'Adventure', 'Thriller', 'Sci-Fi'],
+    words: ['fight', 'war', 'battle', 'escape', 'run', 'chase', 'attack', 'mission', 'hero', 'hunt', 'storm', 'danger'],
+    related: ['case', 'violence', 'betrayal'],
+    avoid: ['sweet', 'family'],
+  },
+  {
+    key: 'slow',
+    label: 'Slow',
+    colors: 'from-[#9ed8ff] via-[#c9b8ff] to-[#ffe0a3]',
+    genreHints: ['Drama', 'Romance', 'Documentary'],
+    words: ['quiet', 'night', 'home', 'alone', 'memory', 'past', 'visit', 'return', 'letter', 'story', 'dream'],
+    related: ['family', 'sweet', 'friendship'],
+    avoid: ['violence', 'party', 'case'],
+  },
+  {
+    key: 'love',
+    label: 'Love',
+    colors: 'from-[#ff6aa2] via-[#ffb0d0] to-[#ffe269]',
+    genreHints: ['Romance', 'Comedy', 'Drama'],
+    words: ['love', 'date', 'kiss', 'heart', 'wedding', 'romance', 'crush', 'valentine', 'couple', 'relationship'],
+    related: ['sweet', 'messy', 'breakup', 'family'],
+    avoid: ['violence', 'betrayal'],
+  },
+  {
+    key: 'dark',
+    label: 'Dark',
+    colors: 'from-[#6957ff] via-[#af4dff] to-[#ff4c7b]',
+    genreHints: ['Horror', 'Thriller', 'Crime', 'Mystery'],
+    words: ['death', 'murder', 'killer', 'ghost', 'blood', 'secret', 'dark', 'fear', 'nightmare', 'haunt', 'trial'],
+    related: ['betrayal', 'violence', 'case'],
+    avoid: ['sweet', 'party'],
+  },
+  {
+    key: 'comfort',
+    label: 'Comfort',
+    colors: 'from-[#77f2c2] via-[#ffd36a] to-[#ff8d6b]',
+    genreHints: ['Comedy', 'Animation', 'Family'],
+    words: ['home', 'family', 'friends', 'holiday', 'thanksgiving', 'christmas', 'comfort', 'best', 'baby', 'reunion'],
+    related: ['friendship', 'family', 'sweet'],
+    avoid: ['violence', 'betrayal'],
+  },
+  {
+    key: 'funny',
+    label: 'Funny',
+    colors: 'from-[#f7ff5c] via-[#55f7c4] to-[#65b3ff]',
+    genreHints: ['Comedy', 'Animation'],
+    words: ['funny', 'joke', 'laugh', 'party', 'prank', 'game', 'weird', 'office', 'date', 'best'],
+    related: ['party', 'work', 'friendship'],
+    avoid: ['violence', 'breakup'],
+  },
+  {
+    key: 'tense',
+    label: 'Tense',
+    colors: 'from-[#ff3f3f] via-[#f6a23a] to-[#3138ff]',
+    genreHints: ['Thriller', 'Crime', 'Mystery', 'Drama'],
+    words: ['secret', 'lie', 'trial', 'hunt', 'case', 'danger', 'missing', 'dead', 'finale', 'escape', 'enemy'],
+    related: ['case', 'betrayal', 'violence'],
+    avoid: ['sweet', 'party'],
+  },
+  {
+    key: 'sad',
+    label: 'Sad',
+    colors: 'from-[#7fb4ff] via-[#9c83ff] to-[#ffc4d6]',
+    genreHints: ['Drama', 'Romance'],
+    words: ['goodbye', 'death', 'lost', 'alone', 'cry', 'sad', 'grief', 'breakup', 'funeral', 'memory', 'last'],
+    related: ['breakup', 'family', 'betrayal'],
+    avoid: ['party', 'case'],
+  },
+  {
+    key: 'weird',
+    label: 'Weird',
+    colors: 'from-[#5fffd4] via-[#b45cff] to-[#ffec5f]',
+    genreHints: ['Sci-Fi', 'Mystery', 'Animation', 'Comedy'],
+    words: ['weird', 'strange', 'dream', 'magic', 'alien', 'future', 'ghost', 'mystery', 'experiment', 'monster'],
+    related: ['case', 'party', 'messy'],
+    avoid: ['sweet'],
+  },
+]
+
+const MODIFIER_WORDS: Record<EpisodeModifier, string[]> = {
+  sweet: ['sweet', 'nice', 'kiss', 'heart', 'wedding', 'baby', 'love', 'best'],
+  messy: ['mess', 'awkward', 'secret', 'lie', 'mistake', 'trouble', 'bad', 'fight'],
+  breakup: ['breakup', 'break', 'goodbye', 'ex', 'lost', 'alone', 'last'],
+  violence: ['fight', 'murder', 'killer', 'blood', 'war', 'battle', 'attack', 'dead', 'death'],
+  betrayal: ['betrayal', 'betray', 'lie', 'secret', 'enemy', 'traitor'],
+  family: ['family', 'father', 'mother', 'dad', 'mom', 'sister', 'brother', 'parent', 'baby'],
+  friendship: ['friend', 'friends', 'buddy', 'best', 'team', 'group'],
+  party: ['party', 'birthday', 'wedding', 'holiday', 'christmas', 'thanksgiving', 'dance'],
+  case: ['case', 'murder', 'mystery', 'detective', 'clue', 'investigation', 'trial'],
+  work: ['work', 'office', 'job', 'boss', 'staff', 'meeting', 'shift'],
+}
+
+const MODIFIER_LABELS: Record<EpisodeModifier, string> = {
+  sweet: 'Sweet',
+  messy: 'Messy',
+  breakup: 'Breakup',
+  violence: 'Violence',
+  betrayal: 'Betrayal',
+  family: 'Family',
+  friendship: 'Friendship',
+  party: 'Party',
+  case: 'Case',
+  work: 'Work',
+}
+
+const EPISODE_FALLBACKS = [
+  'Pilot',
+  'The One Tonight',
+  'The Comfort Pick',
+  'The Rewatch',
+  'The Good One',
+  'The Wild Card',
+]
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10)
@@ -348,6 +505,147 @@ async function getTasteRecommendationPool(anchors: Show[]) {
   }
 }
 
+function showMoodText(show: Show) {
+  return [
+    show.name,
+    show.overview,
+    ...(show.genres ?? []),
+    ...(show.rawGenres ?? []),
+  ].filter(Boolean).join(' ').toLowerCase()
+}
+
+function wordScore(text: string, words: string[]) {
+  return words.reduce((score, word) => score + (text.includes(word.toLowerCase()) ? 1 : 0), 0)
+}
+
+function episodeText(show: Show, episode: EpisodeOption) {
+  return `${show.name} ${show.overview ?? ''} ${(show.genres ?? []).join(' ')} ${(show.rawGenres ?? []).join(' ')} ${episode.name}`.toLowerCase()
+}
+
+function modifierScore(text: string, modifiers: EpisodeModifier[]) {
+  return modifiers.reduce((score, modifier) => score + wordScore(text, MODIFIER_WORDS[modifier]), 0)
+}
+
+function scoreEpisodeForMood(show: Show, episode: EpisodeOption, mood: MoodDefinition, include: EpisodeModifier[], exclude: EpisodeModifier[]) {
+  const text = episodeText(show, episode)
+  const genreScore = mood.genreHints.some((genre) => show.genres?.includes(genre as Genre) || show.rawGenres?.includes(genre)) ? 1.5 : 0
+  return wordScore(text, mood.words) * 2 + genreScore + modifierScore(text, include) * 1.4 - modifierScore(text, exclude) * 2.8
+}
+
+function showSupportsMood(show: Show, mood: MoodDefinition, episodes: EpisodeOption[] = []) {
+  if (episodes.length) {
+    return episodes.some((episode) => scoreEpisodeForMood(show, episode, mood, [], mood.avoid) > 0.8)
+  }
+  const text = showMoodText(show)
+  const genreMatch = mood.genreHints.some((genre) => show.genres?.includes(genre as Genre) || show.rawGenres?.includes(genre))
+  return genreMatch || wordScore(text, mood.words) > 0
+}
+
+function cachedEpisodeOptions(showId: number, seasons: SeasonCache[]) {
+  return seasons
+    .filter((season) => season.showId === showId)
+    .sort((a, b) => a.seasonNumber - b.seasonNumber)
+    .flatMap((season) =>
+      season.episodes.map((episode): EpisodeOption => ({
+        showId,
+        seasonNumber: season.seasonNumber,
+        episodeNumber: episode.episode_number,
+        name: episode.name || EPISODE_FALLBACKS[(showId + season.seasonNumber + episode.episode_number) % EPISODE_FALLBACKS.length],
+        stillPath: episode.still_path ?? null,
+      })),
+    )
+}
+
+function fallbackEpisode(show: Show, seed: number): EpisodeOption {
+  const seasonNumber = (seed % 4) + 1
+  const episodeNumber = ((seed >>> 3) % 12) + 1
+  return {
+    showId: show.id,
+    seasonNumber,
+    episodeNumber,
+    name: EPISODE_FALLBACKS[seed % EPISODE_FALLBACKS.length],
+    stillPath: null,
+  }
+}
+
+async function loadEpisodeOptions(show: Show) {
+  const cached = cachedEpisodeOptions(show.id, await db.seasonCache.where({ showId: show.id }).toArray())
+  if (cached.length) return cached
+  if (!getTmdbKey()) return [fallbackEpisode(show, hashString(show.name))]
+
+  try {
+    const detail = await getShowDetail(show.id)
+    const realSeasons = detail.seasons
+      .filter((season) => season.season_number !== 0 && season.episode_count > 0)
+      .sort((a, b) => a.season_number - b.season_number)
+
+    const loaded = await Promise.all(
+      realSeasons.map(async (season) => {
+        const data = await getSeason(show.id, season.season_number)
+        await cacheSeason({
+          key: `${show.id}-${season.season_number}`,
+          showId: show.id,
+          seasonNumber: season.season_number,
+          name: data.name ?? season.name,
+          posterPath: data.poster_path ?? season.poster_path ?? null,
+          episodes: data.episodes.map((episode) => ({
+            episode_number: episode.episode_number,
+            name: episode.name,
+            still_path: episode.still_path ?? null,
+          })),
+          fetchedAt: Date.now(),
+        })
+        return data.episodes.map((episode): EpisodeOption => ({
+          showId: show.id,
+          seasonNumber: season.season_number,
+          episodeNumber: episode.episode_number,
+          name: episode.name || EPISODE_FALLBACKS[(show.id + season.season_number + episode.episode_number) % EPISODE_FALLBACKS.length],
+          stillPath: episode.still_path ?? null,
+        }))
+      }),
+    )
+    const episodes = loaded.flat()
+    return episodes.length ? episodes : [fallbackEpisode(show, hashString(show.name))]
+  } catch {
+    return [fallbackEpisode(show, hashString(show.name))]
+  }
+}
+
+function pickEpisode(
+  show: Show,
+  episodes: EpisodeOption[],
+  mood: MoodDefinition,
+  include: EpisodeModifier[],
+  exclude: EpisodeModifier[],
+  dealSeed: number,
+) {
+  const pool = episodes.length ? episodes : [fallbackEpisode(show, dealSeed)]
+  const scored = pool
+    .map((episode) => ({
+      episode,
+      score: scoreEpisodeForMood(show, episode, mood, include, exclude) + (hashString(`${dealSeed}:${show.id}:${episode.seasonNumber}:${episode.episodeNumber}`) % 100) / 250,
+    }))
+    .sort((a, b) => b.score - a.score)
+  return scored[0]?.episode ?? fallbackEpisode(show, dealSeed)
+}
+
+function distinctSlotShows(sourcePools: Show[][], slotIndexes: number[]) {
+  const used = new Set<number>()
+  return sourcePools.map((pool, slot) => {
+    if (!pool.length) return undefined
+    const start = slotIndexes[slot] % pool.length
+    for (let offset = 0; offset < pool.length; offset++) {
+      const candidate = pool[(start + offset) % pool.length]
+      if (used.has(candidate.id)) continue
+      used.add(candidate.id)
+      return candidate
+    }
+    const fallback = pool[start]
+    used.add(fallback.id)
+    return fallback
+  })
+}
+
 export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [query, setQuery] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
@@ -367,11 +665,16 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [tasteRecommendations, setTasteRecommendations] = useState<LootShow[]>([])
   const [impressions] = useState<DiscoverImpressions>(() => readDiscoverImpressions())
   const [librarySnapshot, setLibrarySnapshot] = useState<DiscoverLibrarySnapshot | null>(() => readLibrarySnapshot())
+  const [watchDropOpen, setWatchDropOpen] = useState(false)
+  const pullStartY = useRef<number | null>(null)
 
   const keyOk = hasTmdbKey()
 
   const ownedShows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const tierAssignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
+  const watchlistShows = useDexieQuery(['watchlistShows'], () => db.watchlistShows.toArray(), [], [])
+  const watchlistShelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
+  const seasonCache = useDexieQuery(['seasonCache'], () => db.seasonCache.toArray(), [], [])
   const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
   const profileShows = librarySnapshot?.ownedShows ?? []
@@ -425,7 +728,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
 
   useEffect(() => {
     if (!keyOk || activeTasteAnchors.length === 0) {
-      setTasteRecommendations([])
+      setTasteRecommendations((prev) => (prev.length === 0 ? prev : []))
       return
     }
     let cancelled = false
@@ -434,7 +737,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
         if (!cancelled) setTasteRecommendations(shows.filter((show) => !profileOwnedSet.has(show.id)))
       })
       .catch(() => {
-        if (!cancelled) setTasteRecommendations([])
+        if (!cancelled) setTasteRecommendations((prev) => (prev.length === 0 ? prev : []))
       })
     return () => {
       cancelled = true
@@ -521,8 +824,23 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     setCategoryTotalPages(1)
   }
 
+  const onDiscoverTouchStart: React.TouchEventHandler<HTMLDivElement> = (event) => {
+    if (window.scrollY > 8 || query.trim() || activeCategory) {
+      pullStartY.current = null
+      return
+    }
+    pullStartY.current = event.touches[0]?.clientY ?? null
+  }
+
+  const onDiscoverTouchEnd: React.TouchEventHandler<HTMLDivElement> = (event) => {
+    if (pullStartY.current === null) return
+    const endY = event.changedTouches[0]?.clientY ?? pullStartY.current
+    if (endY - pullStartY.current > 76) setWatchDropOpen(true)
+    pullStartY.current = null
+  }
+
   return (
-    <div className="relative flex flex-col min-h-full pb-28 overflow-hidden">
+    <div className="relative flex flex-col min-h-full pb-28 overflow-hidden" onTouchStart={onDiscoverTouchStart} onTouchEnd={onDiscoverTouchEnd}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_50%_0%,rgba(245,196,83,0.16),transparent_22rem)]" aria-hidden />
       <div className="sticky top-0 z-30 bg-[#08070a]/45 backdrop-blur-2xl pt-4 pb-3 px-4 flex flex-col gap-3">
         <div className="relative group">
@@ -557,6 +875,20 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             </button>
           )}
         </div>
+        {!query && !activeCategory && (
+          <button
+            onClick={() => setWatchDropOpen(true)}
+            className="group relative h-11 overflow-hidden rounded-[18px] bg-[#171018] text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),0_14px_34px_rgba(0,0,0,0.36)] active:scale-[0.985]"
+            aria-label="Open Watch Drop"
+          >
+            <span className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,232,111,0.28),rgba(255,87,130,0.18),rgba(102,242,181,0.22))]" />
+            <span className="absolute left-1/2 top-1.5 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/42 shadow-[0_0_18px_rgba(255,255,255,0.45)]" />
+            <span className="relative z-10 flex h-full items-center justify-between px-4">
+              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/78">Pull for Watch Drop</span>
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-black/32 text-[16px] font-black text-white/80">⌄</span>
+            </span>
+          </button>
+        )}
         {searchError && <p className="text-xs text-rose-300">{searchError}</p>}
       </div>
 
@@ -600,7 +932,454 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           </>
         )}
       </div>
+
+      <AnimatePresence>
+        {watchDropOpen && (
+          <WatchDropPanel
+            ownedShows={ownedShows}
+            tierAssignments={tierAssignments}
+            watchlistShows={watchlistShows}
+            watchlistShelves={watchlistShelves}
+            seasonCache={seasonCache}
+            onClose={() => setWatchDropOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  )
+}
+
+function WatchDropPanel({
+  ownedShows,
+  tierAssignments,
+  watchlistShows,
+  watchlistShelves,
+  seasonCache,
+  onClose,
+}: {
+  ownedShows: Show[]
+  tierAssignments: TierAssignment[]
+  watchlistShows: Show[]
+  watchlistShelves: { id: string; name: string; showIds: number[]; position?: number; createdAt: number }[]
+  seasonCache: SeasonCache[]
+  onClose: () => void
+}) {
+  const [mode, setMode] = useState<WatchDropMode>('mixed')
+  const [slotIndexes, setSlotIndexes] = useState([0, 1, 2])
+  const [activeMood, setActiveMood] = useState<MoodKey | null>(null)
+  const [includeModifiers, setIncludeModifiers] = useState<EpisodeModifier[]>([])
+  const [excludeModifiers, setExcludeModifiers] = useState<EpisodeModifier[]>([])
+  const [episodePicks, setEpisodePicks] = useState<EpisodePick[]>([])
+  const [dealing, setDealing] = useState(false)
+  const [dealSeed, setDealSeed] = useState(() => hashString(`${Date.now()}`))
+  const slotTouchX = useRef<number | null>(null)
+
+  const tierByShow = useMemo(() => new Map(tierAssignments.map((assignment) => [assignment.showId, assignment.tier])), [tierAssignments])
+  const orderedWatchlist = useMemo(() => {
+    const byId = new Map(watchlistShows.map((show) => [show.id, show]))
+    const orderedIds = watchlistShelves
+      .slice()
+      .sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.createdAt - b.createdAt)
+      .flatMap((shelf) => shelf.showIds)
+    const seen = new Set<number>()
+    return orderedIds
+      .filter((id) => {
+        if (seen.has(id)) return false
+        seen.add(id)
+        return true
+      })
+      .map((id) => byId.get(id))
+      .filter((show): show is Show => Boolean(show))
+  }, [watchlistShelves, watchlistShows])
+
+  const sRankPool = useMemo(() => {
+    const pool = ownedShows
+      .filter((show) => tierByShow.get(show.id) === 'S')
+      .sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
+    return pool.length ? pool : ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
+  }, [ownedShows, tierByShow])
+  const rankPool = useMemo(() => ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow)), [ownedShows, tierByShow])
+  const top8Pool = useMemo(() => ownedShows
+    .filter((show) => typeof show.top8Position === 'number' && show.top8Position >= 0)
+    .sort((a, b) => (a.top8Position ?? 99) - (b.top8Position ?? 99)), [ownedShows])
+
+  const fallbackPool = rankPool.length ? rankPool : ownedShows
+  const sourcePools = useMemo(() => {
+    if (mode === 'rank') return [rankPool, rankPool, rankPool]
+    if (mode === 'top8') return [top8Pool.length ? top8Pool : fallbackPool, top8Pool.length ? top8Pool : fallbackPool, top8Pool.length ? top8Pool : fallbackPool]
+    if (mode === 'watchlist') return [orderedWatchlist.length ? orderedWatchlist : fallbackPool, orderedWatchlist.length ? orderedWatchlist : fallbackPool, orderedWatchlist.length ? orderedWatchlist : fallbackPool]
+    return [sRankPool, top8Pool.length ? top8Pool : fallbackPool, orderedWatchlist.length ? orderedWatchlist : fallbackPool]
+  }, [fallbackPool, mode, orderedWatchlist, rankPool, sRankPool, top8Pool])
+
+  const selectedShows = useMemo(() => distinctSlotShows(sourcePools, slotIndexes), [slotIndexes, sourcePools])
+  const activeShows = useMemo(() => selectedShows.filter((show): show is Show => Boolean(show)), [selectedShows])
+
+  const availableMoods = useMemo(() => {
+    if (activeShows.length < 3) return WATCH_DROP_MOODS.slice(0, 5)
+    const compatible = WATCH_DROP_MOODS.filter((mood) =>
+      activeShows.every((show) => showSupportsMood(show, mood, cachedEpisodeOptions(show.id, seasonCache))),
+    )
+    return compatible.length ? compatible : WATCH_DROP_MOODS.slice(0, 5)
+  }, [activeShows, seasonCache])
+
+  const mood = availableMoods.find((item) => item.key === activeMood) ?? availableMoods[0]
+  const canDeal = activeShows.length === 3 && Boolean(mood)
+
+  useEffect(() => {
+    setSlotIndexes([0, 1, 2])
+    setEpisodePicks([])
+  }, [mode])
+
+  const rotateSlot = (slot: number, direction: 1 | -1) => {
+    setEpisodePicks([])
+    setSlotIndexes((current) => {
+      const next = [...current]
+      const poolSize = sourcePools[slot]?.length ?? 1
+      next[slot] = (next[slot] + direction + poolSize) % poolSize
+      return next
+    })
+  }
+
+  const toggleModifier = (kind: 'include' | 'exclude', modifier: EpisodeModifier) => {
+    setEpisodePicks([])
+    if (kind === 'include') {
+      setExcludeModifiers((items) => items.filter((item) => item !== modifier))
+      setIncludeModifiers((items) => items.includes(modifier) ? items.filter((item) => item !== modifier) : [...items, modifier])
+      return
+    }
+    setIncludeModifiers((items) => items.filter((item) => item !== modifier))
+    setExcludeModifiers((items) => items.includes(modifier) ? items.filter((item) => item !== modifier) : [...items, modifier])
+  }
+
+  const dealEpisodes = async () => {
+    if (!canDeal || !mood) return
+    setDealing(true)
+    const nextSeed = hashString(`${Date.now()}:${activeShows.map((show) => show.id).join(':')}:${mood.key}`)
+    setDealSeed(nextSeed)
+    try {
+      const pools = await Promise.all(activeShows.map(loadEpisodeOptions))
+      setEpisodePicks(activeShows.map((show, index) => ({
+        show,
+        episode: pickEpisode(show, pools[index], mood, includeModifiers, excludeModifiers, nextSeed + index * 997),
+      })))
+    } finally {
+      setDealing(false)
+    }
+  }
+
+  const randomizeSlots = () => {
+    setEpisodePicks([])
+    const seed = hashString(`${Date.now()}`)
+    setSlotIndexes(sourcePools.map((pool, slot) => {
+      const poolSize = pool.length || 1
+      return (hashString(`${seed}:${slot}`) % poolSize + poolSize) % poolSize
+    }))
+  }
+
+  const related = mood?.related ?? []
+  const avoid = mood?.avoid ?? []
+
+  return (
+    <motion.div
+      initial={{ y: '-104%', opacity: 0.7 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: '-104%', opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 210, damping: 26 }}
+      className="fixed inset-x-0 top-0 z-50 mx-auto h-svh w-full max-w-md overflow-hidden bg-[#060508]"
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_4%,rgba(255,232,111,0.22),transparent_18rem),radial-gradient(circle_at_85%_24%,rgba(89,245,198,0.18),transparent_20rem),linear-gradient(180deg,rgba(255,80,118,0.08),transparent_34%)]" />
+      <div className="absolute inset-0 loot-noise opacity-40" />
+      <div className="relative z-10 flex h-full flex-col overflow-y-auto px-3 pb-5 pt-3">
+        <div className="mb-2 flex items-center justify-between">
+          <button
+            onClick={onClose}
+            className="grid h-10 w-10 place-items-center rounded-full bg-black/34 text-[26px] leading-none text-white/76 ring-1 ring-white/10 active:scale-95"
+            aria-label="Close Watch Drop"
+          >
+            ×
+          </button>
+          <div className="h-1.5 w-16 rounded-full bg-white/30 shadow-[0_0_20px_rgba(255,255,255,0.42)]" />
+          <div className="h-10 w-10" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-2.5">
+          {[0, 1, 2].map((slot) => {
+            const show = selectedShows[slot]
+            const pick = episodePicks.find((item) => item.show.id === show?.id)
+            return (
+              <WatchSlot
+                key={`${slot}-${show?.id ?? 'empty'}-${pick?.episode.seasonNumber ?? 'show'}-${pick?.episode.episodeNumber ?? ''}`}
+                show={show}
+                pick={pick}
+                slot={slot}
+                poolSize={sourcePools[slot]?.length ?? 0}
+                onPrev={() => rotateSlot(slot, -1)}
+                onNext={() => rotateSlot(slot, 1)}
+                onTouchStart={(x) => { slotTouchX.current = x }}
+                onTouchEnd={(x) => {
+                  if (slotTouchX.current === null) return
+                  const delta = x - slotTouchX.current
+                  if (Math.abs(delta) > 42) rotateSlot(slot, delta < 0 ? 1 : -1)
+                  slotTouchX.current = null
+                }}
+              />
+            )
+          })}
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <DropSourceButton kind="rank" active={mode === 'rank'} shows={rankPool} onClick={() => setMode('rank')} />
+          <DropSourceButton kind="top8" active={mode === 'top8'} shows={top8Pool} onClick={() => setMode('top8')} />
+          <DropSourceButton kind="watchlist" active={mode === 'watchlist'} shows={orderedWatchlist} onClick={() => setMode('watchlist')} />
+        </div>
+
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          {availableMoods.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => {
+                setActiveMood(item.key)
+                setIncludeModifiers([])
+                setExcludeModifiers([])
+                setEpisodePicks([])
+              }}
+              className={cn(
+                'relative h-8 overflow-hidden rounded-[12px] px-2 text-[10px] font-black uppercase tracking-[0.08em] text-black shadow-[0_6px_14px_rgba(0,0,0,0.32),0_2px_0_rgba(0,0,0,0.45)] ring-1 ring-white/20 active:scale-95 active:shadow-[0_2px_6px_rgba(0,0,0,0.32)]',
+                mood?.key === item.key ? 'scale-[1.05] shadow-[0_8px_18px_rgba(0,0,0,0.38),0_2px_0_rgba(0,0,0,0.45)]' : 'opacity-72',
+              )}
+            >
+              <span className={cn('absolute inset-0 bg-gradient-to-br', item.colors)} />
+              <span className="absolute inset-0 bg-[linear-gradient(130deg,rgba(255,255,255,0.52),transparent_42%,rgba(0,0,0,0.18))]" />
+              <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[12px]" />
+              <span className="relative z-10">{item.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {activeMood && mood && (
+          <div className="mt-2 rounded-[18px] bg-white/[0.045] p-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {related.map((modifier) => (
+                <ModifierChip
+                  key={`include-${modifier}`}
+                  label={`+ ${MODIFIER_LABELS[modifier]}`}
+                  selected={includeModifiers.includes(modifier)}
+                  onClick={() => toggleModifier('include', modifier)}
+                />
+              ))}
+              {avoid.map((modifier) => (
+                <ModifierChip
+                  key={`exclude-${modifier}`}
+                  label={`- ${MODIFIER_LABELS[modifier]}`}
+                  selected={excludeModifiers.includes(modifier)}
+                  danger
+                  onClick={() => toggleModifier('exclude', modifier)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={randomizeSlots}
+            className="relative h-[clamp(54px,8svh,62px)] w-[clamp(54px,8svh,62px)] flex-shrink-0 overflow-hidden rounded-[20px] bg-white/[0.08] shadow-[0_8px_24px_rgba(0,0,0,0.32),0_2px_0_rgba(0,0,0,0.5)] ring-1 ring-white/[0.12] active:scale-95 active:shadow-[0_2px_8px_rgba(0,0,0,0.32)]"
+            aria-label="Randomize shows"
+          >
+            <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.14),transparent_52%,rgba(0,0,0,0.18))]" />
+            <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/30 rounded-b-[20px]" />
+            <span className="relative z-10 text-[22px]">🎲</span>
+          </button>
+          <button
+            onClick={() => void dealEpisodes()}
+            disabled={!canDeal || dealing}
+            className="relative h-[clamp(54px,8svh,62px)] flex-1 overflow-hidden rounded-[24px] bg-white text-black shadow-[0_20px_52px_rgba(255,207,97,0.22),0_3px_0_rgba(0,0,0,0.4)] disabled:opacity-45 active:scale-[0.985] active:shadow-[0_4px_16px_rgba(255,207,97,0.18),0_1px_0_rgba(0,0,0,0.4)]"
+          >
+            <span className={cn('absolute inset-0 bg-gradient-to-r', mood?.colors ?? 'from-white via-zinc-200 to-white')} />
+            <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-40%,rgba(255,255,255,0.8),transparent_54%),linear-gradient(180deg,rgba(255,255,255,0.35),rgba(0,0,0,0.14))]" />
+            <span className="absolute inset-x-0 bottom-0 h-[4px] bg-black/20 rounded-b-[24px]" />
+            <span className="relative z-10 text-[22px] font-black uppercase tracking-[0.2em]">{dealing ? 'Dealing' : 'Deal'}</span>
+          </button>
+        </div>
+
+        {dealSeed ? <span className="sr-only">{dealSeed}</span> : null}
+      </div>
+    </motion.div>
+  )
+}
+
+function WatchSlot({
+  show,
+  pick,
+  slot,
+  poolSize,
+  onPrev,
+  onNext,
+  onTouchStart,
+  onTouchEnd,
+}: {
+  show?: Show
+  pick?: EpisodePick
+  slot: number
+  poolSize: number
+  onPrev: () => void
+  onNext: () => void
+  onTouchStart: (x: number) => void
+  onTouchEnd: (x: number) => void
+}) {
+  if (!show) {
+    return <div className="h-[clamp(132px,24svh,178px)] rounded-[22px] bg-white/[0.04] ring-1 ring-white/[0.08]" />
+  }
+  const hero = pick?.episode.stillPath || show.backdropPath || show.posterPath
+  return (
+    <motion.div
+      initial={{ scale: 0.96, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ delay: slot * 0.04, type: 'spring', stiffness: 260, damping: 22 }}
+      onTouchStart={(event) => onTouchStart(event.touches[0]?.clientX ?? 0)}
+      onTouchEnd={(event) => onTouchEnd(event.changedTouches[0]?.clientX ?? 0)}
+      style={{ touchAction: 'pan-y' }}
+      className="relative h-[clamp(132px,24svh,178px)] overflow-hidden rounded-[22px] bg-[#151018] shadow-[0_18px_48px_rgba(0,0,0,0.42)] ring-1 ring-white/[0.08]"
+    >
+      {hero ? <img src={imgUrl(hero, pick?.episode.stillPath ? 'w500' : 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-78" /> : null}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/16 via-black/10 to-black/90" />
+      <div className="absolute -right-8 -top-12 h-36 w-36 rounded-full bg-white/12 blur-2xl" />
+      {poolSize > 1 && !pick && (
+        <>
+          <button onClick={onPrev} className="absolute left-1.5 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/38 text-white/70 ring-1 ring-white/10 active:scale-90" aria-label="Previous show">‹</button>
+          <button onClick={onNext} className="absolute right-1.5 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/38 text-white/70 ring-1 ring-white/10 active:scale-90" aria-label="Next show">›</button>
+        </>
+      )}
+      <div className="relative z-10 flex h-full items-end p-2.5">
+        <div className="min-w-0 w-full">
+          <ShowLogo show={show} compact={Boolean(pick)} />
+          {pick ? (
+            <>
+              <div className="mt-1.5 text-[clamp(17px,5.2vw,20px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_8px_18px_rgba(0,0,0,0.8)]">
+                S{String(pick.episode.seasonNumber).padStart(2, '0')}E{String(pick.episode.episodeNumber).padStart(2, '0')}
+              </div>
+              <div className="mt-1 line-clamp-2 text-[10.5px] font-semibold leading-[1.05] text-white/82">{pick.episode.name}</div>
+            </>
+          ) : (
+            <div className="mt-1.5 line-clamp-2 text-[clamp(15px,4.8vw,18px)] font-black leading-[0.92] tracking-[-0.03em] text-white drop-shadow-[0_8px_18px_rgba(0,0,0,0.8)]">
+              {show.name}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function ShowLogo({ show, compact = false }: { show: Show; compact?: boolean }) {
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  useEffect(() => {
+    if (art) return
+    let cancelled = false
+    getLandscapeArt(show.id)
+      .then((next) => {
+        if (!cancelled) setArt(next)
+      })
+      .catch(() => {
+        if (!cancelled) setArt({ logoPath: null, tagline: '' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [art, show.id])
+
+  if (art?.logoPath) {
+    return <img src={imgUrl(art.logoPath, 'w500')} alt={show.name} className={cn('object-contain object-left drop-shadow-[0_8px_18px_rgba(0,0,0,0.9)]', compact ? 'max-h-7 max-w-[92px]' : 'max-h-9 max-w-[104px]')} />
+  }
+  return <div className="truncate text-[9px] font-black uppercase tracking-[0.12em] text-white/62">{show.name}</div>
+}
+
+function DropSourceButton({ kind, active, shows, onClick }: { kind: 'rank' | 'top8' | 'watchlist'; active: boolean; shows: Show[]; onClick: () => void }) {
+  const label = kind === 'rank' ? 'Rank' : kind === 'top8' ? 'Top 8' : 'Watchlist'
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'relative h-[clamp(72px,12svh,88px)] overflow-visible rounded-[22px] bg-[#151018] text-left',
+        'shadow-[0_16px_32px_rgba(0,0,0,0.48),0_4px_0_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)]',
+        'ring-1 ring-white/[0.08] active:scale-[0.97] active:shadow-[0_4px_12px_rgba(0,0,0,0.48),0_1px_0_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)]',
+        active && 'ring-2 ring-white/70 shadow-[0_16px_32px_rgba(0,0,0,0.48),0_4px_0_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.18),0_0_0_2px_rgba(255,255,255,0.7)]',
+      )}
+    >
+      <div className="absolute inset-0 overflow-hidden rounded-[22px]">
+        {kind === 'rank' ? (
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,#ff4e7a,#ffe76a_48%,#68ffc6)]">
+            <div className="absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.38),transparent_40%,rgba(0,0,0,0.22))]" />
+            {(['S', 'A', 'B'] as const).map((tier, index) => (
+              <span key={tier} className="absolute font-black text-black/60" style={{ left: `${6 + index * 29}%`, top: `${4 + index * 14}%`, fontSize: `${52 - index * 6}px`, transform: `rotate(${-14 + index * 14}deg)`, textShadow: '0 3px 0 rgba(0,0,0,0.18)' }}>{tier}</span>
+            ))}
+          </div>
+        ) : kind === 'top8' ? (
+          <div className="absolute inset-0 bg-gradient-to-br from-[#1a1230] to-[#080510]">
+            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(120,80,255,0.22),transparent_52%)]" />
+            {shows.slice(0, 8).map((show, index) => {
+              const col = index % 4
+              const row = Math.floor(index / 4)
+              return (
+                <span
+                  key={show.id}
+                  className="absolute overflow-hidden rounded-[8px] bg-white/10 shadow-[0_6px_14px_rgba(0,0,0,0.5)] ring-1 ring-white/20"
+                  style={{
+                    width: 28, height: 40,
+                    left: 6 + col * 24,
+                    top: row === 0 ? 6 : 34,
+                    transform: `rotate(${-8 + (index % 4) * 4}deg) translateY(${row === 1 ? -2 : 0}px)`,
+                    zIndex: index,
+                  }}
+                >
+                  {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-[#12181a] to-[#06080a]">
+            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,200,180,0.14),transparent_52%)]" />
+            {shows.slice(0, 5).map((show, index) => (
+              <span
+                key={show.id}
+                className="absolute overflow-hidden rounded-[9px] bg-white/10 shadow-[0_8px_18px_rgba(0,0,0,0.55)] ring-1 ring-white/20"
+                style={{
+                  width: 34, height: 48,
+                  left: '50%',
+                  top: 8,
+                  transformOrigin: 'bottom center',
+                  transform: `translateX(calc(-50% + ${(index - 2) * 18}px)) rotate(${(index - 2) * 9}deg)`,
+                  zIndex: index === 2 ? 10 : 5 - Math.abs(index - 2),
+                }}
+              >
+                {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
+              </span>
+            ))}
+          </div>
+        )}
+        <span className="absolute inset-0 bg-gradient-to-t from-black/86 via-black/16 to-transparent" />
+      </div>
+      <span className="absolute bottom-3 left-3 right-3 z-10 text-[11px] font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_5px_12px_rgba(0,0,0,0.8)]">{label}</span>
+    </button>
+  )
+}
+
+function ModifierChip({ label, selected, danger = false, onClick }: { label: string; selected: boolean; danger?: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'h-8 shrink-0 rounded-full px-3 text-[10px] font-black uppercase tracking-[0.06em] ring-1 transition-transform active:scale-95',
+        selected
+          ? danger
+            ? 'bg-rose-300 text-black ring-rose-100/80'
+            : 'bg-emerald-200 text-black ring-emerald-100/80'
+          : 'bg-white/[0.08] text-white/62 ring-white/[0.08]',
+      )}
+    >
+      {label}
+    </button>
   )
 }
 

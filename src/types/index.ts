@@ -55,6 +55,23 @@ export interface WatchlistShelf {
   updatedAt: number
 }
 
+export interface CanvasItem {
+  id: string
+  showId: number
+  show: Show
+  kind: string
+  label: string
+  value: string
+  imagePath?: string | null
+  imageType?: 'logo' | 'poster' | 'backdrop' | 'person'
+  accent?: string
+  x: number
+  y: number
+  scale: number
+  createdAt: number
+  updatedAt: number
+}
+
 export interface EmojiCategory {
   id: string
   emoji: string
