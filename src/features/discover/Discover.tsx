@@ -1007,13 +1007,7 @@ function WatchDropPanel({
   const selectedShows = useMemo(() => distinctSlotShows(sourcePools, slotIndexes), [slotIndexes, sourcePools])
   const activeShows = useMemo(() => selectedShows.filter((show): show is Show => Boolean(show)), [selectedShows])
 
-  const availableMoods = useMemo(() => {
-    if (activeShows.length < 3) return WATCH_DROP_MOODS.slice(0, 5)
-    const compatible = WATCH_DROP_MOODS.filter((mood) =>
-      activeShows.every((show) => showSupportsMood(show, mood, cachedEpisodeOptions(show.id, seasonCache))),
-    )
-    return compatible.length ? compatible : WATCH_DROP_MOODS.slice(0, 5)
-  }, [activeShows, seasonCache])
+  const availableMoods = WATCH_DROP_MOODS
 
   const mood = availableMoods.find((item) => item.key === activeMood) ?? availableMoods[0]
   const canDeal = activeShows.length === 3 && Boolean(mood)
@@ -1345,40 +1339,40 @@ function DropSourceLabel({ kind, shows }: { kind: 'rank' | 'top8' | 'watchlist';
           </div>
         ) : kind === 'top8' ? (
           <div className="absolute inset-0 bg-gradient-to-b from-[#1a1230] to-[#080510]">
-            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(120,80,255,0.22),transparent_52%)]" />
-            {shows.slice(0, 6).map((show, index) => {
-              const col = index % 2
-              const row = Math.floor(index / 2)
-              return (
-                <span
-                  key={show.id}
-                  className="absolute overflow-hidden rounded-[7px] bg-white/10 shadow-[0_6px_14px_rgba(0,0,0,0.5)] ring-1 ring-white/20"
-                  style={{
-                    width: 28, height: 40,
-                    left: 8 + col * 36,
-                    top: 8 + row * 28,
-                    transform: `rotate(${-5 + index * 3}deg)`,
-                    zIndex: index,
-                  }}
-                >
-                  {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
-                </span>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-b from-[#12181a] to-[#06080a]">
-            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,200,180,0.14),transparent_52%)]" />
+            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(120,80,255,0.28),transparent_52%)]" />
+            {/* Vertical cascade of posters, each offset down and slightly rotated */}
             {shows.slice(0, 5).map((show, index) => (
               <span
                 key={show.id}
-                className="absolute overflow-hidden rounded-[8px] bg-white/10 shadow-[0_8px_18px_rgba(0,0,0,0.55)] ring-1 ring-white/20"
+                className="absolute overflow-hidden rounded-[8px] bg-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.65)] ring-1 ring-white/25"
                 style={{
-                  width: 32, height: 46,
+                  width: 48,
+                  height: 68,
                   left: '50%',
-                  bottom: 24,
+                  top: `${10 + index * 14}%`,
+                  transform: `translateX(calc(-50% + ${(index % 2 === 0 ? -1 : 1) * (4 + index * 2)}px)) rotate(${(index % 2 === 0 ? -1 : 1) * (3 + index * 1.5)}deg)`,
+                  zIndex: 5 - index,
+                }}
+              >
+                {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0e1c1a] to-[#06080a]">
+            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,220,180,0.18),transparent_52%)]" />
+            {/* Fan of posters — all pivot from bottom-center of card */}
+            {shows.slice(0, 5).map((show, index) => (
+              <span
+                key={show.id}
+                className="absolute overflow-hidden rounded-[8px] bg-white/[0.12] shadow-[0_10px_22px_rgba(0,0,0,0.7)] ring-1 ring-white/25"
+                style={{
+                  width: 42,
+                  height: 60,
+                  left: 'calc(50% - 21px)',
+                  bottom: 28,
                   transformOrigin: 'bottom center',
-                  transform: `translateX(calc(-50% + ${(index - 2) * 16}px)) rotate(${(index - 2) * 9}deg)`,
+                  transform: `rotate(${(index - 2) * 20}deg)`,
                   zIndex: index === 2 ? 10 : 5 - Math.abs(index - 2),
                 }}
               >
