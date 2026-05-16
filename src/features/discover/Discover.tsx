@@ -1361,19 +1361,18 @@ function DropSourceLabel({ kind, shows }: { kind: 'rank' | 'top8' | 'watchlist';
         ) : (
           <div className="absolute inset-0 bg-gradient-to-b from-[#0e1c1a] to-[#06080a]">
             <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,220,180,0.18),transparent_52%)]" />
-            {/* Fan of posters — all pivot from bottom-center of card */}
-            {shows.slice(0, 5).map((show, index) => (
+            {/* Scattered vertical pile — 3 posters loosely stacked */}
+            {shows.slice(0, 3).map((show, index) => (
               <span
                 key={show.id}
                 className="absolute overflow-hidden rounded-[8px] bg-white/[0.12] shadow-[0_10px_22px_rgba(0,0,0,0.7)] ring-1 ring-white/25"
                 style={{
-                  width: 42,
-                  height: 60,
-                  left: 'calc(50% - 21px)',
-                  bottom: 28,
-                  transformOrigin: 'bottom center',
-                  transform: `rotate(${(index - 2) * 20}deg)`,
-                  zIndex: index === 2 ? 10 : 5 - Math.abs(index - 2),
+                  width: 44,
+                  height: 62,
+                  left: `calc(50% - 22px + ${(index - 1) * 8}px)`,
+                  top: `${18 + index * 22}%`,
+                  transform: `rotate(${(index - 1) * 11}deg)`,
+                  zIndex: index === 1 ? 3 : index,
                 }}
               >
                 {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
