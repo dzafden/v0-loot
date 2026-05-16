@@ -964,7 +964,6 @@ function WatchDropPanel({
   seasonCache: SeasonCache[]
   onClose: () => void
 }) {
-  const [mode, setMode] = useState<WatchDropMode>('mixed')
   const [slotIndexes, setSlotIndexes] = useState([0, 1, 2])
   const [activeMood, setActiveMood] = useState<MoodKey | null>(null)
   const [includeModifiers, setIncludeModifiers] = useState<EpisodeModifier[]>([])
@@ -972,9 +971,9 @@ function WatchDropPanel({
   const [episodePicks, setEpisodePicks] = useState<EpisodePick[]>([])
   const [dealing, setDealing] = useState(false)
   const [dealSeed, setDealSeed] = useState(() => hashString(`${Date.now()}`))
-  const slotTouchX = useRef<number | null>(null)
+  const slotTouchXs = useRef<(number | null)[]>([null, null, null])
 
-  const tierByShow = useMemo(() => new Map(tierAssignments.map((assignment) => [assignment.showId, assignment.tier])), [tierAssignments])
+  const tierByShow = useMemo(() => new Map(tierAssignments.map((a) => [a.showId, a.tier])), [tierAssignments])
   const orderedWatchlist = useMemo(() => {
     const byId = new Map(watchlistShows.map((show) => [show.id, show]))
     const orderedIds = watchlistShelves
@@ -983,33 +982,27 @@ function WatchDropPanel({
       .flatMap((shelf) => shelf.showIds)
     const seen = new Set<number>()
     return orderedIds
-      .filter((id) => {
-        if (seen.has(id)) return false
-        seen.add(id)
-        return true
-      })
+      .filter((id) => { if (seen.has(id)) return false; seen.add(id); return true })
       .map((id) => byId.get(id))
       .filter((show): show is Show => Boolean(show))
   }, [watchlistShelves, watchlistShows])
 
   const sRankPool = useMemo(() => {
-    const pool = ownedShows
-      .filter((show) => tierByShow.get(show.id) === 'S')
-      .sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
+    const pool = ownedShows.filter((show) => tierByShow.get(show.id) === 'S').sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
     return pool.length ? pool : ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
   }, [ownedShows, tierByShow])
-  const rankPool = useMemo(() => ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow)), [ownedShows, tierByShow])
   const top8Pool = useMemo(() => ownedShows
     .filter((show) => typeof show.top8Position === 'number' && show.top8Position >= 0)
     .sort((a, b) => (a.top8Position ?? 99) - (b.top8Position ?? 99)), [ownedShows])
-
+  const rankPool = useMemo(() => ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow)), [ownedShows, tierByShow])
   const fallbackPool = rankPool.length ? rankPool : ownedShows
-  const sourcePools = useMemo(() => {
-    if (mode === 'rank') return [rankPool, rankPool, rankPool]
-    if (mode === 'top8') return [top8Pool.length ? top8Pool : fallbackPool, top8Pool.length ? top8Pool : fallbackPool, top8Pool.length ? top8Pool : fallbackPool]
-    if (mode === 'watchlist') return [orderedWatchlist.length ? orderedWatchlist : fallbackPool, orderedWatchlist.length ? orderedWatchlist : fallbackPool, orderedWatchlist.length ? orderedWatchlist : fallbackPool]
-    return [sRankPool, top8Pool.length ? top8Pool : fallbackPool, orderedWatchlist.length ? orderedWatchlist : fallbackPool]
-  }, [fallbackPool, mode, orderedWatchlist, rankPool, sRankPool, top8Pool])
+
+  // Always fixed: row 0 = S-rank, row 1 = top8, row 2 = watchlist
+  const sourcePools = useMemo(() => [
+    sRankPool,
+    top8Pool.length ? top8Pool : fallbackPool,
+    orderedWatchlist.length ? orderedWatchlist : fallbackPool,
+  ], [sRankPool, top8Pool, orderedWatchlist, fallbackPool])
 
   const selectedShows = useMemo(() => distinctSlotShows(sourcePools, slotIndexes), [slotIndexes, sourcePools])
   const activeShows = useMemo(() => selectedShows.filter((show): show is Show => Boolean(show)), [selectedShows])
@@ -1024,11 +1017,6 @@ function WatchDropPanel({
 
   const mood = availableMoods.find((item) => item.key === activeMood) ?? availableMoods[0]
   const canDeal = activeShows.length === 3 && Boolean(mood)
-
-  useEffect(() => {
-    setSlotIndexes([0, 1, 2])
-    setEpisodePicks([])
-  }, [mode])
 
   const rotateSlot = (slot: number, direction: 1 | -1) => {
     setEpisodePicks([])
@@ -1078,6 +1066,8 @@ function WatchDropPanel({
 
   const related = mood?.related ?? []
   const avoid = mood?.avoid ?? []
+  const slotKinds = ['rank', 'top8', 'watchlist'] as const
+  const slotPools = [rankPool, top8Pool, orderedWatchlist]
 
   return (
     <motion.div
@@ -1087,10 +1077,11 @@ function WatchDropPanel({
       transition={{ type: 'spring', stiffness: 210, damping: 26 }}
       className="fixed inset-x-0 top-0 z-50 mx-auto h-svh w-full max-w-md overflow-hidden bg-[#060508]"
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_4%,rgba(255,232,111,0.22),transparent_18rem),radial-gradient(circle_at_85%_24%,rgba(89,245,198,0.18),transparent_20rem),linear-gradient(180deg,rgba(255,80,118,0.08),transparent_34%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_8%,rgba(255,232,111,0.18),transparent_20rem),radial-gradient(circle_at_82%_30%,rgba(89,245,198,0.14),transparent_22rem),linear-gradient(180deg,rgba(255,80,118,0.07),transparent_40%)]" />
       <div className="absolute inset-0 loot-noise opacity-40" />
-      <div className="relative z-10 flex h-full flex-col overflow-y-auto px-3 pb-5 pt-3">
-        <div className="mb-2 flex items-center justify-between">
+      <div className="relative z-10 flex h-full flex-col px-3 pb-4 pt-3">
+        {/* Header */}
+        <div className="mb-2.5 flex items-center justify-between">
           <button
             onClick={onClose}
             className="grid h-10 w-10 place-items-center rounded-full bg-black/34 text-[26px] leading-none text-white/76 ring-1 ring-white/10 active:scale-95"
@@ -1098,42 +1089,41 @@ function WatchDropPanel({
           >
             ×
           </button>
-          <div className="h-1.5 w-16 rounded-full bg-white/30 shadow-[0_0_20px_rgba(255,255,255,0.42)]" />
+          <div className="h-1.5 w-14 rounded-full bg-white/28 shadow-[0_0_18px_rgba(255,255,255,0.38)]" />
           <div className="h-10 w-10" />
         </div>
 
-        <div className="grid grid-cols-3 gap-2.5">
+        {/* 3 source rows — fill all remaining space */}
+        <div className="flex flex-1 flex-col gap-2 min-h-0">
           {[0, 1, 2].map((slot) => {
             const show = selectedShows[slot]
             const pick = episodePicks.find((item) => item.show.id === show?.id)
             return (
-              <WatchSlot
-                key={`${slot}-${show?.id ?? 'empty'}-${pick?.episode.seasonNumber ?? 'show'}-${pick?.episode.episodeNumber ?? ''}`}
-                show={show}
-                pick={pick}
-                slot={slot}
-                poolSize={sourcePools[slot]?.length ?? 0}
-                onPrev={() => rotateSlot(slot, -1)}
-                onNext={() => rotateSlot(slot, 1)}
-                onTouchStart={(x) => { slotTouchX.current = x }}
-                onTouchEnd={(x) => {
-                  if (slotTouchX.current === null) return
-                  const delta = x - slotTouchX.current
-                  if (Math.abs(delta) > 42) rotateSlot(slot, delta < 0 ? 1 : -1)
-                  slotTouchX.current = null
-                }}
-              />
+              <div key={slot} className="flex flex-1 gap-2 min-h-0">
+                <DropSourceLabel kind={slotKinds[slot]} shows={slotPools[slot]} />
+                <WatchSlot
+                  show={show}
+                  pick={pick}
+                  slot={slot}
+                  poolSize={sourcePools[slot]?.length ?? 0}
+                  onPrev={() => rotateSlot(slot, -1)}
+                  onNext={() => rotateSlot(slot, 1)}
+                  onTouchStart={(x) => { slotTouchXs.current[slot] = x }}
+                  onTouchEnd={(x) => {
+                    const startX = slotTouchXs.current[slot]
+                    if (startX === null) return
+                    const delta = x - startX
+                    if (Math.abs(delta) > 40) rotateSlot(slot, delta < 0 ? 1 : -1)
+                    slotTouchXs.current[slot] = null
+                  }}
+                />
+              </div>
             )
           })}
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <DropSourceButton kind="rank" active={mode === 'rank'} shows={rankPool} onClick={() => setMode('rank')} />
-          <DropSourceButton kind="top8" active={mode === 'top8'} shows={top8Pool} onClick={() => setMode('top8')} />
-          <DropSourceButton kind="watchlist" active={mode === 'watchlist'} shows={orderedWatchlist} onClick={() => setMode('watchlist')} />
-        </div>
-
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        {/* Mood row */}
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {availableMoods.map((item) => (
             <button
               key={item.key}
@@ -1144,61 +1134,63 @@ function WatchDropPanel({
                 setEpisodePicks([])
               }}
               className={cn(
-                'relative h-8 overflow-hidden rounded-[12px] px-2 text-[10px] font-black uppercase tracking-[0.08em] text-black shadow-[0_6px_14px_rgba(0,0,0,0.32),0_2px_0_rgba(0,0,0,0.45)] ring-1 ring-white/20 active:scale-95 active:shadow-[0_2px_6px_rgba(0,0,0,0.32)]',
-                mood?.key === item.key ? 'scale-[1.05] shadow-[0_8px_18px_rgba(0,0,0,0.38),0_2px_0_rgba(0,0,0,0.45)]' : 'opacity-72',
+                'relative h-7 overflow-hidden rounded-[10px] px-2.5 text-[10px] font-black uppercase tracking-[0.08em] text-black',
+                'shadow-[0_5px_12px_rgba(0,0,0,0.32),0_2px_0_rgba(0,0,0,0.5)] ring-1 ring-white/20',
+                'active:scale-95 active:shadow-[0_1px_4px_rgba(0,0,0,0.32)]',
+                mood?.key === item.key ? 'scale-[1.07]' : 'opacity-65',
               )}
             >
               <span className={cn('absolute inset-0 bg-gradient-to-br', item.colors)} />
-              <span className="absolute inset-0 bg-[linear-gradient(130deg,rgba(255,255,255,0.52),transparent_42%,rgba(0,0,0,0.18))]" />
-              <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[12px]" />
+              <span className="absolute inset-0 bg-[linear-gradient(130deg,rgba(255,255,255,0.5),transparent_44%,rgba(0,0,0,0.16))]" />
+              <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/20 rounded-b-[10px]" />
               <span className="relative z-10">{item.label}</span>
             </button>
           ))}
         </div>
 
+        {/* Modifier chips — only after a mood is tapped */}
         {activeMood && mood && (
-          <div className="mt-2 rounded-[18px] bg-white/[0.045] p-1.5">
-            <div className="flex flex-wrap gap-1.5">
-              {related.map((modifier) => (
-                <ModifierChip
-                  key={`include-${modifier}`}
-                  label={`+ ${MODIFIER_LABELS[modifier]}`}
-                  selected={includeModifiers.includes(modifier)}
-                  onClick={() => toggleModifier('include', modifier)}
-                />
-              ))}
-              {avoid.map((modifier) => (
-                <ModifierChip
-                  key={`exclude-${modifier}`}
-                  label={`- ${MODIFIER_LABELS[modifier]}`}
-                  selected={excludeModifiers.includes(modifier)}
-                  danger
-                  onClick={() => toggleModifier('exclude', modifier)}
-                />
-              ))}
-            </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {related.map((modifier) => (
+              <ModifierChip
+                key={`include-${modifier}`}
+                label={`+ ${MODIFIER_LABELS[modifier]}`}
+                selected={includeModifiers.includes(modifier)}
+                onClick={() => toggleModifier('include', modifier)}
+              />
+            ))}
+            {avoid.map((modifier) => (
+              <ModifierChip
+                key={`exclude-${modifier}`}
+                label={`- ${MODIFIER_LABELS[modifier]}`}
+                selected={excludeModifiers.includes(modifier)}
+                danger
+                onClick={() => toggleModifier('exclude', modifier)}
+              />
+            ))}
           </div>
         )}
 
-        <div className="mt-3 flex gap-2">
+        {/* Deal row */}
+        <div className="mt-2.5 flex gap-2">
           <button
             onClick={randomizeSlots}
-            className="relative h-[clamp(54px,8svh,62px)] w-[clamp(54px,8svh,62px)] flex-shrink-0 overflow-hidden rounded-[20px] bg-white/[0.08] shadow-[0_8px_24px_rgba(0,0,0,0.32),0_2px_0_rgba(0,0,0,0.5)] ring-1 ring-white/[0.12] active:scale-95 active:shadow-[0_2px_8px_rgba(0,0,0,0.32)]"
+            className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-[18px] bg-white/[0.07] shadow-[0_8px_22px_rgba(0,0,0,0.35),0_2px_0_rgba(0,0,0,0.55)] ring-1 ring-white/[0.1] active:scale-95"
             aria-label="Randomize shows"
           >
-            <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.14),transparent_52%,rgba(0,0,0,0.18))]" />
-            <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/30 rounded-b-[20px]" />
-            <span className="relative z-10 text-[22px]">🎲</span>
+            <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.12),transparent_55%,rgba(0,0,0,0.18))]" />
+            <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/30 rounded-b-[18px]" />
+            <span className="relative z-10 text-[20px]">🎲</span>
           </button>
           <button
             onClick={() => void dealEpisodes()}
             disabled={!canDeal || dealing}
-            className="relative h-[clamp(54px,8svh,62px)] flex-1 overflow-hidden rounded-[24px] bg-white text-black shadow-[0_20px_52px_rgba(255,207,97,0.22),0_3px_0_rgba(0,0,0,0.4)] disabled:opacity-45 active:scale-[0.985] active:shadow-[0_4px_16px_rgba(255,207,97,0.18),0_1px_0_rgba(0,0,0,0.4)]"
+            className="relative h-14 flex-1 overflow-hidden rounded-[22px] shadow-[0_18px_48px_rgba(255,207,97,0.2),0_3px_0_rgba(0,0,0,0.45)] disabled:opacity-40 active:scale-[0.984]"
           >
             <span className={cn('absolute inset-0 bg-gradient-to-r', mood?.colors ?? 'from-white via-zinc-200 to-white')} />
-            <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-40%,rgba(255,255,255,0.8),transparent_54%),linear-gradient(180deg,rgba(255,255,255,0.35),rgba(0,0,0,0.14))]" />
-            <span className="absolute inset-x-0 bottom-0 h-[4px] bg-black/20 rounded-b-[24px]" />
-            <span className="relative z-10 text-[22px] font-black uppercase tracking-[0.2em]">{dealing ? 'Dealing' : 'Deal'}</span>
+            <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-50%,rgba(255,255,255,0.82),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.3),rgba(0,0,0,0.12))]" />
+            <span className="absolute inset-x-0 bottom-0 h-[3.5px] bg-black/18 rounded-b-[22px]" />
+            <span className="relative z-10 text-[20px] font-black uppercase tracking-[0.22em] text-black">{dealing ? 'Dealing…' : 'Deal'}</span>
           </button>
         </div>
 
@@ -1227,45 +1219,84 @@ function WatchSlot({
   onTouchStart: (x: number) => void
   onTouchEnd: (x: number) => void
 }) {
+  const [art, setArt] = useState<LandscapeArt | null>(() => show ? (landscapeArtCache.get(show.id) ?? null) : null)
+  useEffect(() => {
+    if (!show || art) return
+    let cancelled = false
+    getLandscapeArt(show.id)
+      .then((next) => { if (!cancelled) setArt(next) })
+      .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
+    return () => { cancelled = true }
+  }, [art, show])
+
   if (!show) {
-    return <div className="h-[clamp(132px,24svh,178px)] rounded-[22px] bg-white/[0.04] ring-1 ring-white/[0.08]" />
+    return <div className="flex-1 rounded-[18px] bg-white/[0.04] ring-1 ring-white/[0.06]" />
   }
-  const hero = pick?.episode.stillPath || show.backdropPath || show.posterPath
+
+  const heroSrc = pick?.episode.stillPath
+    ? imgUrl(pick.episode.stillPath, 'w780')
+    : show.backdropPath
+      ? imgUrl(show.backdropPath, 'w780')
+      : show.posterPath
+        ? imgUrl(show.posterPath, 'w342')
+        : null
+
   return (
     <motion.div
-      initial={{ scale: 0.96, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ delay: slot * 0.04, type: 'spring', stiffness: 260, damping: 22 }}
+      key={show.id}
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: slot * 0.04, type: 'spring', stiffness: 280, damping: 24 }}
       onTouchStart={(event) => onTouchStart(event.touches[0]?.clientX ?? 0)}
       onTouchEnd={(event) => onTouchEnd(event.changedTouches[0]?.clientX ?? 0)}
       style={{ touchAction: 'pan-y' }}
-      className="relative h-[clamp(132px,24svh,178px)] overflow-hidden rounded-[22px] bg-[#151018] shadow-[0_18px_48px_rgba(0,0,0,0.42)] ring-1 ring-white/[0.08]"
+      className="relative flex-1 overflow-hidden rounded-[18px] bg-[#10080e] shadow-[0_16px_42px_rgba(0,0,0,0.52)] ring-1 ring-white/[0.07]"
     >
-      {hero ? <img src={imgUrl(hero, pick?.episode.stillPath ? 'w500' : 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-78" /> : null}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/16 via-black/10 to-black/90" />
-      <div className="absolute -right-8 -top-12 h-36 w-36 rounded-full bg-white/12 blur-2xl" />
+      {heroSrc && (
+        <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-82" />
+      )}
+      {/* Gradient overlays */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/18 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/10 to-black/12" />
+
+      {/* Swipe arrows — only when multiple shows, no episode picked */}
       {poolSize > 1 && !pick && (
         <>
-          <button onClick={onPrev} className="absolute left-1.5 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/38 text-white/70 ring-1 ring-white/10 active:scale-90" aria-label="Previous show">‹</button>
-          <button onClick={onNext} className="absolute right-1.5 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/38 text-white/70 ring-1 ring-white/10 active:scale-90" aria-label="Next show">›</button>
+          <button
+            onClick={onPrev}
+            className="absolute left-2 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white/72 ring-1 ring-white/10 active:scale-90 text-lg leading-none"
+            aria-label="Previous show"
+          >‹</button>
+          <button
+            onClick={onNext}
+            className="absolute right-2 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white/72 ring-1 ring-white/10 active:scale-90 text-lg leading-none"
+            aria-label="Next show"
+          >›</button>
         </>
       )}
-      <div className="relative z-10 flex h-full items-end p-2.5">
-        <div className="min-w-0 w-full">
-          <ShowLogo show={show} compact={Boolean(pick)} />
-          {pick ? (
-            <>
-              <div className="mt-1.5 text-[clamp(17px,5.2vw,20px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_8px_18px_rgba(0,0,0,0.8)]">
-                S{String(pick.episode.seasonNumber).padStart(2, '0')}E{String(pick.episode.episodeNumber).padStart(2, '0')}
-              </div>
-              <div className="mt-1 line-clamp-2 text-[10.5px] font-semibold leading-[1.05] text-white/82">{pick.episode.name}</div>
-            </>
-          ) : (
-            <div className="mt-1.5 line-clamp-2 text-[clamp(15px,4.8vw,18px)] font-black leading-[0.92] tracking-[-0.03em] text-white drop-shadow-[0_8px_18px_rgba(0,0,0,0.8)]">
-              {show.name}
+
+      {/* Content — bottom-left */}
+      <div className="absolute inset-x-0 bottom-0 z-10 p-3">
+        {/* Show logo or name */}
+        {art?.logoPath ? (
+          <img
+            src={imgUrl(art.logoPath, 'w300')}
+            alt={show.name}
+            className="mb-1.5 max-h-8 max-w-[68%] object-contain object-left drop-shadow-[0_6px_16px_rgba(0,0,0,0.95)]"
+          />
+        ) : (
+          <p className="mb-1 truncate text-[10px] font-black uppercase tracking-[0.12em] text-white/55">{show.name}</p>
+        )}
+
+        {/* Episode — shown after Deal */}
+        {pick && (
+          <>
+            <div className="text-[clamp(18px,5vw,22px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_6px_16px_rgba(0,0,0,0.9)]">
+              S{String(pick.episode.seasonNumber).padStart(2, '0')}E{String(pick.episode.episodeNumber).padStart(2, '0')}
             </div>
-          )}
-        </div>
+            <div className="mt-0.5 line-clamp-1 text-[11px] font-semibold text-white/75">{pick.episode.name}</div>
+          </>
+        )}
       </div>
     </motion.div>
   )
@@ -1277,21 +1308,90 @@ function ShowLogo({ show, compact = false }: { show: Show; compact?: boolean }) 
     if (art) return
     let cancelled = false
     getLandscapeArt(show.id)
-      .then((next) => {
-        if (!cancelled) setArt(next)
-      })
-      .catch(() => {
-        if (!cancelled) setArt({ logoPath: null, tagline: '' })
-      })
-    return () => {
-      cancelled = true
-    }
+      .then((next) => { if (!cancelled) setArt(next) })
+      .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
+    return () => { cancelled = true }
   }, [art, show.id])
 
   if (art?.logoPath) {
     return <img src={imgUrl(art.logoPath, 'w500')} alt={show.name} className={cn('object-contain object-left drop-shadow-[0_8px_18px_rgba(0,0,0,0.9)]', compact ? 'max-h-7 max-w-[92px]' : 'max-h-9 max-w-[104px]')} />
   }
   return <div className="truncate text-[9px] font-black uppercase tracking-[0.12em] text-white/62">{show.name}</div>
+}
+
+function DropSourceLabel({ kind, shows }: { kind: 'rank' | 'top8' | 'watchlist'; shows: Show[] }) {
+  const label = kind === 'rank' ? 'Rank' : kind === 'top8' ? 'Top 8' : 'Watchlist'
+  return (
+    <div className="relative w-[78px] shrink-0 overflow-hidden rounded-[18px] shadow-[0_16px_32px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/[0.08]">
+      <div className="absolute inset-0 overflow-hidden rounded-[18px]">
+        {kind === 'rank' ? (
+          <div className="absolute inset-0 bg-[linear-gradient(155deg,#ff4e7a,#ffe76a_48%,#68ffc6)]">
+            <div className="absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.38),transparent_40%,rgba(0,0,0,0.22))]" />
+            {(['S', 'A', 'B'] as const).map((tier, index) => (
+              <span
+                key={tier}
+                className="absolute font-black text-black/55 select-none"
+                style={{
+                  left: `${12 + index * 18}%`,
+                  top: `${8 + index * 22}%`,
+                  fontSize: `${52 - index * 7}px`,
+                  transform: `rotate(${-10 + index * 10}deg)`,
+                  textShadow: '0 3px 0 rgba(0,0,0,0.18)',
+                }}
+              >
+                {tier}
+              </span>
+            ))}
+          </div>
+        ) : kind === 'top8' ? (
+          <div className="absolute inset-0 bg-gradient-to-b from-[#1a1230] to-[#080510]">
+            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(120,80,255,0.22),transparent_52%)]" />
+            {shows.slice(0, 6).map((show, index) => {
+              const col = index % 2
+              const row = Math.floor(index / 2)
+              return (
+                <span
+                  key={show.id}
+                  className="absolute overflow-hidden rounded-[7px] bg-white/10 shadow-[0_6px_14px_rgba(0,0,0,0.5)] ring-1 ring-white/20"
+                  style={{
+                    width: 28, height: 40,
+                    left: 8 + col * 36,
+                    top: 8 + row * 28,
+                    transform: `rotate(${-5 + index * 3}deg)`,
+                    zIndex: index,
+                  }}
+                >
+                  {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-b from-[#12181a] to-[#06080a]">
+            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,200,180,0.14),transparent_52%)]" />
+            {shows.slice(0, 5).map((show, index) => (
+              <span
+                key={show.id}
+                className="absolute overflow-hidden rounded-[8px] bg-white/10 shadow-[0_8px_18px_rgba(0,0,0,0.55)] ring-1 ring-white/20"
+                style={{
+                  width: 32, height: 46,
+                  left: '50%',
+                  bottom: 24,
+                  transformOrigin: 'bottom center',
+                  transform: `translateX(calc(-50% + ${(index - 2) * 16}px)) rotate(${(index - 2) * 9}deg)`,
+                  zIndex: index === 2 ? 10 : 5 - Math.abs(index - 2),
+                }}
+              >
+                {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
+              </span>
+            ))}
+          </div>
+        )}
+        <span className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/10 to-transparent" />
+      </div>
+      <span className="absolute bottom-2.5 inset-x-0 z-10 text-center text-[9px] font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_5px_12px_rgba(0,0,0,0.9)]">{label}</span>
+    </div>
+  )
 }
 
 function DropSourceButton({ kind, active, shows, onClick }: { kind: 'rank' | 'top8' | 'watchlist'; active: boolean; shows: Show[]; onClick: () => void }) {
