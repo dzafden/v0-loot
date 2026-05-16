@@ -1096,6 +1096,7 @@ function WatchDropPanel({
               <div key={slot} className="flex flex-1 gap-2 min-h-0">
                 <DropSourceLabel kind={slotKinds[slot]} shows={slotPools[slot]} />
                 <WatchSlot
+                  key={show?.id ?? slot}
                   show={show}
                   pick={pick}
                   slot={slot}
