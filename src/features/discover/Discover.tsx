@@ -944,7 +944,6 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             tierAssignments={tierAssignments}
             watchlistShows={watchlistShows}
             watchlistShelves={watchlistShelves}
-            seasonCache={seasonCache}
             onClose={() => setWatchDropOpen(false)}
           />
         )}
@@ -953,119 +952,126 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   )
 }
 
+type WatchDropPath = 'rewatch' | 'discover'
+type WatchDropResult = { kind: 'rewatch'; picks: EpisodePick[] } | { kind: 'discover'; show: LootShow }
+
+const TIER_ORDER: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, D: 4 }
+
 function WatchDropPanel({
   ownedShows,
   tierAssignments,
   watchlistShows,
   watchlistShelves,
-  seasonCache,
   onClose,
 }: {
   ownedShows: Show[]
   tierAssignments: TierAssignment[]
   watchlistShows: Show[]
   watchlistShelves: { id: string; name: string; showIds: number[]; position?: number; createdAt: number }[]
-  seasonCache: SeasonCache[]
   onClose: () => void
 }) {
-  const [slotIndexes, setSlotIndexes] = useState([0, 1, 2])
+  const [path, setPath] = useState<WatchDropPath | null>(null)
+  const [selected, setSelected] = useState<Show[]>([])
+  const [query, setQuery] = useState('')
   const [activeMood, setActiveMood] = useState<MoodKey | null>(null)
-  const [includeModifiers, setIncludeModifiers] = useState<EpisodeModifier[]>([])
-  const [excludeModifiers, setExcludeModifiers] = useState<EpisodeModifier[]>([])
-  const [episodePicks, setEpisodePicks] = useState<EpisodePick[]>([])
-  const [dealing, setDealing] = useState(false)
-  const [dealSeed, setDealSeed] = useState(() => hashString(`${Date.now()}`))
-  const slotTouchXs = useRef<(number | null)[]>([null, null, null])
+  const [result, setResult] = useState<WatchDropResult | null>(null)
+  const [loading, setLoading] = useState(false)
 
   const tierByShow = useMemo(() => new Map(tierAssignments.map((a) => [a.showId, a.tier])), [tierAssignments])
-  const orderedWatchlist = useMemo(() => {
-    const byId = new Map(watchlistShows.map((show) => [show.id, show]))
-    const orderedIds = watchlistShelves
-      .slice()
-      .sort((a, b) => (a.position ?? 999) - (b.position ?? 999) || a.createdAt - b.createdAt)
-      .flatMap((shelf) => shelf.showIds)
-    const seen = new Set<number>()
-    return orderedIds
-      .filter((id) => { if (seen.has(id)) return false; seen.add(id); return true })
-      .map((id) => byId.get(id))
-      .filter((show): show is Show => Boolean(show))
-  }, [watchlistShelves, watchlistShows])
 
-  const sRankPool = useMemo(() => {
-    const pool = ownedShows.filter((show) => tierByShow.get(show.id) === 'S').sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
-    return pool.length ? pool : ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
-  }, [ownedShows, tierByShow])
-  const top8Pool = useMemo(() => ownedShows
-    .filter((show) => typeof show.top8Position === 'number' && show.top8Position >= 0)
-    .sort((a, b) => (a.top8Position ?? 99) - (b.top8Position ?? 99)), [ownedShows])
-  const rankPool = useMemo(() => ownedShows.slice().sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow)), [ownedShows, tierByShow])
-  const fallbackPool = rankPool.length ? rankPool : ownedShows
+  const watchlistIds = useMemo(() => new Set(watchlistShows.map((s) => s.id)), [watchlistShows])
 
-  // Always fixed: row 0 = S-rank, row 1 = top8, row 2 = watchlist
-  const sourcePools = useMemo(() => [
-    sRankPool,
-    top8Pool.length ? top8Pool : fallbackPool,
-    orderedWatchlist.length ? orderedWatchlist : fallbackPool,
-  ], [sRankPool, top8Pool, orderedWatchlist, fallbackPool])
+  // Rewatch: owned shows sorted by tier (S→A→B→C→D→unranked), then top8 bonus
+  const rewatchList = useMemo(() =>
+    [...ownedShows].sort((a, b) => {
+      const ta = TIER_ORDER[tierByShow.get(a.id) ?? ''] ?? 5
+      const tb = TIER_ORDER[tierByShow.get(b.id) ?? ''] ?? 5
+      if (ta !== tb) return ta - tb
+      return anchorScore(b, tierByShow) - anchorScore(a, tierByShow)
+    }),
+  [ownedShows, tierByShow])
 
-  const selectedShows = useMemo(() => distinctSlotShows(sourcePools, slotIndexes), [slotIndexes, sourcePools])
-  const activeShows = useMemo(() => selectedShows.filter((show): show is Show => Boolean(show)), [selectedShows])
+  // Discover: watchlist first (these are your queued shows), then rest of library as taste anchors
+  const discoverList = useMemo(() => [
+    ...watchlistShows,
+    ...ownedShows.filter((s) => !watchlistIds.has(s.id)),
+  ], [watchlistShows, ownedShows, watchlistIds])
 
-  const availableMoods = WATCH_DROP_MOODS
+  const sourceList = path === 'rewatch' ? rewatchList : discoverList
 
-  const mood = availableMoods.find((item) => item.key === activeMood) ?? availableMoods[0]
-  const canDeal = activeShows.length === 3 && Boolean(mood)
+  const filteredList = useMemo(() => {
+    if (!query.trim()) return sourceList
+    const q = query.toLowerCase()
+    return sourceList.filter((s) => s.name.toLowerCase().includes(q))
+  }, [sourceList, query])
 
-  const rotateSlot = (slot: number, direction: 1 | -1) => {
-    setEpisodePicks([])
-    setSlotIndexes((current) => {
-      const next = [...current]
-      const poolSize = sourcePools[slot]?.length ?? 1
-      next[slot] = (next[slot] + direction + poolSize) % poolSize
-      return next
+  const mood = WATCH_DROP_MOODS.find((m) => m.key === activeMood) ?? null
+
+  const toggleShow = (show: Show) => {
+    setResult(null)
+    setSelected((prev) => {
+      if (prev.some((s) => s.id === show.id)) return prev.filter((s) => s.id !== show.id)
+      if (prev.length >= 3) return prev
+      return [...prev, show]
     })
   }
 
-  const toggleModifier = (kind: 'include' | 'exclude', modifier: EpisodeModifier) => {
-    setEpisodePicks([])
-    if (kind === 'include') {
-      setExcludeModifiers((items) => items.filter((item) => item !== modifier))
-      setIncludeModifiers((items) => items.includes(modifier) ? items.filter((item) => item !== modifier) : [...items, modifier])
-      return
-    }
-    setIncludeModifiers((items) => items.filter((item) => item !== modifier))
-    setExcludeModifiers((items) => items.includes(modifier) ? items.filter((item) => item !== modifier) : [...items, modifier])
-  }
-
-  const dealEpisodes = async () => {
-    if (!canDeal || !mood) return
-    setDealing(true)
-    const nextSeed = hashString(`${Date.now()}:${activeShows.map((show) => show.id).join(':')}:${mood.key}`)
-    setDealSeed(nextSeed)
+  const handleGo = async () => {
+    if (selected.length === 0 || loading) return
+    setLoading(true)
     try {
-      const pools = await Promise.all(activeShows.map(loadEpisodeOptions))
-      setEpisodePicks(activeShows.map((show, index) => ({
-        show,
-        episode: pickEpisode(show, pools[index], mood, includeModifiers, excludeModifiers, nextSeed + index * 997),
-      })))
+      if (path === 'rewatch') {
+        const seed = hashString(`${Date.now()}:${selected.map((s) => s.id).join(':')}:${activeMood ?? 'none'}`)
+        const moodDef = mood ?? WATCH_DROP_MOODS[0]
+        const pools = await Promise.all(selected.map(loadEpisodeOptions))
+        const picks: EpisodePick[] = selected.map((show, i) => ({
+          show,
+          episode: pickEpisode(show, pools[i], moodDef, [], [], seed + i * 997),
+        }))
+        setResult({ kind: 'rewatch', picks })
+      } else {
+        const ownedIds = new Set(ownedShows.map((s) => s.id))
+        const groups = await Promise.all(
+          selected.map((s) =>
+            getShowRecommendations(s.id)
+              .then((r) => r.results.map(tmdbToLoot))
+              .catch(() => [] as LootShow[]),
+          ),
+        )
+        // Interleave results from each anchor so all anchors are represented
+        const merged: LootShow[] = []
+        const maxLen = Math.max(...groups.map((g) => g.length))
+        for (let i = 0; i < maxLen; i++) {
+          for (const group of groups) {
+            if (group[i]) merged.push(group[i])
+          }
+        }
+        const seen = new Set<number>()
+        const candidates = merged.filter((s) => {
+          if (seen.has(s.id) || ownedIds.has(s.id)) return false
+          seen.add(s.id)
+          return true
+        })
+        // If mood selected, prefer candidates whose overview matches
+        const scored = mood
+          ? candidates.map((s) => ({
+              s,
+              score: wordScore(`${s.title} ${s.overview} ${s.genre}`.toLowerCase(), mood.words)
+                + (mood.genreHints.some((g) => s.genre === g) ? 3 : 0),
+            })).sort((a, b) => b.score - a.score).map((x) => x.s)
+          : candidates
+        setResult({ kind: 'discover', show: scored[0] ?? candidates[0] })
+      }
     } finally {
-      setDealing(false)
+      setLoading(false)
     }
   }
 
-  const randomizeSlots = () => {
-    setEpisodePicks([])
-    const seed = hashString(`${Date.now()}`)
-    setSlotIndexes(sourcePools.map((pool, slot) => {
-      const poolSize = pool.length || 1
-      return (hashString(`${seed}:${slot}`) % poolSize + poolSize) % poolSize
-    }))
+  const handleBack = () => {
+    if (result) { setResult(null); return }
+    if (path) { setPath(null); setSelected([]); setQuery(''); setActiveMood(null); return }
+    onClose()
   }
-
-  const related = mood?.related ?? []
-  const avoid = mood?.avoid ?? []
-  const slotKinds = ['rank', 'top8', 'watchlist'] as const
-  const slotPools = [rankPool, top8Pool, orderedWatchlist]
 
   return (
     <motion.div
@@ -1077,125 +1083,307 @@ function WatchDropPanel({
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_8%,rgba(255,232,111,0.18),transparent_20rem),radial-gradient(circle_at_82%_30%,rgba(89,245,198,0.14),transparent_22rem),linear-gradient(180deg,rgba(255,80,118,0.07),transparent_40%)]" />
       <div className="absolute inset-0 loot-noise opacity-40" />
-      <div className="relative z-10 flex h-full flex-col px-3 pb-4 pt-3">
+      <div className="relative z-10 flex h-full flex-col">
+
         {/* Header */}
-        <div className="mb-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3">
           <button
-            onClick={onClose}
-            className="grid h-10 w-10 place-items-center rounded-full bg-black/34 text-[26px] leading-none text-white/76 ring-1 ring-white/10 active:scale-95"
-            aria-label="Close Watch Drop"
+            onClick={handleBack}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
           >
-            ×
+            {path ? '‹' : '×'}
           </button>
-          <div className="h-1.5 w-14 rounded-full bg-white/28 shadow-[0_0_18px_rgba(255,255,255,0.38)]" />
-          <div className="h-10 w-10" />
+          <div className="flex-1 text-center text-[13px] font-black uppercase tracking-[0.18em] text-white/40">
+            {!path ? 'Watch Drop' : path === 'rewatch' ? 'Rewatch' : 'Find Something New'}
+          </div>
+          <div className="h-9 w-9" />
         </div>
 
-        {/* 3 source rows — fill all remaining space */}
-        <div className="flex flex-1 flex-col gap-2 min-h-0">
-          {[0, 1, 2].map((slot) => {
-            const show = selectedShows[slot]
-            const pick = episodePicks.find((item) => item.show.id === show?.id)
-            return (
-              <div key={slot} className="flex flex-1 gap-2 min-h-0">
-                <DropSourceLabel kind={slotKinds[slot]} shows={slotPools[slot]} />
-                <WatchSlot
-                  key={show?.id ?? slot}
-                  show={show}
-                  pick={pick}
-                  slot={slot}
-                  poolSize={sourcePools[slot]?.length ?? 0}
-                  onPrev={() => rotateSlot(slot, -1)}
-                  onNext={() => rotateSlot(slot, 1)}
-                  onTouchStart={(x) => { slotTouchXs.current[slot] = x }}
-                  onTouchEnd={(x) => {
-                    const startX = slotTouchXs.current[slot]
-                    if (startX === null) return
-                    const delta = x - startX
-                    if (Math.abs(delta) > 40) rotateSlot(slot, delta < 0 ? 1 : -1)
-                    slotTouchXs.current[slot] = null
-                  }}
-                />
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Mood row */}
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {availableMoods.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => {
-                setActiveMood(item.key)
-                setIncludeModifiers([])
-                setExcludeModifiers([])
-                setEpisodePicks([])
-              }}
-              className={cn(
-                'relative h-7 overflow-hidden rounded-[10px] px-2.5 text-[10px] font-black uppercase tracking-[0.08em] text-black',
-                'shadow-[0_5px_12px_rgba(0,0,0,0.32),0_2px_0_rgba(0,0,0,0.5)] ring-1 ring-white/20',
-                'active:scale-95 active:shadow-[0_1px_4px_rgba(0,0,0,0.32)]',
-                mood?.key === item.key ? 'scale-[1.07]' : 'opacity-65',
-              )}
-            >
-              <span className={cn('absolute inset-0 bg-gradient-to-br', item.colors)} />
-              <span className="absolute inset-0 bg-[linear-gradient(130deg,rgba(255,255,255,0.5),transparent_44%,rgba(0,0,0,0.16))]" />
-              <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/20 rounded-b-[10px]" />
-              <span className="relative z-10">{item.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Modifier chips — only after a mood is tapped */}
-        {activeMood && mood && (
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {related.map((modifier) => (
-              <ModifierChip
-                key={`include-${modifier}`}
-                label={`+ ${MODIFIER_LABELS[modifier]}`}
-                selected={includeModifiers.includes(modifier)}
-                onClick={() => toggleModifier('include', modifier)}
-              />
-            ))}
-            {avoid.map((modifier) => (
-              <ModifierChip
-                key={`exclude-${modifier}`}
-                label={`- ${MODIFIER_LABELS[modifier]}`}
-                selected={excludeModifiers.includes(modifier)}
-                danger
-                onClick={() => toggleModifier('exclude', modifier)}
-              />
+        {/* Mode select */}
+        {!path && (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 -mt-16">
+            <p className="mb-2 text-center text-[22px] font-black leading-tight text-white">
+              What are you<br />looking for?
+            </p>
+            {([
+              {
+                key: 'rewatch' as const,
+                title: 'Rewatch',
+                sub: 'Pick an episode from shows you love',
+                colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]',
+              },
+              {
+                key: 'discover' as const,
+                title: 'Find Something New',
+                sub: 'Get a recommendation based on your taste',
+                colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]',
+              },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setPath(opt.key)}
+                className="relative w-full overflow-hidden rounded-[22px] py-5 px-6 text-left shadow-[0_20px_48px_rgba(0,0,0,0.55),0_3px_0_rgba(0,0,0,0.5)] ring-1 ring-white/10 active:scale-[0.98]"
+              >
+                <span className={cn('absolute inset-0 bg-gradient-to-br opacity-90', opt.colors)} />
+                <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.45),transparent_48%,rgba(0,0,0,0.22))]" />
+                <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[22px]" />
+                <span className="relative z-10 block text-[20px] font-black text-black leading-none">{opt.title}</span>
+                <span className="relative z-10 mt-1 block text-[12px] font-semibold text-black/65 leading-snug">{opt.sub}</span>
+              </button>
             ))}
           </div>
         )}
 
-        {/* Deal row */}
-        <div className="mt-2.5 flex gap-2">
-          <button
-            onClick={randomizeSlots}
-            className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-[18px] bg-white/[0.07] shadow-[0_8px_22px_rgba(0,0,0,0.35),0_2px_0_rgba(0,0,0,0.55)] ring-1 ring-white/[0.1] active:scale-95"
-            aria-label="Randomize shows"
-          >
-            <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.12),transparent_55%,rgba(0,0,0,0.18))]" />
-            <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/30 rounded-b-[18px]" />
-            <span className="relative z-10 text-[20px]">🎲</span>
-          </button>
-          <button
-            onClick={() => void dealEpisodes()}
-            disabled={!canDeal || dealing}
-            className="relative h-14 flex-1 overflow-hidden rounded-[22px] shadow-[0_18px_48px_rgba(255,207,97,0.2),0_3px_0_rgba(0,0,0,0.45)] disabled:opacity-40 active:scale-[0.984]"
-          >
-            <span className={cn('absolute inset-0 bg-gradient-to-r', mood?.colors ?? 'from-white via-zinc-200 to-white')} />
-            <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-50%,rgba(255,255,255,0.82),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.3),rgba(0,0,0,0.12))]" />
-            <span className="absolute inset-x-0 bottom-0 h-[3.5px] bg-black/18 rounded-b-[22px]" />
-            <span className="relative z-10 text-[20px] font-black uppercase tracking-[0.22em] text-black">{dealing ? 'Dealing…' : 'Deal'}</span>
-          </button>
-        </div>
+        {/* Picker + result */}
+        {path && !result && (
+          <div className="flex flex-1 flex-col min-h-0 px-4">
 
-        {dealSeed ? <span className="sr-only">{dealSeed}</span> : null}
+            {/* Selected chips */}
+            {selected.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {selected.map((show) => (
+                  <button
+                    key={show.id}
+                    onClick={() => toggleShow(show)}
+                    className="flex items-center gap-1.5 rounded-full bg-white/[0.1] py-1.5 pl-1.5 pr-3 ring-1 ring-white/15 active:scale-95"
+                  >
+                    {show.posterPath && (
+                      <img src={imgUrl(show.posterPath, 'w92')} alt="" className="h-6 w-4 rounded-[4px] object-cover" />
+                    )}
+                    <span className="text-[11px] font-bold text-white/90 max-w-[120px] truncate">{show.name}</span>
+                    <span className="text-[13px] text-white/40 leading-none">×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Search */}
+            <div className="mb-3 flex items-center gap-2 rounded-[14px] bg-white/[0.07] px-3 ring-1 ring-white/[0.08]">
+              <Search size={14} className="shrink-0 text-white/35" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={path === 'rewatch' ? 'Search your library…' : 'Search shows to anchor on…'}
+                className="flex-1 bg-transparent py-2.5 text-[13px] text-white placeholder:text-white/30 outline-none"
+              />
+              {query && (
+                <button onClick={() => setQuery('')} className="text-white/35 active:text-white/70">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Show list */}
+            <div className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
+              {filteredList.length === 0 && (
+                <p className="py-8 text-center text-[13px] text-white/30">No shows found</p>
+              )}
+              {filteredList.map((show) => {
+                const tier = tierByShow.get(show.id)
+                const isSelected = selected.some((s) => s.id === show.id)
+                const inWatchlist = watchlistIds.has(show.id)
+                return (
+                  <button
+                    key={show.id}
+                    onClick={() => toggleShow(show)}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-[12px] px-2 py-2 text-left transition-colors active:bg-white/[0.06]',
+                      isSelected && 'bg-white/[0.08] ring-1 ring-white/15',
+                    )}
+                  >
+                    {show.posterPath
+                      ? <img src={imgUrl(show.posterPath, 'w92')} alt="" className="h-11 w-[30px] shrink-0 rounded-[7px] object-cover shadow-[0_4px_10px_rgba(0,0,0,0.5)]" />
+                      : <div className="h-11 w-[30px] shrink-0 rounded-[7px] bg-white/[0.06]" />
+                    }
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-[13px] font-semibold text-white/90">{show.name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {tier && (
+                          <span className="text-[10px] font-black text-white/50">{tier}</span>
+                        )}
+                        {inWatchlist && path === 'discover' && (
+                          <span className="text-[9px] font-black uppercase tracking-[0.08em] text-[#59f5c6]/70">Watchlist</span>
+                        )}
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <span className="shrink-0 text-[15px] text-white/60">✓</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Mood row — shown after at least one show selected */}
+            {selected.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5 pb-1">
+                {WATCH_DROP_MOODS.map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setActiveMood(activeMood === item.key ? null : item.key)}
+                    className={cn(
+                      'relative h-7 overflow-hidden rounded-[10px] px-2.5 text-[10px] font-black uppercase tracking-[0.08em] text-black',
+                      'shadow-[0_4px_10px_rgba(0,0,0,0.3),0_2px_0_rgba(0,0,0,0.5)] ring-1 ring-white/20 active:scale-95',
+                      activeMood === item.key ? 'scale-[1.08]' : 'opacity-55',
+                    )}
+                  >
+                    <span className={cn('absolute inset-0 bg-gradient-to-br', item.colors)} />
+                    <span className="absolute inset-0 bg-[linear-gradient(130deg,rgba(255,255,255,0.5),transparent_44%)]" />
+                    <span className="relative z-10">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Action button */}
+            <button
+              onClick={() => void handleGo()}
+              disabled={selected.length === 0 || loading}
+              className="relative mt-3 mb-2 h-14 w-full overflow-hidden rounded-[22px] shadow-[0_18px_48px_rgba(0,0,0,0.35),0_3px_0_rgba(0,0,0,0.45)] disabled:opacity-35 active:scale-[0.984]"
+            >
+              {mood
+                ? <><span className={cn('absolute inset-0 bg-gradient-to-r', mood.colors)} /><span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-50%,rgba(255,255,255,0.75),transparent_58%)]" /></>
+                : <><span className="absolute inset-0 bg-gradient-to-r from-white/20 via-white/10 to-white/20" /><span className="absolute inset-0 ring-1 ring-inset ring-white/15 rounded-[22px]" /></>
+              }
+              <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/18 rounded-b-[22px]" />
+              <span className={cn('relative z-10 text-[15px] font-black uppercase tracking-[0.2em]', mood ? 'text-black' : 'text-white/80')}>
+                {loading ? '…' : path === 'rewatch' ? 'Pick an Episode' : 'Find a Show'}
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* Result */}
+        {path && result && (
+          <div className="flex flex-1 flex-col min-h-0 px-4">
+            {result.kind === 'rewatch' && (
+              <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto pb-4">
+                {result.picks.map(({ show, episode }) => (
+                  <EpisodeResultCard key={show.id} show={show} episode={episode} />
+                ))}
+              </div>
+            )}
+
+            {result.kind === 'discover' && result.show && (
+              <div className="flex flex-1 flex-col min-h-0">
+                <DiscoverResultCard show={result.show} onAdded={() => setResult(null)} />
+              </div>
+            )}
+
+            {result.kind === 'discover' && !result.show && (
+              <div className="flex flex-1 items-center justify-center">
+                <p className="text-center text-[14px] text-white/40">Nothing new found — try different anchors</p>
+              </div>
+            )}
+
+            <button
+              onClick={() => void handleGo()}
+              disabled={loading}
+              className="relative mt-3 mb-2 h-12 w-full overflow-hidden rounded-[18px] bg-white/[0.07] shadow-[0_8px_22px_rgba(0,0,0,0.3),0_2px_0_rgba(0,0,0,0.45)] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-40"
+            >
+              <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.08),transparent_55%)]" />
+              <span className="relative z-10 flex items-center justify-center gap-2 text-[13px] font-black uppercase tracking-[0.18em] text-white/70">
+                <RefreshCw size={14} />
+                Try Again
+              </span>
+            </button>
+          </div>
+        )}
+
       </div>
     </motion.div>
+  )
+}
+
+function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOption }) {
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  useEffect(() => {
+    if (art) return
+    let cancelled = false
+    getLandscapeArt(show.id)
+      .then((next) => { if (!cancelled) setArt(next) })
+      .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
+    return () => { cancelled = true }
+  }, [art, show.id])
+
+  const heroSrc = episode.stillPath
+    ? imgUrl(episode.stillPath, 'w780')
+    : show.backdropPath
+      ? imgUrl(show.backdropPath, 'w780')
+      : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
+
+  return (
+    <div className="relative overflow-hidden rounded-[20px] bg-[#10080e] shadow-[0_16px_42px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.07]" style={{ minHeight: 160 }}>
+      {heroSrc && <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-75" />}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/20 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/15" />
+      <div className="absolute inset-x-0 bottom-0 z-10 p-4">
+        {art?.logoPath
+          ? <img src={imgUrl(art.logoPath, 'w300')} alt={show.name} className="mb-2 max-h-7 max-w-[60%] object-contain object-left drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)]" />
+          : <p className="mb-1 text-[10px] font-black uppercase tracking-[0.12em] text-white/50">{show.name}</p>
+        }
+        <div className="text-[clamp(20px,5vw,26px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.9)]">
+          S{String(episode.seasonNumber).padStart(2, '0')}E{String(episode.episodeNumber).padStart(2, '0')}
+        </div>
+        <div className="mt-0.5 text-[12px] font-semibold text-white/80">{episode.name}</div>
+        {episode.overview && (
+          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-white/50">{episode.overview}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DiscoverResultCard({ show, onAdded }: { show: LootShow; onAdded: () => void }) {
+  const [adding, setAdding] = useState(false)
+  const [added, setAdded] = useState(false)
+
+  const handleAdd = async () => {
+    if (adding || added) return
+    setAdding(true)
+    try {
+      await upsertShow(show)
+      setAdded(true)
+      setTimeout(onAdded, 800)
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const heroSrc = show.backdropPath ? imgUrl(show.backdropPath, 'w780') : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
+
+  return (
+    <div className="relative flex flex-1 flex-col overflow-hidden rounded-[20px] bg-[#10080e] shadow-[0_20px_52px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.07]">
+      {heroSrc && <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" />}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-black/10" />
+      <div className="absolute inset-x-0 bottom-0 z-10 p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white/40">{show.year}</span>
+          <span className="text-[10px] text-white/25">·</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.1em] text-white/40">{show.genre}</span>
+          {show.rating > 0 && <>
+            <span className="text-[10px] text-white/25">·</span>
+            <span className="text-[10px] font-black text-[#f5c453]/80">{show.rating.toFixed(1)}</span>
+          </>}
+        </div>
+        <div className="mb-2 text-[clamp(22px,5.5vw,28px)] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</div>
+        {show.overview && (
+          <p className="mb-4 line-clamp-3 text-[12px] leading-relaxed text-white/55">{show.overview}</p>
+        )}
+        <button
+          onClick={() => void handleAdd()}
+          disabled={adding || added}
+          className="relative h-12 w-full overflow-hidden rounded-[16px] shadow-[0_8px_24px_rgba(0,0,0,0.4),0_2px_0_rgba(0,0,0,0.5)] active:scale-[0.984] disabled:opacity-60"
+        >
+          <span className="absolute inset-0 bg-gradient-to-r from-[#59f5c6] via-[#7b8eff] to-[#d96fff]" />
+          <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.4),transparent_50%)]" />
+          <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/18 rounded-b-[16px]" />
+          <span className="relative z-10 text-[13px] font-black uppercase tracking-[0.18em] text-black">
+            {added ? 'Added ✓' : adding ? 'Adding…' : '+ Add to Library'}
+          </span>
+        </button>
+      </div>
+    </div>
   )
 }
 
