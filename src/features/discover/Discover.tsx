@@ -1491,17 +1491,16 @@ function DiscoverResultCard({
 
   return (
     <div className="absolute inset-0 bg-[#060508]">
-      {/* Full-bleed high-res backdrop */}
+      {/* Full-bleed high-res backdrop — fills top third */}
       {heroSrc && (
         <img
           src={heroSrc} alt=""
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ objectPosition: 'center 15%' }}
+          style={{ objectPosition: 'center 10%' }}
         />
       )}
-      {/* Gradient scrims */}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#060508] via-[#060508]/20 to-black/30" />
-      <div className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-[#060508] to-transparent" />
+      {/* Single smooth scrim — transparent at top, fully opaque by mid-screen */}
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,5,8,0.08) 0%, rgba(6,5,8,0.35) 28%, rgba(6,5,8,0.82) 48%, rgba(6,5,8,0.97) 60%, rgb(6,5,8) 72%)' }} />
 
       {/* Back button */}
       <button
@@ -1509,41 +1508,38 @@ function DiscoverResultCard({
         className="absolute left-4 top-5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
       >‹</button>
 
-      {/* Logo — sits above the info panel, larger */}
-      {logoSrc && (
-        <div className="absolute inset-x-5 z-10" style={{ bottom: 'calc(38% + 8px)' }}>
-          <img
-            src={logoSrc} alt={show.title}
-            className="max-h-[96px] w-auto object-contain object-left drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
-            style={{ maxWidth: '72%' }}
-          />
-        </div>
-      )}
-
-      {/* Info panel */}
-      <div className="absolute inset-x-0 bottom-0 z-10 px-5 pb-10">
-        {/* Title (always shown; large if no logo) */}
-        <h2 className={cn(
-          'font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]',
-          logoSrc ? 'mb-1 text-[18px] font-bold' : 'mb-2 text-[clamp(26px,6.5vw,32px)]',
-        )}>
-          {show.title}
-        </h2>
-
-        {/* Meta */}
-        <div className="mb-3 flex flex-wrap items-center gap-x-2">
-          {show.year && <span className="text-[12px] font-semibold text-white/45">{show.year}</span>}
-          {show.genre && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-semibold text-white/45">{show.genre}</span></>}
-          {show.rating > 0 && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-bold text-[#f5c453]">★ {show.rating.toFixed(1)}</span></>}
+      {/* Content panel — logo/title/meta at top of panel, overview+buttons pinned to bottom */}
+      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col px-5 pt-5 pb-10" style={{ top: '33%' }}>
+        {/* TOP: identity */}
+        <div>
+          {logoSrc && (
+            <img
+              src={logoSrc} alt={show.title}
+              className="mb-3 max-h-[88px] w-auto object-contain object-left drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
+              style={{ maxWidth: '72%' }}
+            />
+          )}
+          <h2 className={cn(
+            'font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]',
+            logoSrc ? 'mb-1 text-[17px] font-bold' : 'mb-2 text-[clamp(26px,6.5vw,32px)]',
+          )}>
+            {show.title}
+          </h2>
+          <div className="flex flex-wrap items-center gap-x-2">
+            {show.year && <span className="text-[12px] font-semibold text-white/45">{show.year}</span>}
+            {show.genre && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-semibold text-white/45">{show.genre}</span></>}
+            {show.rating > 0 && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-bold text-[#f5c453]">★ {show.rating.toFixed(1)}</span></>}
+          </div>
         </div>
 
-        {/* Overview */}
-        {show.overview && (
-          <p className="mb-5 line-clamp-4 text-[14px] leading-[1.65] text-white/65">{show.overview}</p>
-        )}
+        {/* BOTTOM: overview + actions, pushed to bottom of panel */}
+        <div className="mt-auto">
+          {show.overview && (
+            <p className="mb-5 line-clamp-4 text-[14px] leading-[1.65] text-white/65">{show.overview}</p>
+          )}
 
-        {/* Side-by-side buttons — Library left, Watchlist right (thumb-side) */}
-        <div className="flex gap-3">
+          {/* Side-by-side buttons */}
+          <div className="flex gap-3">
           <button
             onClick={() => void handleLibrary()}
             disabled={!!action || !!done}
@@ -1569,15 +1565,16 @@ function DiscoverResultCard({
           </button>
         </div>
 
-        {/* Try Again */}
-        <button
-          onClick={onRetry}
-          disabled={loading}
-          className="mt-3 w-full h-11 flex items-center justify-center gap-2 text-[12px] font-black uppercase tracking-[0.16em] text-white/35 active:text-white/60 disabled:opacity-40"
-        >
-          <RefreshCw size={13} />
-          Try Again
-        </button>
+          {/* Try Again */}
+          <button
+            onClick={onRetry}
+            disabled={loading}
+            className="mt-3 w-full h-11 flex items-center justify-center gap-2 text-[12px] font-black uppercase tracking-[0.16em] text-white/35 active:text-white/60 disabled:opacity-40"
+          >
+            <RefreshCw size={13} />
+            Try Again
+          </button>
+        </div>
       </div>
     </div>
   )
