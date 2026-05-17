@@ -1,6 +1,6 @@
 import { useAnimation, motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, X, RefreshCw, RotateCcw, Sparkles } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
@@ -1073,25 +1073,15 @@ function WatchDropPanel({
     onClose()
   }
 
-  // Deterministic poster scatter for the canvas
-  const canvasPosters = useMemo(() => {
-    const pool = seededShuffle([...ownedShows].filter((s) => s.posterPath), hashString('canvas-v1')).slice(0, 32)
-    return pool.map((show, i) => {
-      const s = hashString(`p:${show.id}:${i}`)
-      const s2 = hashString(`q:${show.id}:${i}`)
-      return {
-        show,
-        left: 2 + (s % 84),
-        top: -12 + (s2 % 110),
-        rot: -22 + (s % 44),
-        w: 62 + (s % 48),
-        zIndex: (s % 6) + 1,
-        blur: s % 5 === 0 ? 1.5 : 0,
-        opacity: 0.55 + (s % 4) * 0.12,
-        animY: 7 + (s % 13),
-        animDur: 3.2 + (s % 32) / 10,
-        animDelay: (s2 % 38) / 10,
-      }
+  // Infinite scrolling row data for the portal canvas
+  const rowData = useMemo(() => {
+    const pool = seededShuffle([...ownedShows].filter((s) => s.posterPath), hashString('rows-v2'))
+    if (pool.length === 0) return []
+    const NUM_ROWS = 6
+    const durations = [32, 22, 28, 19, 25, 17]
+    return Array.from({ length: NUM_ROWS }, (_, r) => {
+      const shows = Array.from({ length: 14 }, (_, i) => pool[(r * 5 + i) % pool.length])
+      return { shows, dir: r % 2 === 0 ? 'left' : 'right' as const, dur: durations[r] }
     })
   }, [ownedShows])
 
@@ -1108,32 +1098,38 @@ function WatchDropPanel({
       {/* ── Mode select ─────────────────────────────────── */}
       {!path && (
         <>
-          {/* Floating poster canvas */}
-          <div className="absolute inset-0 overflow-hidden">
-            {canvasPosters.map(({ show, left, top, rot, w, zIndex, blur, opacity, animY, animDur, animDelay }) => (
-              <motion.div
-                key={show.id}
-                className="absolute overflow-hidden rounded-[10px] shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
-                style={{
-                  left: `${left}%`, top: `${top}%`,
-                  width: w, height: w * 1.5,
-                  zIndex, rotate: rot,
-                  filter: blur ? `blur(${blur}px)` : undefined,
-                  opacity,
-                  willChange: 'transform',
-                }}
-                animate={{ y: [0, -animY, 0] }}
-                transition={{ repeat: Infinity, duration: animDur, delay: animDelay, ease: 'easeInOut' }}
-              >
-                <img src={imgUrl(show.posterPath!, 'w185')} alt="" className="h-full w-full object-cover" />
-              </motion.div>
+          {/* Infinite scrolling poster rows — perspective tilt for "portal to infinity" */}
+          <div
+            className="absolute inset-0 overflow-hidden flex flex-col gap-[5px]"
+            style={{ transform: 'perspective(900px) rotateX(6deg) scale(1.06)', transformOrigin: 'center 72%' }}
+          >
+            {rowData.map((row, ri) => (
+              <div key={ri} className="flex-1 min-h-0 overflow-hidden">
+                <motion.div
+                  className="flex h-full gap-[5px]"
+                  initial={{ x: row.dir === 'left' ? '0%' : '-50%' }}
+                  animate={{ x: row.dir === 'left' ? '-50%' : '0%' }}
+                  transition={{ repeat: Infinity, duration: row.dur, ease: 'linear' }}
+                >
+                  {[...row.shows, ...row.shows].map((show, si) => (
+                    <div
+                      key={si}
+                      className="flex-shrink-0 h-full overflow-hidden rounded-[6px]"
+                      style={{ aspectRatio: '2/3' }}
+                    >
+                      <img src={imgUrl(show.posterPath!, 'w185')} alt="" className="h-full w-full object-cover" />
+                    </div>
+                  ))}
+                </motion.div>
+              </div>
             ))}
           </div>
 
-          {/* Deep gradient — vignette + bottom fog so buttons read clearly */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_35%,transparent_0%,rgba(6,5,8,0.72)_55%,rgba(6,5,8,0.96)_100%)]" />
-          <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-[#060508] via-[#060508]/90 to-transparent" />
-          <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-[#060508]/80 to-transparent" />
+          {/* Vignettes */}
+          <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#060508] via-[#060508]/70 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#060508] via-[#060508]/95 to-transparent" />
+          <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-[#060508] to-transparent" />
+          <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#060508] to-transparent" />
 
           {/* Close */}
           <button
@@ -1142,25 +1138,27 @@ function WatchDropPanel({
           >×</button>
 
           {/* Bottom zone — thumb-reachable */}
-          <div className="absolute inset-x-0 bottom-0 z-20 px-5 pb-12 pt-6">
-            <p className="mb-5 text-[34px] font-black leading-[1.05] tracking-[-0.03em] text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.9)]">
-              What are you<br />looking for?
+          <div className="absolute inset-x-0 bottom-0 z-20 px-5 pb-10">
+            <p className="mb-4 text-center text-[28px] font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_22px_rgba(0,0,0,1)]">
+              What are you looking for?
             </p>
-            <div className="flex flex-col gap-3">
+            <div className="flex gap-3">
               {([
-                { key: 'rewatch' as const, title: 'Rewatch', sub: 'Pick an episode from shows you love', colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]' },
-                { key: 'discover' as const, title: 'Find Something New', sub: 'Get a recommendation based on your taste', colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]' },
+                { key: 'rewatch' as const, icon: <RotateCcw size={20} />, label: 'Rewatch', colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]' },
+                { key: 'discover' as const, icon: <Sparkles size={20} />, label: 'Discover', colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]' },
               ] as const).map((opt) => (
                 <button
                   key={opt.key}
                   onClick={() => setPath(opt.key)}
-                  className="relative overflow-hidden rounded-[20px] py-4 px-5 text-left shadow-[0_18px_44px_rgba(0,0,0,0.6),0_3px_0_rgba(0,0,0,0.5)] active:scale-[0.98]"
+                  className="relative flex-1 overflow-hidden rounded-[22px] py-5 shadow-[0_18px_44px_rgba(0,0,0,0.7),0_3px_0_rgba(0,0,0,0.5)] active:scale-[0.96]"
                 >
                   <span className={cn('absolute inset-0 bg-gradient-to-br', opt.colors)} />
-                  <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.45),transparent_48%,rgba(0,0,0,0.18))]" />
-                  <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/18 rounded-b-[20px]" />
-                  <span className="relative z-10 block text-[20px] font-black text-black leading-none">{opt.title}</span>
-                  <span className="relative z-10 mt-0.5 block text-[12px] font-semibold text-black/60">{opt.sub}</span>
+                  <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.5),transparent_50%)]" />
+                  <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[22px]" />
+                  <span className="relative z-10 flex flex-col items-center gap-1.5 text-black/80">
+                    {opt.icon}
+                    <span className="text-[11px] font-black uppercase tracking-[0.14em] text-black">{opt.label}</span>
+                  </span>
                 </button>
               ))}
             </div>
