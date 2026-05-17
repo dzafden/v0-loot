@@ -104,7 +104,7 @@ export interface SeasonCache {
   seasonNumber: number
   name?: string
   posterPath?: string | null
-  episodes: { episode_number: number; name: string; still_path?: string | null }[]
+  episodes: { episode_number: number; name: string; overview?: string | null; still_path?: string | null }[]
   fetchedAt: number
 }
 

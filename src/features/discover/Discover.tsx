@@ -63,6 +63,7 @@ type EpisodeOption = {
   seasonNumber: number
   episodeNumber: number
   name: string
+  overview?: string | null
   stillPath?: string | null
 }
 
@@ -519,7 +520,7 @@ function wordScore(text: string, words: string[]) {
 }
 
 function episodeText(show: Show, episode: EpisodeOption) {
-  return `${show.name} ${show.overview ?? ''} ${(show.genres ?? []).join(' ')} ${(show.rawGenres ?? []).join(' ')} ${episode.name}`.toLowerCase()
+  return `${show.name} ${show.overview ?? ''} ${(show.genres ?? []).join(' ')} ${(show.rawGenres ?? []).join(' ')} ${episode.name} ${episode.overview ?? ''}`.toLowerCase()
 }
 
 function modifierScore(text: string, modifiers: EpisodeModifier[]) {
@@ -551,6 +552,7 @@ function cachedEpisodeOptions(showId: number, seasons: SeasonCache[]) {
         seasonNumber: season.seasonNumber,
         episodeNumber: episode.episode_number,
         name: episode.name || EPISODE_FALLBACKS[(showId + season.seasonNumber + episode.episode_number) % EPISODE_FALLBACKS.length],
+        overview: episode.overview ?? null,
         stillPath: episode.still_path ?? null,
       })),
     )
@@ -591,6 +593,7 @@ async function loadEpisodeOptions(show: Show) {
           episodes: data.episodes.map((episode) => ({
             episode_number: episode.episode_number,
             name: episode.name,
+            overview: episode.overview ?? null,
             still_path: episode.still_path ?? null,
           })),
           fetchedAt: Date.now(),
@@ -600,6 +603,7 @@ async function loadEpisodeOptions(show: Show) {
           seasonNumber: season.season_number,
           episodeNumber: episode.episode_number,
           name: episode.name || EPISODE_FALLBACKS[(show.id + season.season_number + episode.episode_number) % EPISODE_FALLBACKS.length],
+          overview: episode.overview ?? null,
           stillPath: episode.still_path ?? null,
         }))
       }),

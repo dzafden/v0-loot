@@ -387,7 +387,7 @@ export async function getSeason(showId: number, seasonNumber: number) {
   return tmdb<{
     name?: string
     poster_path?: string | null
-    episodes: { episode_number: number; name: string; still_path?: string | null }[]
+    episodes: { episode_number: number; name: string; overview?: string | null; still_path?: string | null }[]
   }>(`/tv/${showId}/season/${seasonNumber}`)
 }
 
