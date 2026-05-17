@@ -493,7 +493,7 @@ async function getTasteRecommendationPool(anchors: Show[]) {
   }
 }
 
-function showMoodText(show: Show) {
+function _showMoodText(show: Show) {
   return [
     show.name,
     show.overview,
