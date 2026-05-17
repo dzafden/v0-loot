@@ -1376,6 +1376,7 @@ function WatchDropPanel({
           {result?.kind === 'discover' && result.show && (
             <div className="absolute inset-0 z-20">
               <DiscoverResultCard
+                key={result.show.id}
                 show={result.show}
                 watchlistShelves={watchlistShelves}
                 onDone={() => setResult(null)}
