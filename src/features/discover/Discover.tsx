@@ -1073,6 +1073,28 @@ function WatchDropPanel({
     onClose()
   }
 
+  // Deterministic poster scatter for the canvas
+  const canvasPosters = useMemo(() => {
+    const pool = seededShuffle([...ownedShows].filter((s) => s.posterPath), hashString('canvas-v1')).slice(0, 32)
+    return pool.map((show, i) => {
+      const s = hashString(`p:${show.id}:${i}`)
+      const s2 = hashString(`q:${show.id}:${i}`)
+      return {
+        show,
+        left: 2 + (s % 84),
+        top: -12 + (s2 % 110),
+        rot: -22 + (s % 44),
+        w: 62 + (s % 48),
+        zIndex: (s % 6) + 1,
+        blur: s % 5 === 0 ? 1.5 : 0,
+        opacity: 0.55 + (s % 4) * 0.12,
+        animY: 7 + (s % 13),
+        animDur: 3.2 + (s % 32) / 10,
+        animDelay: (s2 % 38) / 10,
+      }
+    })
+  }, [ownedShows])
+
   return (
     <motion.div
       initial={{ y: '-104%', opacity: 0.7 }}
@@ -1081,138 +1103,175 @@ function WatchDropPanel({
       transition={{ type: 'spring', stiffness: 210, damping: 26 }}
       className="fixed inset-x-0 top-0 z-50 mx-auto h-svh w-full max-w-md overflow-hidden bg-[#060508]"
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_8%,rgba(255,232,111,0.18),transparent_20rem),radial-gradient(circle_at_82%_30%,rgba(89,245,198,0.14),transparent_22rem),linear-gradient(180deg,rgba(255,80,118,0.07),transparent_40%)]" />
       <div className="absolute inset-0 loot-noise opacity-40" />
-      <div className="relative z-10 flex h-full flex-col">
 
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-          <button
-            onClick={handleBack}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
-          >
-            {path ? '‹' : '×'}
-          </button>
-          <div className="flex-1 text-center text-[13px] font-black uppercase tracking-[0.18em] text-white/40">
-            {!path ? 'Watch Drop' : path === 'rewatch' ? 'Rewatch' : 'Find Something New'}
-          </div>
-          <div className="h-9 w-9" />
-        </div>
-
-        {/* Mode select */}
-        {!path && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 -mt-16">
-            <p className="mb-2 text-center text-[22px] font-black leading-tight text-white">
-              What are you<br />looking for?
-            </p>
-            {([
-              {
-                key: 'rewatch' as const,
-                title: 'Rewatch',
-                sub: 'Pick an episode from shows you love',
-                colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]',
-              },
-              {
-                key: 'discover' as const,
-                title: 'Find Something New',
-                sub: 'Get a recommendation based on your taste',
-                colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]',
-              },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setPath(opt.key)}
-                className="relative w-full overflow-hidden rounded-[22px] py-5 px-6 text-left shadow-[0_20px_48px_rgba(0,0,0,0.55),0_3px_0_rgba(0,0,0,0.5)] ring-1 ring-white/10 active:scale-[0.98]"
+      {/* ── Mode select ─────────────────────────────────── */}
+      {!path && (
+        <>
+          {/* Floating poster canvas */}
+          <div className="absolute inset-0 overflow-hidden">
+            {canvasPosters.map(({ show, left, top, rot, w, zIndex, blur, opacity, animY, animDur, animDelay }) => (
+              <motion.div
+                key={show.id}
+                className="absolute overflow-hidden rounded-[10px] shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
+                style={{
+                  left: `${left}%`, top: `${top}%`,
+                  width: w, height: w * 1.5,
+                  zIndex, rotate: rot,
+                  filter: blur ? `blur(${blur}px)` : undefined,
+                  opacity,
+                  willChange: 'transform',
+                }}
+                animate={{ y: [0, -animY, 0] }}
+                transition={{ repeat: Infinity, duration: animDur, delay: animDelay, ease: 'easeInOut' }}
               >
-                <span className={cn('absolute inset-0 bg-gradient-to-br opacity-90', opt.colors)} />
-                <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.45),transparent_48%,rgba(0,0,0,0.22))]" />
-                <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[22px]" />
-                <span className="relative z-10 block text-[20px] font-black text-black leading-none">{opt.title}</span>
-                <span className="relative z-10 mt-1 block text-[12px] font-semibold text-black/65 leading-snug">{opt.sub}</span>
-              </button>
+                <img src={imgUrl(show.posterPath!, 'w185')} alt="" className="h-full w-full object-cover" />
+              </motion.div>
             ))}
           </div>
-        )}
 
-        {/* Picker + result */}
-        {path && !result && (
-          <div className="flex flex-1 flex-col min-h-0 px-4">
+          {/* Deep gradient — vignette + bottom fog so buttons read clearly */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_35%,transparent_0%,rgba(6,5,8,0.72)_55%,rgba(6,5,8,0.96)_100%)]" />
+          <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-[#060508] via-[#060508]/90 to-transparent" />
+          <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-[#060508]/80 to-transparent" />
 
-            {/* Selected chips */}
-            {selected.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {selected.map((show) => (
-                  <button
-                    key={show.id}
-                    onClick={() => toggleShow(show)}
-                    className="flex items-center gap-1.5 rounded-full bg-white/[0.1] py-1.5 pl-1.5 pr-3 ring-1 ring-white/15 active:scale-95"
-                  >
-                    {show.posterPath && (
-                      <img src={imgUrl(show.posterPath, 'w92')} alt="" className="h-6 w-4 rounded-[4px] object-cover" />
-                    )}
-                    <span className="text-[11px] font-bold text-white/90 max-w-[120px] truncate">{show.name}</span>
-                    <span className="text-[13px] text-white/40 leading-none">×</span>
-                  </button>
-                ))}
-              </div>
-            )}
+          {/* Close */}
+          <button
+            onClick={onClose}
+            className="absolute left-4 top-5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/40 text-[22px] leading-none text-white/60 ring-1 ring-white/10 active:scale-90"
+          >×</button>
 
-            {/* Search */}
-            <div className="mb-3 flex items-center gap-2 rounded-[14px] bg-white/[0.07] px-3 ring-1 ring-white/[0.08]">
-              <Search size={14} className="shrink-0 text-white/35" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={path === 'rewatch' ? 'Search your library…' : 'Search shows to anchor on…'}
-                className="flex-1 bg-transparent py-2.5 text-[13px] text-white placeholder:text-white/30 outline-none"
-              />
-              {query && (
-                <button onClick={() => setQuery('')} className="text-white/35 active:text-white/70">
-                  <X size={14} />
+          {/* Bottom zone — thumb-reachable */}
+          <div className="absolute inset-x-0 bottom-0 z-20 px-5 pb-12 pt-6">
+            <p className="mb-5 text-[34px] font-black leading-[1.05] tracking-[-0.03em] text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.9)]">
+              What are you<br />looking for?
+            </p>
+            <div className="flex flex-col gap-3">
+              {([
+                { key: 'rewatch' as const, title: 'Rewatch', sub: 'Pick an episode from shows you love', colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]' },
+                { key: 'discover' as const, title: 'Find Something New', sub: 'Get a recommendation based on your taste', colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setPath(opt.key)}
+                  className="relative overflow-hidden rounded-[20px] py-4 px-5 text-left shadow-[0_18px_44px_rgba(0,0,0,0.6),0_3px_0_rgba(0,0,0,0.5)] active:scale-[0.98]"
+                >
+                  <span className={cn('absolute inset-0 bg-gradient-to-br', opt.colors)} />
+                  <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.45),transparent_48%,rgba(0,0,0,0.18))]" />
+                  <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/18 rounded-b-[20px]" />
+                  <span className="relative z-10 block text-[20px] font-black text-black leading-none">{opt.title}</span>
+                  <span className="relative z-10 mt-0.5 block text-[12px] font-semibold text-black/60">{opt.sub}</span>
                 </button>
-              )}
+              ))}
             </div>
+          </div>
+        </>
+      )}
 
-            {/* Show list */}
-            <div className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
-              {filteredList.length === 0 && (
-                <p className="py-8 text-center text-[13px] text-white/30">No shows found</p>
-              )}
-              {filteredList.map((show) => {
-                const tier = tierByShow.get(show.id)
-                const isSelected = selected.some((s) => s.id === show.id)
-                const inWatchlist = watchlistIds.has(show.id)
-                return (
-                  <button
-                    key={show.id}
-                    onClick={() => toggleShow(show)}
-                    className={cn(
-                      'flex w-full items-center gap-3 rounded-[12px] px-2 py-2 text-left transition-colors active:bg-white/[0.06]',
-                      isSelected && 'bg-white/[0.08] ring-1 ring-white/15',
-                    )}
-                  >
-                    {show.posterPath
-                      ? <img src={imgUrl(show.posterPath, 'w92')} alt="" className="h-11 w-[30px] shrink-0 rounded-[7px] object-cover shadow-[0_4px_10px_rgba(0,0,0,0.5)]" />
-                      : <div className="h-11 w-[30px] shrink-0 rounded-[7px] bg-white/[0.06]" />
-                    }
-                    <div className="flex-1 min-w-0">
-                      <div className="truncate text-[13px] font-semibold text-white/90">{show.name}</div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {tier && (
-                          <span className="text-[10px] font-black text-white/50">{tier}</span>
-                        )}
-                        {inWatchlist && path === 'discover' && (
-                          <span className="text-[9px] font-black uppercase tracking-[0.08em] text-[#59f5c6]/70">Watchlist</span>
-                        )}
-                      </div>
-                    </div>
-                    {isSelected && (
-                      <span className="shrink-0 text-[15px] text-white/60">✓</span>
-                    )}
-                  </button>
-                )
-              })}
+      {/* ── Picker + result ──────────────────────────────── */}
+      {path && (
+        <div className="relative z-10 flex h-full flex-col">
+          {/* Subtle bg */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_8%,rgba(255,232,111,0.1),transparent_22rem),radial-gradient(circle_at_80%_30%,rgba(89,245,198,0.08),transparent_18rem)]" />
+
+          {/* Header */}
+          <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
+            <button
+              onClick={handleBack}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
+            >‹</button>
+            <div className="flex-1 text-center text-[13px] font-black uppercase tracking-[0.18em] text-white/40">
+              {path === 'rewatch' ? 'Rewatch' : 'Find Something New'}
             </div>
+            <div className="h-9 w-9" />
+          </div>
+
+          {!result && (
+            <div className="flex flex-1 flex-col min-h-0 px-4">
+
+              {/* Selected chips */}
+              {selected.length > 0 && (
+                <div className="mb-3 flex gap-2">
+                  {selected.map((show) => (
+                    <button
+                      key={show.id}
+                      onClick={() => toggleShow(show)}
+                      className="relative h-14 overflow-hidden rounded-[10px] shadow-[0_6px_16px_rgba(0,0,0,0.5)] active:scale-95"
+                      style={{ width: 40 }}
+                    >
+                      {show.posterPath && <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" />}
+                      <div className="absolute inset-0 bg-black/30" />
+                      <span className="absolute inset-0 flex items-center justify-center text-[18px] font-black text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">×</span>
+                    </button>
+                  ))}
+                  {selected.length < 3 && (
+                    <div className="h-14 w-10 rounded-[10px] border-2 border-dashed border-white/15 flex items-center justify-center text-white/20 text-xl">+</div>
+                  )}
+                </div>
+              )}
+
+              {/* Search */}
+              <div className="mb-3 flex items-center gap-2 rounded-[14px] bg-white/[0.07] px-3 ring-1 ring-white/[0.08]">
+                <Search size={14} className="shrink-0 text-white/35" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search…"
+                  className="flex-1 bg-transparent py-2.5 text-[13px] text-white placeholder:text-white/30 outline-none"
+                />
+                {query && <button onClick={() => setQuery('')} className="text-white/35"><X size={14} /></button>}
+              </div>
+
+              {/* Poster grid */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {filteredList.length === 0 && (
+                  <p className="py-8 text-center text-[13px] text-white/30">No shows found</p>
+                )}
+                <div className="grid grid-cols-3 gap-2 pb-2">
+                  {filteredList.map((show) => {
+                    const tier = tierByShow.get(show.id)
+                    const isSelected = selected.some((s) => s.id === show.id)
+                    const inWatchlist = watchlistIds.has(show.id)
+                    const tierColors: Record<string, string> = { S: 'bg-[#ffd700] text-black', A: 'bg-white/85 text-black', B: 'bg-white/40 text-white', C: 'bg-white/20 text-white/70', D: 'bg-white/10 text-white/40' }
+                    const tierRings: Record<string, string> = { S: 'ring-[1.5px] ring-[#ffd700]/70', A: 'ring-[1px] ring-white/35' }
+                    return (
+                      <button
+                        key={show.id}
+                        onClick={() => toggleShow(show)}
+                        className={cn(
+                          'relative aspect-[2/3] overflow-hidden rounded-[12px] bg-white/[0.05] active:scale-[0.96]',
+                          !isSelected && tier && tierRings[tier],
+                          isSelected && 'ring-2 ring-white/90 shadow-[0_0_0_2px_rgba(255,255,255,0.15)]',
+                        )}
+                      >
+                        {show.posterPath
+                          ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                          : <div className="absolute inset-0 bg-white/[0.06] flex items-end p-1.5"><span className="text-[9px] text-white/40 leading-tight">{show.name}</span></div>
+                        }
+
+                        {/* Tier badge */}
+                        {tier && (
+                          <span className={cn('absolute top-1.5 left-1.5 z-20 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[9px] font-black', tierColors[tier] ?? 'bg-white/20 text-white/60')}>
+                            {tier}
+                          </span>
+                        )}
+
+                        {/* Watchlist dot (discover mode) */}
+                        {path === 'discover' && inWatchlist && !isSelected && (
+                          <span className="absolute top-1.5 right-1.5 z-20 h-2.5 w-2.5 rounded-full bg-[#59f5c6] shadow-[0_0_6px_rgba(89,245,198,0.8)]" />
+                        )}
+
+                        {/* Selected overlay */}
+                        {isSelected && (
+                          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/35">
+                            <span className="text-[28px] font-black text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">✓</span>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
 
             {/* Mood row — shown after at least one show selected */}
             {selected.length > 0 && (
@@ -1253,8 +1312,8 @@ function WatchDropPanel({
           </div>
         )}
 
-        {/* Result */}
-        {path && result && (
+          {/* Result */}
+          {result && (
           <div className="flex flex-1 flex-col min-h-0 px-4">
             {result.kind === 'rewatch' && (
               <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto pb-4">
@@ -1291,6 +1350,7 @@ function WatchDropPanel({
         )}
 
       </div>
+      )}
     </motion.div>
   )
 }
