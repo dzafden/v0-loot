@@ -1007,6 +1007,15 @@ function WatchDropPanel({
 
   const mood = WATCH_DROP_MOODS.find((m) => m.key === activeMood) ?? null
 
+  // Inject scroll keyframes once
+  useEffect(() => {
+    if (document.getElementById('wd-kf')) return
+    const s = document.createElement('style')
+    s.id = 'wd-kf'
+    s.innerHTML = '@keyframes wd-l{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes wd-r{from{transform:translateX(-50%)}to{transform:translateX(0)}}'
+    document.head.appendChild(s)
+  }, [])
+
   const toggleShow = (show: Show) => {
     setResult(null)
     setSelected((prev) => {
@@ -1075,13 +1084,24 @@ function WatchDropPanel({
 
   // Infinite scrolling row data for the portal canvas
   const rowData = useMemo(() => {
-    const pool = seededShuffle([...ownedShows].filter((s) => s.posterPath), hashString('rows-v2'))
+    const pool = seededShuffle([...ownedShows].filter((s) => s.posterPath), hashString('rows-v3'))
     if (pool.length === 0) return []
     const NUM_ROWS = 6
-    const durations = [32, 22, 28, 19, 25, 17]
+    const durations = [34, 21, 29, 18, 26, 16]
     return Array.from({ length: NUM_ROWS }, (_, r) => {
-      const shows = Array.from({ length: 14 }, (_, i) => pool[(r * 5 + i) % pool.length])
-      return { shows, dir: r % 2 === 0 ? 'left' : 'right' as const, dur: durations[r] }
+      // Fill each row generously — at least 20 slots cycling through the whole pool
+      const count = Math.max(20, pool.length)
+      const shows = Array.from({ length: count }, (_, i) => pool[(r * 7 + i) % pool.length])
+      const wobbles = shows.map((show, i) => {
+        const h = hashString(`wb:${show.id}:${r}:${i}`)
+        return {
+          rotX: ((h % 7) - 3) * 0.9,
+          rotY: (((h >> 4) % 9) - 4) * 0.75,
+          dur: 2.4 + (h % 28) / 10,
+          delay: (h % 42) / 10,
+        }
+      })
+      return { shows, wobbles, dir: r % 2 === 0 ? 'left' : 'right' as const, dur: durations[r] }
     })
   }, [ownedShows])
 
@@ -1098,38 +1118,41 @@ function WatchDropPanel({
       {/* ── Mode select ─────────────────────────────────── */}
       {!path && (
         <>
-          {/* Infinite scrolling poster rows — perspective tilt for "portal to infinity" */}
+          {/* Infinite scrolling poster rows — CSS animation for seamless loop, perspective tilt */}
           <div
             className="absolute inset-0 overflow-hidden flex flex-col gap-[5px]"
             style={{ transform: 'perspective(900px) rotateX(6deg) scale(1.06)', transformOrigin: 'center 72%' }}
           >
             {rowData.map((row, ri) => (
               <div key={ri} className="flex-1 min-h-0 overflow-hidden">
-                <motion.div
-                  className="flex h-full gap-[5px]"
-                  initial={{ x: row.dir === 'left' ? '0%' : '-50%' }}
-                  animate={{ x: row.dir === 'left' ? '-50%' : '0%' }}
-                  transition={{ repeat: Infinity, duration: row.dur, ease: 'linear' }}
+                <div
+                  className="flex h-full gap-[5px] will-change-transform"
+                  style={{ animation: `wd-${row.dir === 'left' ? 'l' : 'r'} ${row.dur}s linear infinite` }}
                 >
-                  {[...row.shows, ...row.shows].map((show, si) => (
-                    <div
-                      key={si}
-                      className="flex-shrink-0 h-full overflow-hidden rounded-[6px]"
-                      style={{ aspectRatio: '2/3' }}
-                    >
-                      <img src={imgUrl(show.posterPath!, 'w185')} alt="" className="h-full w-full object-cover" />
-                    </div>
-                  ))}
-                </motion.div>
+                  {[...row.shows, ...row.shows].map((show, si) => {
+                    const wb = row.wobbles[si % row.wobbles.length]
+                    return (
+                      <div key={si} className="flex-shrink-0 h-full" style={{ aspectRatio: '2/3', perspective: 280 }}>
+                        <motion.div
+                          className="h-full w-full rounded-[6px] overflow-hidden"
+                          animate={{ rotateX: [wb.rotX, -wb.rotX, wb.rotX], rotateY: [wb.rotY, -wb.rotY, wb.rotY] }}
+                          transition={{ repeat: Infinity, duration: wb.dur, delay: wb.delay, ease: 'easeInOut' }}
+                        >
+                          <img src={imgUrl(show.posterPath!, 'w185')} alt="" className="h-full w-full object-cover" />
+                        </motion.div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             ))}
           </div>
 
-          {/* Vignettes */}
-          <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#060508] via-[#060508]/70 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#060508] via-[#060508]/95 to-transparent" />
-          <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-[#060508] to-transparent" />
-          <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#060508] to-transparent" />
+          {/* Vignettes — thin, just enough for edges and buttons */}
+          <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#060508] to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-[28%] bg-gradient-to-t from-[#060508]/95 to-transparent" />
+          <div className="absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-[#060508] to-transparent" />
+          <div className="absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[#060508] to-transparent" />
 
           {/* Close */}
           <button
@@ -1137,31 +1160,23 @@ function WatchDropPanel({
             className="absolute left-4 top-5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/40 text-[22px] leading-none text-white/60 ring-1 ring-white/10 active:scale-90"
           >×</button>
 
-          {/* Bottom zone — thumb-reachable */}
-          <div className="absolute inset-x-0 bottom-0 z-20 px-5 pb-10">
-            <p className="mb-4 text-center text-[28px] font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_22px_rgba(0,0,0,1)]">
-              What are you looking for?
-            </p>
-            <div className="flex gap-3">
-              {([
-                { key: 'rewatch' as const, icon: <RotateCcw size={20} />, label: 'Rewatch', colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]' },
-                { key: 'discover' as const, icon: <Sparkles size={20} />, label: 'Discover', colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]' },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => setPath(opt.key)}
-                  className="relative flex-1 overflow-hidden rounded-[22px] py-5 shadow-[0_18px_44px_rgba(0,0,0,0.7),0_3px_0_rgba(0,0,0,0.5)] active:scale-[0.96]"
-                >
-                  <span className={cn('absolute inset-0 bg-gradient-to-br', opt.colors)} />
-                  <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.5),transparent_50%)]" />
-                  <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[22px]" />
-                  <span className="relative z-10 flex flex-col items-center gap-1.5 text-black/80">
-                    {opt.icon}
-                    <span className="text-[11px] font-black uppercase tracking-[0.14em] text-black">{opt.label}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
+          {/* Buttons only — no heading */}
+          <div className="absolute inset-x-0 bottom-0 z-20 px-5 pb-10 flex gap-3">
+            {([
+              { key: 'rewatch' as const, label: 'Rewatch', colors: 'from-[#ffe86f] via-[#ffb86f] to-[#ff7eb3]' },
+              { key: 'discover' as const, label: 'Discover', colors: 'from-[#59f5c6] via-[#7b8eff] to-[#d96fff]' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setPath(opt.key)}
+                className="relative flex-1 overflow-hidden rounded-[22px] py-5 shadow-[0_18px_44px_rgba(0,0,0,0.7),0_3px_0_rgba(0,0,0,0.5)] active:scale-[0.96]"
+              >
+                <span className={cn('absolute inset-0 bg-gradient-to-br', opt.colors)} />
+                <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.5),transparent_50%)]" />
+                <span className="absolute inset-x-0 bottom-0 h-[3px] bg-black/20 rounded-b-[22px]" />
+                <span className="relative z-10 text-[13px] font-black uppercase tracking-[0.18em] text-black">{opt.label}</span>
+              </button>
+            ))}
           </div>
         </>
       )}
