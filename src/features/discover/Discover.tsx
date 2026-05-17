@@ -17,7 +17,7 @@ import {
   type DiscoverFeed,
   type LootShow,
 } from '../../lib/tmdb'
-import { cacheSeason, upsertShow } from '../../data/queries'
+import { cacheSeason, upsertShow, addToWatchlistShelf } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import type { Genre, SeasonCache, Show, Tier, TierAssignment } from '../../types'
@@ -1082,16 +1082,24 @@ function WatchDropPanel({
     onClose()
   }
 
+  // Portal canvas pool — owned shows supplemented with TMDB cached data
+  const canvasPool = useMemo(() => {
+    const owned = ownedShows.filter((s) => s.posterPath) as { id: number; posterPath: string | null }[]
+    const feed = getCachedDiscoverFeed()
+    const feedItems = feed ? [...feed.trending, ...feed.popular, ...feed.topRated, ...feed.netflix, ...feed.hbo] : []
+    const ownedIds = new Set(owned.map((s) => s.id))
+    const extra = feedItems.filter((s) => s.posterPath && !ownedIds.has(s.id))
+    return seededShuffle([...owned, ...extra], hashString('pool-v2'))
+  }, [ownedShows])
+
   // Infinite scrolling row data for the portal canvas
   const rowData = useMemo(() => {
-    const pool = seededShuffle([...ownedShows].filter((s) => s.posterPath), hashString('rows-v3'))
-    if (pool.length === 0) return []
+    if (canvasPool.length === 0) return []
     const NUM_ROWS = 6
     const durations = [34, 21, 29, 18, 26, 16]
     return Array.from({ length: NUM_ROWS }, (_, r) => {
-      // Fill each row generously — at least 20 slots cycling through the whole pool
-      const count = Math.max(20, pool.length)
-      const shows = Array.from({ length: count }, (_, i) => pool[(r * 7 + i) % pool.length])
+      const count = Math.max(20, canvasPool.length)
+      const shows = Array.from({ length: count }, (_, i) => canvasPool[(r * 7 + i) % canvasPool.length])
       const wobbles = shows.map((show, i) => {
         const h = hashString(`wb:${show.id}:${r}:${i}`)
         return {
@@ -1103,7 +1111,7 @@ function WatchDropPanel({
       })
       return { shows, wobbles, dir: r % 2 === 0 ? 'left' : 'right' as const, dur: durations[r] }
     })
-  }, [ownedShows])
+  }, [canvasPool])
 
   return (
     <motion.div
@@ -1338,7 +1346,7 @@ function WatchDropPanel({
 
             {result.kind === 'discover' && result.show && (
               <div className="flex flex-1 flex-col min-h-0">
-                <DiscoverResultCard show={result.show} onAdded={() => setResult(null)} />
+                <DiscoverResultCard show={result.show} watchlistShelves={watchlistShelves} onDone={() => setResult(null)} />
               </div>
             )}
 
@@ -1407,54 +1415,143 @@ function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOpti
   )
 }
 
-function DiscoverResultCard({ show, onAdded }: { show: LootShow; onAdded: () => void }) {
-  const [adding, setAdding] = useState(false)
-  const [added, setAdded] = useState(false)
+function DiscoverResultCard({
+  show,
+  watchlistShelves,
+  onDone,
+}: {
+  show: LootShow
+  watchlistShelves: { id: string; name: string; showIds: number[] }[]
+  onDone: () => void
+}) {
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  const [action, setAction] = useState<'watchlist' | 'library' | null>(null)
+  const [done, setDone] = useState<'watchlist' | 'library' | null>(null)
 
-  const handleAdd = async () => {
-    if (adding || added) return
-    setAdding(true)
+  useEffect(() => {
+    if (art) return
+    let cancelled = false
+    getLandscapeArt(show.id)
+      .then((next) => { if (!cancelled) setArt(next) })
+      .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
+    return () => { cancelled = true }
+  }, [art, show.id])
+
+  const handleWatchlist = async () => {
+    if (action || done) return
+    const shelf = watchlistShelves[0]
+    if (!shelf) return
+    setAction('watchlist')
+    try {
+      const now = Date.now()
+      await addToWatchlistShelf(shelf.id, {
+        id: show.id, name: show.title, posterPath: show.posterPath,
+        backdropPath: show.backdropPath, overview: show.overview,
+        year: show.year ? parseInt(show.year) : undefined,
+        genres: [show.genre as Genre].filter(Boolean),
+        rawGenres: [show.genre], addedAt: now, updatedAt: now,
+      })
+      setDone('watchlist')
+      setTimeout(onDone, 900)
+    } finally { setAction(null) }
+  }
+
+  const handleLibrary = async () => {
+    if (action || done) return
+    setAction('library')
     try {
       await upsertShow(show)
-      setAdded(true)
-      setTimeout(onAdded, 800)
-    } finally {
-      setAdding(false)
-    }
+      setDone('library')
+      setTimeout(onDone, 900)
+    } finally { setAction(null) }
   }
 
   const heroSrc = show.backdropPath ? imgUrl(show.backdropPath, 'w780') : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
+  const logoSrc = art?.logoPath ? imgUrl(art.logoPath, 'w500') : null
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden rounded-[20px] bg-[#10080e] shadow-[0_20px_52px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.07]">
-      {heroSrc && <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" />}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-black/10" />
-      <div className="absolute inset-x-0 bottom-0 z-10 p-5">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white/40">{show.year}</span>
-          <span className="text-[10px] text-white/25">·</span>
-          <span className="text-[10px] font-black uppercase tracking-[0.1em] text-white/40">{show.genre}</span>
-          {show.rating > 0 && <>
-            <span className="text-[10px] text-white/25">·</span>
-            <span className="text-[10px] font-black text-[#f5c453]/80">{show.rating.toFixed(1)}</span>
-          </>}
-        </div>
-        <div className="mb-2 text-[clamp(22px,5.5vw,28px)] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</div>
-        {show.overview && (
-          <p className="mb-4 line-clamp-3 text-[12px] leading-relaxed text-white/55">{show.overview}</p>
+    <div className="relative flex flex-1 flex-col overflow-hidden rounded-[22px] bg-[#0c0810] shadow-[0_24px_60px_rgba(0,0,0,0.7)] ring-1 ring-white/[0.07]">
+      {/* Hero */}
+      {heroSrc && (
+        <img
+          src={heroSrc} alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ objectPosition: 'center 18%', opacity: 0.72 }}
+        />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0c0810] via-[#0c0810]/60 to-transparent" style={{ backgroundSize: '100% 100%' }} />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0c0810] to-transparent" style={{ top: '48%' }} />
+
+      {/* Info panel */}
+      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col p-5 pb-4">
+        {/* Logo or title */}
+        {logoSrc ? (
+          <img
+            src={logoSrc} alt={show.title}
+            className="mb-3 max-h-[56px] object-contain object-left drop-shadow-[0_2px_12px_rgba(0,0,0,1)]"
+            style={{ maxWidth: '70%' }}
+          />
+        ) : (
+          <h2 className="mb-2 text-[clamp(24px,6vw,30px)] font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+            {show.title}
+          </h2>
         )}
-        <button
-          onClick={() => void handleAdd()}
-          disabled={adding || added}
-          className="relative h-12 w-full overflow-hidden rounded-[16px] shadow-[0_8px_24px_rgba(0,0,0,0.4),0_2px_0_rgba(0,0,0,0.5)] active:scale-[0.984] disabled:opacity-60"
-        >
-          <span className="absolute inset-0 bg-gradient-to-r from-[#59f5c6] via-[#7b8eff] to-[#d96fff]" />
-          <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.4),transparent_50%)]" />
-          <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/18 rounded-b-[16px]" />
-          <span className="relative z-10 text-[13px] font-black uppercase tracking-[0.18em] text-black">
-            {added ? 'Added ✓' : adding ? 'Adding…' : '+ Add to Library'}
-          </span>
-        </button>
+
+        {/* Meta row */}
+        <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {show.year && <span className="text-[11px] font-semibold text-white/45">{show.year}</span>}
+          {show.genre && (
+            <>
+              <span className="text-[9px] text-white/20">·</span>
+              <span className="text-[11px] font-semibold text-white/45">{show.genre}</span>
+            </>
+          )}
+          {show.rating > 0 && (
+            <>
+              <span className="text-[9px] text-white/20">·</span>
+              <span className="text-[11px] font-bold text-[#f5c453]">★ {show.rating.toFixed(1)}</span>
+            </>
+          )}
+        </div>
+
+        {/* If logo shown, also print the title in smaller text */}
+        {logoSrc && (
+          <p className="mb-1 text-[15px] font-bold text-white/80 leading-snug">{show.title}</p>
+        )}
+
+        {/* Overview */}
+        {show.overview && (
+          <p className="mb-4 line-clamp-4 text-[12px] leading-[1.6] text-white/55">{show.overview}</p>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2">
+          {/* Primary — Watchlist */}
+          <button
+            onClick={() => void handleWatchlist()}
+            disabled={!!action || !!done}
+            className="relative h-12 w-full overflow-hidden rounded-[16px] shadow-[0_10px_28px_rgba(0,0,0,0.45),0_2px_0_rgba(0,0,0,0.5)] active:scale-[0.984] disabled:opacity-55"
+          >
+            <span className="absolute inset-0 bg-gradient-to-r from-[#59f5c6] via-[#7b8eff] to-[#d96fff]" />
+            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.42),transparent_50%)]" />
+            <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/18 rounded-b-[16px]" />
+            <span className="relative z-10 text-[13px] font-black uppercase tracking-[0.18em] text-black">
+              {done === 'watchlist' ? 'Added to Watchlist ✓' : action === 'watchlist' ? '…' : '+ Add to Watchlist'}
+            </span>
+          </button>
+
+          {/* Secondary — Library */}
+          <button
+            onClick={() => void handleLibrary()}
+            disabled={!!action || !!done}
+            className="relative h-10 w-full overflow-hidden rounded-[14px] bg-white/[0.08] shadow-[0_4px_14px_rgba(0,0,0,0.3),0_1px_0_rgba(0,0,0,0.4)] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-55"
+          >
+            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.07),transparent_55%)]" />
+            <span className="relative z-10 text-[11px] font-black uppercase tracking-[0.16em] text-white/60">
+              {done === 'library' ? 'In Library ✓' : action === 'library' ? '…' : 'Add to Library'}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   )
