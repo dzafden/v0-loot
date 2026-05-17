@@ -976,6 +976,7 @@ function WatchDropPanel({
   const [activeMood, setActiveMood] = useState<MoodKey | null>(null)
   const [result, setResult] = useState<WatchDropResult | null>(null)
   const [loading, setLoading] = useState(false)
+  const discoverIdxRef = useRef(0)
 
   const tierByShow = useMemo(() => new Map(tierAssignments.map((a) => [a.showId, a.tier])), [tierAssignments])
 
@@ -1025,8 +1026,9 @@ function WatchDropPanel({
     })
   }
 
-  const handleGo = async () => {
+  const handleGo = async (isRetry = false) => {
     if (selected.length === 0 || loading) return
+    if (!isRetry) discoverIdxRef.current = 0
     setLoading(true)
     try {
       if (path === 'rewatch') {
@@ -1069,7 +1071,9 @@ function WatchDropPanel({
                 + (mood.genreHints.some((g) => s.genre === g) ? 3 : 0),
             })).sort((a, b) => b.score - a.score).map((x) => x.s)
           : candidates
-        setResult({ kind: 'discover', show: scored[0] ?? candidates[0] })
+        const pool = scored.length > 0 ? scored : candidates
+        const pick = pool[discoverIdxRef.current % pool.length]
+        setResult({ kind: 'discover', show: pick })
       }
     } finally {
       setLoading(false)
@@ -1376,7 +1380,7 @@ function WatchDropPanel({
                 watchlistShelves={watchlistShelves}
                 onDone={() => setResult(null)}
                 onBack={handleBack}
-                onRetry={() => void handleGo()}
+                onRetry={() => { discoverIdxRef.current++; void handleGo(true) }}
                 loading={loading}
               />
             </div>
@@ -1495,9 +1499,9 @@ function DiscoverResultCard({
   ].filter(Boolean) as string[]
 
   return (
-    <div className="absolute inset-0 overflow-y-auto overscroll-contain bg-[#060509] text-white">
+    <div className="absolute inset-0 flex flex-col bg-[#060509] text-white">
       {/* Hero — mirrors ShowDetail exactly */}
-      <div className="relative min-h-[470px] overflow-hidden">
+      <div className="relative flex-shrink-0 overflow-hidden" style={{ minHeight: 'min(470px, 55vh)' }}>
         {heroSrc && (
           <img
             src={heroSrc} alt=""
@@ -1520,7 +1524,7 @@ function DiscoverResultCard({
         </header>
 
         {/* Logo / title + meta — pinned to hero bottom */}
-        <div className="absolute inset-x-0 bottom-12 z-10 px-5">
+        <div className="absolute inset-x-0 bottom-8 z-10 px-5">
           {logoSrc ? (
             <img
               src={logoSrc} alt={show.title}
@@ -1537,21 +1541,23 @@ function DiscoverResultCard({
         </div>
       </div>
 
-      {/* Content */}
-      <main className="relative z-20 -mt-8 px-4 pb-20">
+      {/* Scrollable content — grows to fill space between hero and buttons */}
+      <div className="flex-1 overflow-y-auto overscroll-contain -mt-6 px-5 pt-0 pb-4">
         {logoSrc && (
-          <p className="mb-3 text-[22px] font-bold tracking-[-0.03em] text-white/80">
+          <p className="mb-2 text-[22px] font-bold tracking-[-0.03em] text-white/80">
             {show.title}
           </p>
         )}
         {show.overview && (
-          <p className="text-[20px] font-semibold leading-[1.15] tracking-[-0.035em] text-white/84 line-clamp-4">
+          <p className="text-[20px] font-semibold leading-[1.15] tracking-[-0.035em] text-white/84">
             {show.overview}
           </p>
         )}
+      </div>
 
-        {/* Buttons — grid like ShowDetail */}
-        <div className="mt-5 grid grid-cols-2 gap-2">
+      {/* Buttons — always anchored at bottom, thumb-reachable */}
+      <div className="flex-shrink-0 px-5 pb-10 pt-3 bg-[#060509]">
+        <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => void handleLibrary()}
             disabled={!!action || !!done}
@@ -1572,16 +1578,15 @@ function DiscoverResultCard({
           </button>
         </div>
 
-        {/* Try Again */}
         <button
           onClick={onRetry}
           disabled={loading}
-          className="mt-5 flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/28 active:text-white/60 disabled:opacity-40"
+          className="mt-4 flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/28 active:text-white/60 disabled:opacity-40"
         >
           <RefreshCw size={12} />
           Try Again
         </button>
-      </main>
+      </div>
     </div>
   )
 }
