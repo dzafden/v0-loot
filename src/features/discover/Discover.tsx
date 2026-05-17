@@ -1195,17 +1195,19 @@ function WatchDropPanel({
           {/* Subtle bg */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_8%,rgba(255,232,111,0.1),transparent_22rem),radial-gradient(circle_at_80%_30%,rgba(89,245,198,0.08),transparent_18rem)]" />
 
-          {/* Header */}
-          <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
-            <button
-              onClick={handleBack}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
-            >‹</button>
-            <div className="flex-1 text-center text-[13px] font-black uppercase tracking-[0.18em] text-white/40">
-              {path === 'rewatch' ? 'Rewatch' : 'Find Something New'}
+          {/* Header — hidden when fullscreen discover result is showing */}
+          {!(result?.kind === 'discover' && result.show) && (
+            <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
+              <button
+                onClick={handleBack}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
+              >‹</button>
+              <div className="flex-1 text-center text-[13px] font-black uppercase tracking-[0.18em] text-white/40">
+                {path === 'rewatch' ? 'Rewatch' : 'Find Something New'}
+              </div>
+              <div className="h-9 w-9" />
             </div>
-            <div className="h-9 w-9" />
-          </div>
+          )}
 
           {!result && (
             <div className="flex flex-1 flex-col min-h-0 px-4">
@@ -1334,41 +1336,51 @@ function WatchDropPanel({
         )}
 
           {/* Result */}
-          {result && (
-          <div className="flex flex-1 flex-col min-h-0 px-4">
-            {result.kind === 'rewatch' && (
+          {/* Rewatch result — normal padded flow */}
+          {result?.kind === 'rewatch' && (
+            <div className="flex flex-1 flex-col min-h-0 px-4">
               <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto pb-4">
                 {result.picks.map(({ show, episode }) => (
                   <EpisodeResultCard key={show.id} show={show} episode={episode} />
                 ))}
               </div>
-            )}
+              <button
+                onClick={() => void handleGo()}
+                disabled={loading}
+                className="relative mt-3 mb-2 h-12 w-full overflow-hidden rounded-[18px] bg-white/[0.07] shadow-[0_8px_22px_rgba(0,0,0,0.3),0_2px_0_rgba(0,0,0,0.45)] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-40"
+              >
+                <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.08),transparent_55%)]" />
+                <span className="relative z-10 flex items-center justify-center gap-2 text-[13px] font-black uppercase tracking-[0.18em] text-white/70">
+                  <RefreshCw size={14} />
+                  Try Again
+                </span>
+              </button>
+            </div>
+          )}
 
-            {result.kind === 'discover' && result.show && (
-              <div className="flex flex-1 flex-col min-h-0">
-                <DiscoverResultCard show={result.show} watchlistShelves={watchlistShelves} onDone={() => setResult(null)} />
-              </div>
-            )}
+          {/* Discover empty state */}
+          {result?.kind === 'discover' && !result.show && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
+              <p className="text-center text-[14px] text-white/40">Nothing new found — try different anchors</p>
+              <button onClick={() => void handleGo()} disabled={loading} className="relative h-11 w-full overflow-hidden rounded-[16px] bg-white/[0.07] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-40">
+                <span className="relative z-10 flex items-center justify-center gap-2 text-[13px] font-black uppercase tracking-[0.18em] text-white/70"><RefreshCw size={14} />Try Again</span>
+              </button>
+            </div>
+          )}
 
-            {result.kind === 'discover' && !result.show && (
-              <div className="flex flex-1 items-center justify-center">
-                <p className="text-center text-[14px] text-white/40">Nothing new found — try different anchors</p>
-              </div>
-            )}
-
-            <button
-              onClick={() => void handleGo()}
-              disabled={loading}
-              className="relative mt-3 mb-2 h-12 w-full overflow-hidden rounded-[18px] bg-white/[0.07] shadow-[0_8px_22px_rgba(0,0,0,0.3),0_2px_0_rgba(0,0,0,0.45)] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-40"
-            >
-              <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.08),transparent_55%)]" />
-              <span className="relative z-10 flex items-center justify-center gap-2 text-[13px] font-black uppercase tracking-[0.18em] text-white/70">
-                <RefreshCw size={14} />
-                Try Again
-              </span>
-            </button>
-          </div>
-        )}
+          {/* Discover result — fullscreen overlay, no header */}
+          {result?.kind === 'discover' && result.show && (
+            <div className="absolute inset-0 z-20">
+              <DiscoverResultCard
+                show={result.show}
+                watchlistShelves={watchlistShelves}
+                onDone={() => setResult(null)}
+                onBack={handleBack}
+                onRetry={() => void handleGo()}
+                loading={loading}
+              />
+            </div>
+          )}
 
       </div>
       )}
@@ -1419,10 +1431,16 @@ function DiscoverResultCard({
   show,
   watchlistShelves,
   onDone,
+  onBack,
+  onRetry,
+  loading,
 }: {
   show: LootShow
   watchlistShelves: { id: string; name: string; showIds: number[] }[]
   onDone: () => void
+  onBack: () => void
+  onRetry: () => void
+  loading: boolean
 }) {
   const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
   const [action, setAction] = useState<'watchlist' | 'library' | null>(null)
@@ -1466,92 +1484,100 @@ function DiscoverResultCard({
     } finally { setAction(null) }
   }
 
-  const heroSrc = show.backdropPath ? imgUrl(show.backdropPath, 'w780') : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
+  const heroSrc = show.backdropPath
+    ? imgUrl(show.backdropPath, 'w1280')
+    : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
   const logoSrc = art?.logoPath ? imgUrl(art.logoPath, 'w500') : null
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden rounded-[22px] bg-[#0c0810] shadow-[0_24px_60px_rgba(0,0,0,0.7)] ring-1 ring-white/[0.07]">
-      {/* Hero */}
+    <div className="absolute inset-0 bg-[#060508]">
+      {/* Full-bleed high-res backdrop */}
       {heroSrc && (
         <img
           src={heroSrc} alt=""
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ objectPosition: 'center 18%', opacity: 0.72 }}
+          style={{ objectPosition: 'center 15%' }}
         />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0c0810] via-[#0c0810]/60 to-transparent" style={{ backgroundSize: '100% 100%' }} />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0c0810] to-transparent" style={{ top: '48%' }} />
+      {/* Gradient scrims */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#060508] via-[#060508]/20 to-black/30" />
+      <div className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-[#060508] to-transparent" />
 
-      {/* Info panel */}
-      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col p-5 pb-4">
-        {/* Logo or title */}
-        {logoSrc ? (
+      {/* Back button */}
+      <button
+        onClick={onBack}
+        className="absolute left-4 top-5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
+      >‹</button>
+
+      {/* Logo — sits above the info panel, larger */}
+      {logoSrc && (
+        <div className="absolute inset-x-5 z-10" style={{ bottom: 'calc(38% + 8px)' }}>
           <img
             src={logoSrc} alt={show.title}
-            className="mb-3 max-h-[56px] object-contain object-left drop-shadow-[0_2px_12px_rgba(0,0,0,1)]"
-            style={{ maxWidth: '70%' }}
+            className="max-h-[96px] w-auto object-contain object-left drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
+            style={{ maxWidth: '72%' }}
           />
-        ) : (
-          <h2 className="mb-2 text-[clamp(24px,6vw,30px)] font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
-            {show.title}
-          </h2>
-        )}
-
-        {/* Meta row */}
-        <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          {show.year && <span className="text-[11px] font-semibold text-white/45">{show.year}</span>}
-          {show.genre && (
-            <>
-              <span className="text-[9px] text-white/20">·</span>
-              <span className="text-[11px] font-semibold text-white/45">{show.genre}</span>
-            </>
-          )}
-          {show.rating > 0 && (
-            <>
-              <span className="text-[9px] text-white/20">·</span>
-              <span className="text-[11px] font-bold text-[#f5c453]">★ {show.rating.toFixed(1)}</span>
-            </>
-          )}
         </div>
+      )}
 
-        {/* If logo shown, also print the title in smaller text */}
-        {logoSrc && (
-          <p className="mb-1 text-[15px] font-bold text-white/80 leading-snug">{show.title}</p>
-        )}
+      {/* Info panel */}
+      <div className="absolute inset-x-0 bottom-0 z-10 px-5 pb-10">
+        {/* Title (always shown; large if no logo) */}
+        <h2 className={cn(
+          'font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]',
+          logoSrc ? 'mb-1 text-[18px] font-bold' : 'mb-2 text-[clamp(26px,6.5vw,32px)]',
+        )}>
+          {show.title}
+        </h2>
+
+        {/* Meta */}
+        <div className="mb-3 flex flex-wrap items-center gap-x-2">
+          {show.year && <span className="text-[12px] font-semibold text-white/45">{show.year}</span>}
+          {show.genre && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-semibold text-white/45">{show.genre}</span></>}
+          {show.rating > 0 && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-bold text-[#f5c453]">★ {show.rating.toFixed(1)}</span></>}
+        </div>
 
         {/* Overview */}
         {show.overview && (
-          <p className="mb-4 line-clamp-4 text-[12px] leading-[1.6] text-white/55">{show.overview}</p>
+          <p className="mb-5 line-clamp-4 text-[14px] leading-[1.65] text-white/65">{show.overview}</p>
         )}
 
-        {/* Actions */}
-        <div className="flex flex-col gap-2">
-          {/* Primary — Watchlist */}
-          <button
-            onClick={() => void handleWatchlist()}
-            disabled={!!action || !!done}
-            className="relative h-12 w-full overflow-hidden rounded-[16px] shadow-[0_10px_28px_rgba(0,0,0,0.45),0_2px_0_rgba(0,0,0,0.5)] active:scale-[0.984] disabled:opacity-55"
-          >
-            <span className="absolute inset-0 bg-gradient-to-r from-[#59f5c6] via-[#7b8eff] to-[#d96fff]" />
-            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.42),transparent_50%)]" />
-            <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/18 rounded-b-[16px]" />
-            <span className="relative z-10 text-[13px] font-black uppercase tracking-[0.18em] text-black">
-              {done === 'watchlist' ? 'Added to Watchlist ✓' : action === 'watchlist' ? '…' : '+ Add to Watchlist'}
-            </span>
-          </button>
-
-          {/* Secondary — Library */}
+        {/* Side-by-side buttons — Library left, Watchlist right (thumb-side) */}
+        <div className="flex gap-3">
           <button
             onClick={() => void handleLibrary()}
             disabled={!!action || !!done}
-            className="relative h-10 w-full overflow-hidden rounded-[14px] bg-white/[0.08] shadow-[0_4px_14px_rgba(0,0,0,0.3),0_1px_0_rgba(0,0,0,0.4)] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-55"
+            className="relative flex-1 h-[52px] overflow-hidden rounded-[16px] bg-white/[0.1] shadow-[0_4px_14px_rgba(0,0,0,0.4)] ring-1 ring-white/12 active:scale-[0.96] disabled:opacity-50"
           >
-            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.07),transparent_55%)]" />
-            <span className="relative z-10 text-[11px] font-black uppercase tracking-[0.16em] text-white/60">
+            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.08),transparent_55%)]" />
+            <span className="relative z-10 text-[11px] font-black uppercase tracking-[0.16em] text-white/65">
               {done === 'library' ? 'In Library ✓' : action === 'library' ? '…' : 'Add to Library'}
             </span>
           </button>
+
+          <button
+            onClick={() => void handleWatchlist()}
+            disabled={!!action || !!done}
+            className="relative flex-[1.5] h-[52px] overflow-hidden rounded-[16px] shadow-[0_10px_28px_rgba(89,245,198,0.25),0_2px_0_rgba(0,0,0,0.5)] active:scale-[0.96] disabled:opacity-50"
+          >
+            <span className="absolute inset-0 bg-gradient-to-r from-[#59f5c6] via-[#7b8eff] to-[#d96fff]" />
+            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.45),transparent_50%)]" />
+            <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/18 rounded-b-[16px]" />
+            <span className="relative z-10 text-[12px] font-black uppercase tracking-[0.16em] text-black">
+              {done === 'watchlist' ? 'Added ✓' : action === 'watchlist' ? '…' : '+ Watchlist'}
+            </span>
+          </button>
         </div>
+
+        {/* Try Again */}
+        <button
+          onClick={onRetry}
+          disabled={loading}
+          className="mt-3 w-full h-11 flex items-center justify-center gap-2 text-[12px] font-black uppercase tracking-[0.16em] text-white/35 active:text-white/60 disabled:opacity-40"
+        >
+          <RefreshCw size={13} />
+          Try Again
+        </button>
       </div>
     </div>
   )
