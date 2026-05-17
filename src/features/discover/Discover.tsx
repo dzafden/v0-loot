@@ -1,6 +1,6 @@
 import { useAnimation, motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, X, RefreshCw, RotateCcw, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
@@ -54,7 +54,6 @@ type DiscoverLibrarySnapshot = {
   createdAt: number
 }
 
-type WatchDropMode = 'mixed' | 'rank' | 'top8' | 'watchlist'
 type MoodKey = 'happy' | 'action' | 'slow' | 'love' | 'dark' | 'comfort' | 'funny' | 'tense' | 'sad' | 'weird'
 type EpisodeModifier = 'sweet' | 'messy' | 'breakup' | 'violence' | 'betrayal' | 'family' | 'friendship' | 'party' | 'case' | 'work'
 
@@ -188,18 +187,6 @@ const MODIFIER_WORDS: Record<EpisodeModifier, string[]> = {
   work: ['work', 'office', 'job', 'boss', 'staff', 'meeting', 'shift'],
 }
 
-const MODIFIER_LABELS: Record<EpisodeModifier, string> = {
-  sweet: 'Sweet',
-  messy: 'Messy',
-  breakup: 'Breakup',
-  violence: 'Violence',
-  betrayal: 'Betrayal',
-  family: 'Family',
-  friendship: 'Friendship',
-  party: 'Party',
-  case: 'Case',
-  work: 'Work',
-}
 
 const EPISODE_FALLBACKS = [
   'Pilot',
@@ -533,14 +520,6 @@ function scoreEpisodeForMood(show: Show, episode: EpisodeOption, mood: MoodDefin
   return wordScore(text, mood.words) * 2 + genreScore + modifierScore(text, include) * 1.4 - modifierScore(text, exclude) * 2.8
 }
 
-function showSupportsMood(show: Show, mood: MoodDefinition, episodes: EpisodeOption[] = []) {
-  if (episodes.length) {
-    return episodes.some((episode) => scoreEpisodeForMood(show, episode, mood, [], mood.avoid) > 0.8)
-  }
-  const text = showMoodText(show)
-  const genreMatch = mood.genreHints.some((genre) => show.genres?.includes(genre as Genre) || show.rawGenres?.includes(genre))
-  return genreMatch || wordScore(text, mood.words) > 0
-}
 
 function cachedEpisodeOptions(showId: number, seasons: SeasonCache[]) {
   return seasons
@@ -633,22 +612,6 @@ function pickEpisode(
   return scored[0]?.episode ?? fallbackEpisode(show, dealSeed)
 }
 
-function distinctSlotShows(sourcePools: Show[][], slotIndexes: number[]) {
-  const used = new Set<number>()
-  return sourcePools.map((pool, slot) => {
-    if (!pool.length) return undefined
-    const start = slotIndexes[slot] % pool.length
-    for (let offset = 0; offset < pool.length; offset++) {
-      const candidate = pool[(start + offset) % pool.length]
-      if (used.has(candidate.id)) continue
-      used.add(candidate.id)
-      return candidate
-    }
-    const fallback = pool[start]
-    used.add(fallback.id)
-    return fallback
-  })
-}
 
 export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [query, setQuery] = useState('')
@@ -678,8 +641,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const tierAssignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const watchlistShows = useDexieQuery(['watchlistShows'], () => db.watchlistShows.toArray(), [], [])
   const watchlistShelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
-  const seasonCache = useDexieQuery(['seasonCache'], () => db.seasonCache.toArray(), [], [])
-  const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
+const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
   const profileShows = librarySnapshot?.ownedShows ?? []
   const profileTierAssignments = librarySnapshot?.tierAssignments ?? []
@@ -1405,9 +1367,9 @@ function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOpti
   }, [art, show.id])
 
   const heroSrc = episode.stillPath
-    ? imgUrl(episode.stillPath, 'w780')
+    ? imgUrl(episode.stillPath, 'w500')
     : show.backdropPath
-      ? imgUrl(show.backdropPath, 'w780')
+      ? imgUrl(show.backdropPath, 'w500')
       : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
 
   return (
@@ -1417,7 +1379,7 @@ function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOpti
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/15" />
       <div className="absolute inset-x-0 bottom-0 z-10 p-4">
         {art?.logoPath
-          ? <img src={imgUrl(art.logoPath, 'w300')} alt={show.name} className="mb-2 max-h-7 max-w-[60%] object-contain object-left drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)]" />
+          ? <img src={imgUrl(art.logoPath, 'w342')} alt={show.name} className="mb-2 max-h-7 max-w-[60%] object-contain object-left drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)]" />
           : <p className="mb-1 text-[10px] font-black uppercase tracking-[0.12em] text-white/50">{show.name}</p>
         }
         <div className="text-[clamp(20px,5vw,26px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.9)]">
@@ -1483,7 +1445,19 @@ function DiscoverResultCard({
     if (action || done) return
     setAction('library')
     try {
-      await upsertShow(show)
+      const now = Date.now()
+      await upsertShow({
+        id: show.id,
+        name: show.title,
+        year: show.year ? parseInt(show.year) : undefined,
+        posterPath: show.posterPath,
+        backdropPath: show.backdropPath,
+        overview: show.overview,
+        genres: [show.genre as Genre].filter(Boolean),
+        rawGenres: [show.genre],
+        addedAt: now,
+        updatedAt: now,
+      })
       setDone('library')
       setTimeout(onDone, 900)
     } finally { setAction(null) }
@@ -1491,7 +1465,7 @@ function DiscoverResultCard({
 
   const heroSrc = show.backdropPath
     ? imgUrl(show.backdropPath, 'original')
-    : show.posterPath ? imgUrl(show.posterPath, 'w780') : null
+    : show.posterPath ? imgUrl(show.posterPath, 'w500') : null
   const logoSrc = art?.logoPath ? imgUrl(art.logoPath, 'w500') : null
   const meta = [
     show.year,
@@ -1592,287 +1566,6 @@ function DiscoverResultCard({
   )
 }
 
-function WatchSlot({
-  show,
-  pick,
-  slot,
-  poolSize,
-  onPrev,
-  onNext,
-  onTouchStart,
-  onTouchEnd,
-}: {
-  show?: Show
-  pick?: EpisodePick
-  slot: number
-  poolSize: number
-  onPrev: () => void
-  onNext: () => void
-  onTouchStart: (x: number) => void
-  onTouchEnd: (x: number) => void
-}) {
-  const [art, setArt] = useState<LandscapeArt | null>(() => show ? (landscapeArtCache.get(show.id) ?? null) : null)
-  useEffect(() => {
-    if (!show || art) return
-    let cancelled = false
-    getLandscapeArt(show.id)
-      .then((next) => { if (!cancelled) setArt(next) })
-      .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
-    return () => { cancelled = true }
-  }, [art, show])
-
-  if (!show) {
-    return <div className="flex-1 rounded-[18px] bg-white/[0.04] ring-1 ring-white/[0.06]" />
-  }
-
-  const heroSrc = pick?.episode.stillPath
-    ? imgUrl(pick.episode.stillPath, 'w780')
-    : show.backdropPath
-      ? imgUrl(show.backdropPath, 'w780')
-      : show.posterPath
-        ? imgUrl(show.posterPath, 'w342')
-        : null
-
-  return (
-    <motion.div
-      key={show.id}
-      initial={{ opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: slot * 0.04, type: 'spring', stiffness: 280, damping: 24 }}
-      onTouchStart={(event) => onTouchStart(event.touches[0]?.clientX ?? 0)}
-      onTouchEnd={(event) => onTouchEnd(event.changedTouches[0]?.clientX ?? 0)}
-      style={{ touchAction: 'pan-y' }}
-      className="relative flex-1 overflow-hidden rounded-[18px] bg-[#10080e] shadow-[0_16px_42px_rgba(0,0,0,0.52)] ring-1 ring-white/[0.07]"
-    >
-      {heroSrc && (
-        <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-82" />
-      )}
-      {/* Gradient overlays */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/18 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/10 to-black/12" />
-
-      {/* Swipe arrows — only when multiple shows, no episode picked */}
-      {poolSize > 1 && !pick && (
-        <>
-          <button
-            onClick={onPrev}
-            className="absolute left-2 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white/72 ring-1 ring-white/10 active:scale-90 text-lg leading-none"
-            aria-label="Previous show"
-          >‹</button>
-          <button
-            onClick={onNext}
-            className="absolute right-2 top-1/2 z-20 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white/72 ring-1 ring-white/10 active:scale-90 text-lg leading-none"
-            aria-label="Next show"
-          >›</button>
-        </>
-      )}
-
-      {/* Content — bottom-left */}
-      <div className="absolute inset-x-0 bottom-0 z-10 p-3">
-        {/* Show logo or name */}
-        {art?.logoPath ? (
-          <img
-            src={imgUrl(art.logoPath, 'w300')}
-            alt={show.name}
-            className="mb-1.5 max-h-8 max-w-[68%] object-contain object-left drop-shadow-[0_6px_16px_rgba(0,0,0,0.95)]"
-          />
-        ) : (
-          <p className="mb-1 truncate text-[10px] font-black uppercase tracking-[0.12em] text-white/55">{show.name}</p>
-        )}
-
-        {/* Episode — shown after Deal */}
-        {pick && (
-          <>
-            <div className="text-[clamp(18px,5vw,22px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_6px_16px_rgba(0,0,0,0.9)]">
-              S{String(pick.episode.seasonNumber).padStart(2, '0')}E{String(pick.episode.episodeNumber).padStart(2, '0')}
-            </div>
-            <div className="mt-0.5 line-clamp-1 text-[11px] font-semibold text-white/75">{pick.episode.name}</div>
-          </>
-        )}
-      </div>
-    </motion.div>
-  )
-}
-
-function ShowLogo({ show, compact = false }: { show: Show; compact?: boolean }) {
-  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
-  useEffect(() => {
-    if (art) return
-    let cancelled = false
-    getLandscapeArt(show.id)
-      .then((next) => { if (!cancelled) setArt(next) })
-      .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
-    return () => { cancelled = true }
-  }, [art, show.id])
-
-  if (art?.logoPath) {
-    return <img src={imgUrl(art.logoPath, 'w500')} alt={show.name} className={cn('object-contain object-left drop-shadow-[0_8px_18px_rgba(0,0,0,0.9)]', compact ? 'max-h-7 max-w-[92px]' : 'max-h-9 max-w-[104px]')} />
-  }
-  return <div className="truncate text-[9px] font-black uppercase tracking-[0.12em] text-white/62">{show.name}</div>
-}
-
-function DropSourceLabel({ kind, shows }: { kind: 'rank' | 'top8' | 'watchlist'; shows: Show[] }) {
-  const label = kind === 'rank' ? 'Rank' : kind === 'top8' ? 'Top 8' : 'Watchlist'
-  return (
-    <div className="relative w-[78px] shrink-0 overflow-hidden rounded-[18px] shadow-[0_16px_32px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/[0.08]">
-      <div className="absolute inset-0 overflow-hidden rounded-[18px]">
-        {kind === 'rank' ? (
-          <div className="absolute inset-0 bg-[linear-gradient(155deg,#ff4e7a,#ffe76a_48%,#68ffc6)]">
-            <div className="absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.38),transparent_40%,rgba(0,0,0,0.22))]" />
-            {(['S', 'A', 'B'] as const).map((tier, index) => (
-              <span
-                key={tier}
-                className="absolute font-black text-black/55 select-none"
-                style={{
-                  left: `${12 + index * 18}%`,
-                  top: `${8 + index * 22}%`,
-                  fontSize: `${52 - index * 7}px`,
-                  transform: `rotate(${-10 + index * 10}deg)`,
-                  textShadow: '0 3px 0 rgba(0,0,0,0.18)',
-                }}
-              >
-                {tier}
-              </span>
-            ))}
-          </div>
-        ) : kind === 'top8' ? (
-          <div className="absolute inset-0 bg-gradient-to-b from-[#1a1230] to-[#080510]">
-            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(120,80,255,0.28),transparent_52%)]" />
-            {/* Vertical cascade of posters, each offset down and slightly rotated */}
-            {shows.slice(0, 5).map((show, index) => (
-              <span
-                key={show.id}
-                className="absolute overflow-hidden rounded-[8px] bg-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.65)] ring-1 ring-white/25"
-                style={{
-                  width: 48,
-                  height: 68,
-                  left: '50%',
-                  top: `${10 + index * 14}%`,
-                  transform: `translateX(calc(-50% + ${(index % 2 === 0 ? -1 : 1) * (4 + index * 2)}px)) rotate(${(index % 2 === 0 ? -1 : 1) * (3 + index * 1.5)}deg)`,
-                  zIndex: 5 - index,
-                }}
-              >
-                {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0e1c1a] to-[#06080a]">
-            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,220,180,0.18),transparent_52%)]" />
-            {/* Scattered vertical pile — 3 posters loosely stacked */}
-            {shows.slice(0, 3).map((show, index) => (
-              <span
-                key={show.id}
-                className="absolute overflow-hidden rounded-[8px] bg-white/[0.12] shadow-[0_10px_22px_rgba(0,0,0,0.7)] ring-1 ring-white/25"
-                style={{
-                  width: 44,
-                  height: 62,
-                  left: `calc(50% - 22px + ${(index - 1) * 8}px)`,
-                  top: `${18 + index * 22}%`,
-                  transform: `rotate(${(index - 1) * 11}deg)`,
-                  zIndex: index === 1 ? 3 : index,
-                }}
-              >
-                {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
-              </span>
-            ))}
-          </div>
-        )}
-        <span className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/10 to-transparent" />
-      </div>
-      <span className="absolute bottom-2.5 inset-x-0 z-10 text-center text-[9px] font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_5px_12px_rgba(0,0,0,0.9)]">{label}</span>
-    </div>
-  )
-}
-
-function DropSourceButton({ kind, active, shows, onClick }: { kind: 'rank' | 'top8' | 'watchlist'; active: boolean; shows: Show[]; onClick: () => void }) {
-  const label = kind === 'rank' ? 'Rank' : kind === 'top8' ? 'Top 8' : 'Watchlist'
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'relative h-[clamp(72px,12svh,88px)] overflow-visible rounded-[22px] bg-[#151018] text-left',
-        'shadow-[0_16px_32px_rgba(0,0,0,0.48),0_4px_0_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)]',
-        'ring-1 ring-white/[0.08] active:scale-[0.97] active:shadow-[0_4px_12px_rgba(0,0,0,0.48),0_1px_0_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)]',
-        active && 'ring-2 ring-white/70 shadow-[0_16px_32px_rgba(0,0,0,0.48),0_4px_0_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.18),0_0_0_2px_rgba(255,255,255,0.7)]',
-      )}
-    >
-      <div className="absolute inset-0 overflow-hidden rounded-[22px]">
-        {kind === 'rank' ? (
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,#ff4e7a,#ffe76a_48%,#68ffc6)]">
-            <div className="absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.38),transparent_40%,rgba(0,0,0,0.22))]" />
-            {(['S', 'A', 'B'] as const).map((tier, index) => (
-              <span key={tier} className="absolute font-black text-black/60" style={{ left: `${6 + index * 29}%`, top: `${4 + index * 14}%`, fontSize: `${52 - index * 6}px`, transform: `rotate(${-14 + index * 14}deg)`, textShadow: '0 3px 0 rgba(0,0,0,0.18)' }}>{tier}</span>
-            ))}
-          </div>
-        ) : kind === 'top8' ? (
-          <div className="absolute inset-0 bg-gradient-to-br from-[#1a1230] to-[#080510]">
-            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(120,80,255,0.22),transparent_52%)]" />
-            {shows.slice(0, 8).map((show, index) => {
-              const col = index % 4
-              const row = Math.floor(index / 4)
-              return (
-                <span
-                  key={show.id}
-                  className="absolute overflow-hidden rounded-[8px] bg-white/10 shadow-[0_6px_14px_rgba(0,0,0,0.5)] ring-1 ring-white/20"
-                  style={{
-                    width: 28, height: 40,
-                    left: 6 + col * 24,
-                    top: row === 0 ? 6 : 34,
-                    transform: `rotate(${-8 + (index % 4) * 4}deg) translateY(${row === 1 ? -2 : 0}px)`,
-                    zIndex: index,
-                  }}
-                >
-                  {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
-                </span>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-[#12181a] to-[#06080a]">
-            <div className="absolute inset-0 bg-[linear-gradient(150deg,rgba(80,200,180,0.14),transparent_52%)]" />
-            {shows.slice(0, 5).map((show, index) => (
-              <span
-                key={show.id}
-                className="absolute overflow-hidden rounded-[9px] bg-white/10 shadow-[0_8px_18px_rgba(0,0,0,0.55)] ring-1 ring-white/20"
-                style={{
-                  width: 34, height: 48,
-                  left: '50%',
-                  top: 8,
-                  transformOrigin: 'bottom center',
-                  transform: `translateX(calc(-50% + ${(index - 2) * 18}px)) rotate(${(index - 2) * 9}deg)`,
-                  zIndex: index === 2 ? 10 : 5 - Math.abs(index - 2),
-                }}
-              >
-                {show.posterPath ? <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" /> : null}
-              </span>
-            ))}
-          </div>
-        )}
-        <span className="absolute inset-0 bg-gradient-to-t from-black/86 via-black/16 to-transparent" />
-      </div>
-      <span className="absolute bottom-3 left-3 right-3 z-10 text-[11px] font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_5px_12px_rgba(0,0,0,0.8)]">{label}</span>
-    </button>
-  )
-}
-
-function ModifierChip({ label, selected, danger = false, onClick }: { label: string; selected: boolean; danger?: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'h-8 shrink-0 rounded-full px-3 text-[10px] font-black uppercase tracking-[0.06em] ring-1 transition-transform active:scale-95',
-        selected
-          ? danger
-            ? 'bg-rose-300 text-black ring-rose-100/80'
-            : 'bg-emerald-200 text-black ring-emerald-100/80'
-          : 'bg-white/[0.08] text-white/62 ring-white/[0.08]',
-      )}
-    >
-      {label}
-    </button>
-  )
-}
 
 function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
   const [adding, setAdding] = useState(false)
