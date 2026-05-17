@@ -493,15 +493,6 @@ async function getTasteRecommendationPool(anchors: Show[]) {
   }
 }
 
-function _showMoodText(show: Show) {
-  return [
-    show.name,
-    show.overview,
-    ...(show.genres ?? []),
-    ...(show.rawGenres ?? []),
-  ].filter(Boolean).join(' ').toLowerCase()
-}
-
 function wordScore(text: string, words: string[]) {
   return words.reduce((score, word) => score + (text.includes(word.toLowerCase()) ? 1 : 0), 0)
 }
