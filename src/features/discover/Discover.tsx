@@ -1485,97 +1485,103 @@ function DiscoverResultCard({
   }
 
   const heroSrc = show.backdropPath
-    ? imgUrl(show.backdropPath, 'w1280')
-    : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
+    ? imgUrl(show.backdropPath, 'original')
+    : show.posterPath ? imgUrl(show.posterPath, 'w780') : null
   const logoSrc = art?.logoPath ? imgUrl(art.logoPath, 'w500') : null
+  const meta = [
+    show.year,
+    show.genre,
+    show.rating > 0 ? `★ ${show.rating.toFixed(1)}` : null,
+  ].filter(Boolean) as string[]
 
   return (
-    <div className="absolute inset-0 bg-[#060508]">
-      {/* Full-bleed high-res backdrop — fills top third */}
-      {heroSrc && (
-        <img
-          src={heroSrc} alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-          style={{ objectPosition: 'center 10%' }}
-        />
-      )}
-      {/* Single smooth scrim — transparent at top, fully opaque by mid-screen */}
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,5,8,0.08) 0%, rgba(6,5,8,0.35) 28%, rgba(6,5,8,0.82) 48%, rgba(6,5,8,0.97) 60%, rgb(6,5,8) 72%)' }} />
+    <div className="absolute inset-0 overflow-y-auto overscroll-contain bg-[#060509] text-white">
+      {/* Hero — mirrors ShowDetail exactly */}
+      <div className="relative min-h-[470px] overflow-hidden">
+        {heroSrc && (
+          <img
+            src={heroSrc} alt=""
+            className="absolute inset-0 h-full w-full object-cover opacity-[0.86]"
+          />
+        )}
+        {/* Gradient layers — bottom, left-side, top fade */}
+        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#060509] via-[#060509]/72 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/72 via-black/20 to-black/8" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/8 via-black/18 to-[#060509]" />
 
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="absolute left-4 top-5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
-      >‹</button>
+        {/* Back button */}
+        <header className="relative z-10 flex items-center px-4 pt-4">
+          <button
+            onClick={onBack}
+            className="grid h-11 w-11 place-items-center rounded-full bg-black/34 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95"
+          >
+            <ChevronLeft size={21} />
+          </button>
+        </header>
 
-      {/* Content panel — logo/title/meta at top of panel, overview+buttons pinned to bottom */}
-      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col px-5 pt-5 pb-10" style={{ top: '33%' }}>
-        {/* TOP: identity */}
-        <div>
-          {logoSrc && (
+        {/* Logo / title + meta — pinned to hero bottom */}
+        <div className="absolute inset-x-0 bottom-12 z-10 px-5">
+          {logoSrc ? (
             <img
               src={logoSrc} alt={show.title}
-              className="mb-3 max-h-[88px] w-auto object-contain object-left drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
-              style={{ maxWidth: '72%' }}
+              className="max-h-[128px] max-w-[86%] object-contain object-left drop-shadow-[0_16px_36px_rgba(0,0,0,0.96)]"
             />
+          ) : (
+            <h1 className="text-[48px] font-black leading-[0.84] tracking-[-0.12em] text-balance">
+              {show.title}
+            </h1>
           )}
-          <h2 className={cn(
-            'font-black leading-tight tracking-[-0.03em] text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]',
-            logoSrc ? 'mb-1 text-[17px] font-bold' : 'mb-2 text-[clamp(26px,6.5vw,32px)]',
-          )}>
-            {show.title}
-          </h2>
-          <div className="flex flex-wrap items-center gap-x-2">
-            {show.year && <span className="text-[12px] font-semibold text-white/45">{show.year}</span>}
-            {show.genre && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-semibold text-white/45">{show.genre}</span></>}
-            {show.rating > 0 && <><span className="text-[10px] text-white/20">·</span><span className="text-[12px] font-bold text-[#f5c453]">★ {show.rating.toFixed(1)}</span></>}
+          <div className="mt-4 flex flex-wrap gap-x-3 text-[10px] font-black uppercase tracking-[0.2em] text-white/58">
+            {meta.map((item) => <span key={item}>{item}</span>)}
           </div>
         </div>
+      </div>
 
-        {/* BOTTOM: overview + actions, pushed to bottom of panel */}
-        <div className="mt-auto">
-          {show.overview && (
-            <p className="mb-5 line-clamp-4 text-[14px] leading-[1.65] text-white/65">{show.overview}</p>
-          )}
+      {/* Content */}
+      <main className="relative z-20 -mt-8 px-4 pb-20">
+        {logoSrc && (
+          <p className="mb-3 text-[22px] font-bold tracking-[-0.03em] text-white/80">
+            {show.title}
+          </p>
+        )}
+        {show.overview && (
+          <p className="text-[20px] font-semibold leading-[1.15] tracking-[-0.035em] text-white/84 line-clamp-4">
+            {show.overview}
+          </p>
+        )}
 
-          {/* Side-by-side buttons */}
-          <div className="flex gap-3">
+        {/* Buttons — grid like ShowDetail */}
+        <div className="mt-5 grid grid-cols-2 gap-2">
           <button
             onClick={() => void handleLibrary()}
             disabled={!!action || !!done}
-            className="relative flex-1 h-[52px] overflow-hidden rounded-[16px] bg-white/[0.1] shadow-[0_4px_14px_rgba(0,0,0,0.4)] ring-1 ring-white/12 active:scale-[0.96] disabled:opacity-50"
+            className="flex h-14 items-center justify-center rounded-[24px] bg-white/[0.08] text-[11px] font-black uppercase tracking-[0.16em] text-white ring-1 ring-white/[0.08] active:scale-[0.98] disabled:opacity-50"
           >
-            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.08),transparent_55%)]" />
-            <span className="relative z-10 text-[11px] font-black uppercase tracking-[0.16em] text-white/65">
-              {done === 'library' ? 'In Library ✓' : action === 'library' ? '…' : 'Add to Library'}
-            </span>
+            {done === 'library' ? 'In Library ✓' : action === 'library' ? '…' : 'Add to Library'}
           </button>
 
           <button
             onClick={() => void handleWatchlist()}
             disabled={!!action || !!done}
-            className="relative flex-[1.5] h-[52px] overflow-hidden rounded-[16px] shadow-[0_10px_28px_rgba(89,245,198,0.25),0_2px_0_rgba(0,0,0,0.5)] active:scale-[0.96] disabled:opacity-50"
+            className="relative flex h-14 items-center justify-center overflow-hidden rounded-[24px] active:scale-[0.98] disabled:opacity-50"
           >
             <span className="absolute inset-0 bg-gradient-to-r from-[#59f5c6] via-[#7b8eff] to-[#d96fff]" />
-            <span className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.45),transparent_50%)]" />
-            <span className="absolute inset-x-0 bottom-0 h-[2.5px] bg-black/18 rounded-b-[16px]" />
-            <span className="relative z-10 text-[12px] font-black uppercase tracking-[0.16em] text-black">
+            <span className="relative z-10 text-[11px] font-black uppercase tracking-[0.16em] text-black">
               {done === 'watchlist' ? 'Added ✓' : action === 'watchlist' ? '…' : '+ Watchlist'}
             </span>
           </button>
         </div>
 
-          {/* Try Again */}
-          <button
-            onClick={onRetry}
-            disabled={loading}
-            className="mt-3 w-full h-11 flex items-center justify-center gap-2 text-[12px] font-black uppercase tracking-[0.16em] text-white/35 active:text-white/60 disabled:opacity-40"
-          >
-            <RefreshCw size={13} />
-            Try Again
-          </button>
-        </div>
-      </div>
+        {/* Try Again */}
+        <button
+          onClick={onRetry}
+          disabled={loading}
+          className="mt-5 flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/28 active:text-white/60 disabled:opacity-40"
+        >
+          <RefreshCw size={12} />
+          Try Again
+        </button>
+      </main>
     </div>
   )
 }
