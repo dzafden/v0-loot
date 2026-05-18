@@ -11,6 +11,8 @@ import {
   getTmdbKey,
   getShowRecommendations,
   getSimilarShows,
+  searchKeywords,
+  discoverShowsByMood,
   hasTmdbKey,
   imgUrl,
   searchShows,
@@ -38,6 +40,49 @@ const ACTIVE_ANCHOR_COUNT = 8
 const TASTE_REC_TTL_MS = 24 * 60 * 60_000
 const DISCOVER_IMPRESSIONS_KEY = 'loot:discover-impressions:v1'
 const DISCOVER_LIBRARY_SNAPSHOT_KEY = 'loot:discover-library-snapshot:v1'
+// Maps genre name strings (as used in MoodDefinition.genreHints) to TMDB genre IDs
+const GENRE_NAME_TO_ID: Record<string, number> = {
+  Action: 10759, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80,
+  Documentary: 99, Drama: 18, Family: 10751, Fantasy: 14, Horror: 27,
+  Kids: 10762, Mystery: 9648, Romance: 10749, 'Sci-Fi': 10765, Thriller: 53, War: 10768,
+}
+
+// Human-readable keyword terms per mood — resolved to TMDB keyword IDs at call time
+// Using specific, commonly-tagged TMDB terms for best match rate
+const MOOD_KEYWORD_TERMS: Record<string, string[]> = {
+  happy:   ['friendship', 'optimism', 'feel-good'],
+  action:  ['heist', 'mercenary', 'chase'],
+  slow:    ['slow burn', 'introspection', 'melancholy'],
+  love:    ['romance', 'love triangle', 'forbidden love'],
+  dark:    ['murder', 'serial killer', 'psychological thriller'],
+  comfort: ['small town', 'slice of life', 'cozy'],
+  funny:   ['satire', 'workplace comedy', 'parody'],
+  tense:   ['conspiracy', 'suspense', 'cat and mouse'],
+  sad:     ['grief', 'tragedy', 'loss'],
+  weird:   ['supernatural', 'time travel', 'surreal'],
+}
+
+// In-memory cache: keyword name → TMDB keyword ID (persists for the session)
+const kwIdCache = new Map<string, number>()
+
+async function resolveKeywordIds(terms: string[]): Promise<number[]> {
+  const uncached = terms.filter((t) => !kwIdCache.has(t))
+  if (uncached.length) {
+    await Promise.all(
+      uncached.map((t) =>
+        searchKeywords(t)
+          .then((res) => {
+            // Prefer exact name match, fall back to first result
+            const match = res.find((r) => r.name.toLowerCase() === t.toLowerCase()) ?? res[0]
+            if (match) kwIdCache.set(t, match.id)
+          })
+          .catch(() => {}),
+      ),
+    )
+  }
+  return terms.map((t) => kwIdCache.get(t)).filter((id): id is number => id != null)
+}
+
 const WD_SEEN_KEY = 'loot:wd-seen:v1'
 const WD_SEEN_MAX = 400
 
@@ -1026,17 +1071,36 @@ function WatchDropPanel({
         const ownedIds = new Set(ownedShows.map((s) => s.id))
         const seenIds = loadWdSeen()
 
-        // Fetch recommendations + similar across 2 pages each for each anchor
-        const rawGroups = await Promise.all(
-          selected.flatMap((s) => [
-            getShowRecommendations(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-            getShowRecommendations(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-            getSimilarShows(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-            getSimilarShows(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-          ]),
-        )
+        // ── Anchor-based pool: recommendations + similar, 2 pages each ──────
+        const anchorFetches = selected.flatMap((s) => [
+          getShowRecommendations(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getShowRecommendations(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getSimilarShows(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getSimilarShows(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+        ])
 
-        // Interleave so every anchor stays represented
+        // ── Mood-based pool: TMDB /discover filtered by keyword IDs + genre ─
+        // Resolved in parallel with anchor fetches — keyword IDs cached after first call
+        let moodPool: LootShow[] = []
+        if (mood) {
+          const terms = MOOD_KEYWORD_TERMS[mood.key] ?? []
+          const genreIds = mood.genreHints.map((g) => GENRE_NAME_TO_ID[g]).filter((id): id is number => id != null)
+          const [kwIds, p1, p2] = await Promise.all([
+            resolveKeywordIds(terms),
+            Promise.resolve([] as LootShow[]), // placeholders resolved below
+            Promise.resolve([] as LootShow[]),
+          ])
+          const [disc1, disc2] = await Promise.all([
+            discoverShowsByMood(kwIds, genreIds, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+            discoverShowsByMood(kwIds, genreIds, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          ])
+          void p1; void p2 // placeholders consumed
+          moodPool = [...disc1, ...disc2]
+        }
+
+        const rawGroups = await Promise.all(anchorFetches)
+
+        // Interleave anchor groups so every anchor stays represented
         const merged: LootShow[] = []
         const maxLen = Math.max(...rawGroups.map((g) => g.length), 0)
         for (let i = 0; i < maxLen; i++) {
@@ -1044,12 +1108,15 @@ function WatchDropPanel({
             if (group[i]) merged.push(group[i])
           }
         }
+        // Mood pool goes in too — labelled for scoring boost below
+        const moodPoolIds = new Set(moodPool.map((s) => s.id))
+        merged.push(...moodPool)
 
         // Deduplicate, filter owned + low quality
         const dedupSeen = new Set<number>()
         const candidates = merged.filter((s) => {
           if (dedupSeen.has(s.id) || ownedIds.has(s.id)) return false
-          if (s.rating > 0 && s.rating < 5.5) return false // skip low-rated
+          if (s.rating > 0 && s.rating < 5.5) return false
           dedupSeen.add(s.id)
           return true
         })
@@ -1058,15 +1125,17 @@ function WatchDropPanel({
         const unseen = candidates.filter((s) => !seenIds.has(s.id))
         const pool = unseen.length >= 3 ? unseen : candidates
 
-        // Score: mood keywords + genre affinity from S/A tier collection
+        // Score: mood keyword text match + TMDB keyword discover match + genre affinity
         const scored = pool.map((s) => {
           const text = `${s.title} ${s.overview} ${s.genre}`.toLowerCase()
-          const moodScore = mood
+          const moodTextScore = mood
             ? wordScore(text, mood.words) * 2 + (mood.genreHints.some((g) => s.genre === g) ? 3 : 0)
             : 0
+          // Hard boost for shows that came back from TMDB's keyword-filtered discover
+          const kwDiscoverBoost = moodPoolIds.has(s.id) ? 6 : 0
           const tasteScore = (topTierGenres.get(s.genre) ?? 0) * 0.8
           const popularityScore = Math.min(s.popularity / 200, 1.5)
-          return { s, score: moodScore + tasteScore + popularityScore }
+          return { s, score: moodTextScore + kwDiscoverBoost + tasteScore + popularityScore }
         }).sort((a, b) => b.score - a.score).map((x) => x.s)
 
         const pick = scored[discoverIdxRef.current % Math.max(scored.length, 1)]

@@ -351,6 +351,26 @@ export async function getShowKeywords(showId: number) {
   return tmdb<{ results: { id: number; name: string }[] }>(`/tv/${showId}/keywords`)
 }
 
+export async function searchKeywords(query: string) {
+  const data = await tmdb<{ results: { id: number; name: string }[] }>('/search/keyword', { query })
+  return data.results
+}
+
+export async function discoverShowsByMood(
+  keywordIds: number[],
+  genreIds: number[],
+  page = 1,
+) {
+  const params: Record<string, string> = {
+    sort_by: 'vote_average.desc',
+    'vote_count.gte': '80',
+    page: String(page),
+  }
+  if (keywordIds.length) params.with_keywords = keywordIds.join('|') // OR — match any
+  if (genreIds.length) params.with_genres = genreIds.join('|')       // OR — match any
+  return tmdb<{ results: TmdbSearchResult[] }>('/discover/tv', params)
+}
+
 export async function getShowImages(showId: number) {
   return tmdb<{
     backdrops: TmdbImageAsset[]
