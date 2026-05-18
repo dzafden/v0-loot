@@ -1409,25 +1409,26 @@ function WatchDropPanel({
           {/* Rewatch result — fullscreen overlay */}
           {result?.kind === 'rewatch' && (
             <div className="absolute inset-0 z-20 flex flex-col bg-[#060509] text-white">
-              {/* Header */}
-              <div className="flex-shrink-0 flex items-center gap-3 px-4 pt-4 pb-2">
+              {/* Back button only — no label */}
+              <div className="flex-shrink-0 px-4 pt-4 pb-2">
                 <button
                   onClick={() => setResult(null)}
                   className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] ring-1 ring-white/[0.08] active:scale-95"
                 >
                   <ChevronLeft size={21} />
                 </button>
-                <span className="text-[11px] font-black uppercase tracking-[0.22em] text-white/40">Rewatch</span>
               </div>
 
-              {/* Cards — scrollable */}
-              <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4 flex flex-col gap-4">
-                {result.picks.map(({ show, episode }) => (
-                  <EpisodeResultCard key={show.id} show={show} episode={episode} />
-                ))}
+              {/* Cards — min-h-0 ensures flex child actually scrolls */}
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                <div className="px-4 pb-4 flex flex-col gap-4">
+                  {result.picks.map(({ show, episode }) => (
+                    <EpisodeResultCard key={show.id} show={show} episode={episode} />
+                  ))}
+                </div>
               </div>
 
-              {/* Try Again — anchored at bottom */}
+              {/* Try Again */}
               <div className="flex-shrink-0 px-4 pb-10 pt-3">
                 <button
                   onClick={() => void handleGo()}
@@ -1491,38 +1492,32 @@ function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOpti
   const logoSrc = art?.logoPath ? imgUrl(art.logoPath, 'w500') : null
 
   return (
-    <div className="overflow-hidden rounded-[24px] bg-[#0e0b12] ring-1 ring-white/[0.07]">
-      {/* Hero image */}
-      <div className="relative overflow-hidden" style={{ minHeight: 200 }}>
+    <div className="rounded-[20px] bg-[#0e0b12] ring-1 ring-white/[0.07] overflow-hidden">
+      {/* Compact hero — visual context only, logo lives inside */}
+      <div className="relative h-[148px] overflow-hidden">
         {heroSrc && (
-          <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-[0.82]" />
+          <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-[0.78]" />
         )}
-        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#0e0b12] to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/10 to-transparent" />
-
-        {/* Logo pinned to hero bottom */}
-        <div className="absolute inset-x-0 bottom-4 z-10 px-5">
-          {logoSrc ? (
-            <img
-              src={logoSrc} alt={show.name}
-              className="max-h-[72px] max-w-[72%] object-contain object-left drop-shadow-[0_8px_24px_rgba(0,0,0,0.95)]"
-            />
-          ) : (
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-white/50">{show.name}</p>
-          )}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/15 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#0e0b12] to-transparent" />
+        <div className="absolute bottom-3 left-4 z-10">
+          {logoSrc
+            ? <img src={logoSrc} alt={show.name} className="max-h-[44px] max-w-[58%] object-contain object-left drop-shadow-[0_4px_16px_rgba(0,0,0,1)]" />
+            : <span className="text-[10px] font-black uppercase tracking-[0.16em] text-white/55">{show.name}</span>
+          }
         </div>
       </div>
 
-      {/* Episode info */}
-      <div className="px-5 pt-1 pb-6">
-        <div className="text-[42px] font-black leading-none tracking-[-0.05em] text-white">
+      {/* Episode info — content drives card height, no truncation */}
+      <div className="px-4 pt-3 pb-5">
+        <span className="text-[26px] font-black tracking-[-0.04em] text-white leading-none">
           S{String(episode.seasonNumber).padStart(2, '0')}E{String(episode.episodeNumber).padStart(2, '0')}
-        </div>
-        <div className="mt-2 text-[18px] font-bold leading-tight tracking-[-0.02em] text-white/80">
+        </span>
+        <p className="mt-1.5 text-[17px] font-bold leading-snug tracking-[-0.02em] text-white/80">
           {episode.name}
-        </div>
+        </p>
         {episode.overview && (
-          <p className="mt-3 text-[15px] font-medium leading-[1.55] text-white/55">
+          <p className="mt-2 text-[14px] font-medium leading-[1.6] text-white/52">
             {episode.overview}
           </p>
         )}
