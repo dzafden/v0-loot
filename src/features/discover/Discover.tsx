@@ -1406,26 +1406,38 @@ function WatchDropPanel({
           </div>
         )}
 
-          {/* Result */}
-          {/* Rewatch result — normal padded flow */}
+          {/* Rewatch result — fullscreen overlay */}
           {result?.kind === 'rewatch' && (
-            <div className="flex flex-1 flex-col min-h-0 px-4">
-              <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto pb-4">
+            <div className="absolute inset-0 z-20 flex flex-col bg-[#060509] text-white">
+              {/* Header */}
+              <div className="flex-shrink-0 flex items-center gap-3 px-4 pt-4 pb-2">
+                <button
+                  onClick={() => setResult(null)}
+                  className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] ring-1 ring-white/[0.08] active:scale-95"
+                >
+                  <ChevronLeft size={21} />
+                </button>
+                <span className="text-[11px] font-black uppercase tracking-[0.22em] text-white/40">Rewatch</span>
+              </div>
+
+              {/* Cards — scrollable */}
+              <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4 flex flex-col gap-4">
                 {result.picks.map(({ show, episode }) => (
                   <EpisodeResultCard key={show.id} show={show} episode={episode} />
                 ))}
               </div>
-              <button
-                onClick={() => void handleGo()}
-                disabled={loading}
-                className="relative mt-3 mb-2 h-12 w-full overflow-hidden rounded-[18px] bg-white/[0.07] shadow-[0_8px_22px_rgba(0,0,0,0.3),0_2px_0_rgba(0,0,0,0.45)] ring-1 ring-white/10 active:scale-[0.984] disabled:opacity-40"
-              >
-                <span className="absolute inset-0 bg-[linear-gradient(150deg,rgba(255,255,255,0.08),transparent_55%)]" />
-                <span className="relative z-10 flex items-center justify-center gap-2 text-[13px] font-black uppercase tracking-[0.18em] text-white/70">
-                  <RefreshCw size={14} />
+
+              {/* Try Again — anchored at bottom */}
+              <div className="flex-shrink-0 px-4 pb-10 pt-3">
+                <button
+                  onClick={() => void handleGo()}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/28 active:text-white/60 disabled:opacity-40"
+                >
+                  <RefreshCw size={12} />
                   Try Again
-                </span>
-              </button>
+                </button>
+              </div>
             </div>
           )}
 
@@ -1476,23 +1488,43 @@ function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOpti
     : show.backdropPath
       ? imgUrl(show.backdropPath, 'w500')
       : show.posterPath ? imgUrl(show.posterPath, 'w342') : null
+  const logoSrc = art?.logoPath ? imgUrl(art.logoPath, 'w500') : null
 
   return (
-    <div className="relative overflow-hidden rounded-[20px] bg-[#10080e] shadow-[0_16px_42px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.07]" style={{ minHeight: 160 }}>
-      {heroSrc && <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-75" />}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/20 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/15" />
-      <div className="absolute inset-x-0 bottom-0 z-10 p-4">
-        {art?.logoPath
-          ? <img src={imgUrl(art.logoPath, 'w342')} alt={show.name} className="mb-2 max-h-7 max-w-[60%] object-contain object-left drop-shadow-[0_4px_12px_rgba(0,0,0,0.95)]" />
-          : <p className="mb-1 text-[10px] font-black uppercase tracking-[0.12em] text-white/50">{show.name}</p>
-        }
-        <div className="text-[clamp(20px,5vw,26px)] font-black leading-none tracking-[-0.04em] text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.9)]">
+    <div className="overflow-hidden rounded-[24px] bg-[#0e0b12] ring-1 ring-white/[0.07]">
+      {/* Hero image */}
+      <div className="relative overflow-hidden" style={{ minHeight: 200 }}>
+        {heroSrc && (
+          <img src={heroSrc} alt="" className="absolute inset-0 h-full w-full object-cover opacity-[0.82]" />
+        )}
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#0e0b12] to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/10 to-transparent" />
+
+        {/* Logo pinned to hero bottom */}
+        <div className="absolute inset-x-0 bottom-4 z-10 px-5">
+          {logoSrc ? (
+            <img
+              src={logoSrc} alt={show.name}
+              className="max-h-[72px] max-w-[72%] object-contain object-left drop-shadow-[0_8px_24px_rgba(0,0,0,0.95)]"
+            />
+          ) : (
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-white/50">{show.name}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Episode info */}
+      <div className="px-5 pt-1 pb-6">
+        <div className="text-[42px] font-black leading-none tracking-[-0.05em] text-white">
           S{String(episode.seasonNumber).padStart(2, '0')}E{String(episode.episodeNumber).padStart(2, '0')}
         </div>
-        <div className="mt-0.5 text-[12px] font-semibold text-white/80">{episode.name}</div>
+        <div className="mt-2 text-[18px] font-bold leading-tight tracking-[-0.02em] text-white/80">
+          {episode.name}
+        </div>
         {episode.overview && (
-          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-white/50">{episode.overview}</p>
+          <p className="mt-3 text-[15px] font-medium leading-[1.55] text-white/55">
+            {episode.overview}
+          </p>
         )}
       </div>
     </div>
