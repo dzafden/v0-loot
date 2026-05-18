@@ -10,6 +10,7 @@ import {
   getShowDetail,
   getTmdbKey,
   getShowRecommendations,
+  getSimilarShows,
   hasTmdbKey,
   imgUrl,
   searchShows,
@@ -37,6 +38,23 @@ const ACTIVE_ANCHOR_COUNT = 8
 const TASTE_REC_TTL_MS = 24 * 60 * 60_000
 const DISCOVER_IMPRESSIONS_KEY = 'loot:discover-impressions:v1'
 const DISCOVER_LIBRARY_SNAPSHOT_KEY = 'loot:discover-library-snapshot:v1'
+const WD_SEEN_KEY = 'loot:wd-seen:v1'
+const WD_SEEN_MAX = 400
+
+function loadWdSeen(): Set<number> {
+  try { return new Set(JSON.parse(localStorage.getItem(WD_SEEN_KEY) ?? '[]') as number[]) }
+  catch { return new Set() }
+}
+function saveWdSeen(id: number) {
+  try {
+    const ids: number[] = JSON.parse(localStorage.getItem(WD_SEEN_KEY) ?? '[]')
+    if (!ids.includes(id)) {
+      ids.push(id)
+      if (ids.length > WD_SEEN_MAX) ids.splice(0, ids.length - WD_SEEN_MAX)
+      localStorage.setItem(WD_SEEN_KEY, JSON.stringify(ids))
+    }
+  } catch {}
+}
 
 const tasteRecCache = new Map<string, { data: LootShow[]; ts: number }>()
 const tasteRecInflight = new Map<string, Promise<LootShow[]>>()
@@ -935,6 +953,17 @@ function WatchDropPanel({
 
   const watchlistIds = useMemo(() => new Set(watchlistShows.map((s) => s.id)), [watchlistShows])
 
+  // Genre frequency map for S+A tier shows — used to boost taste-matching candidates
+  const topTierGenres = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const show of ownedShows) {
+      const tier = tierByShow.get(show.id)
+      if (tier !== 'S' && tier !== 'A') continue
+      for (const g of show.genres ?? []) counts.set(g, (counts.get(g) ?? 0) + 1)
+    }
+    return counts
+  }, [ownedShows, tierByShow])
+
   // Rewatch: owned shows sorted by tier (S→A→B→C→D→unranked), then top8 bonus
   const rewatchList = useMemo(() =>
     [...ownedShows].sort((a, b) => {
@@ -995,37 +1024,53 @@ function WatchDropPanel({
         setResult({ kind: 'rewatch', picks })
       } else {
         const ownedIds = new Set(ownedShows.map((s) => s.id))
-        const groups = await Promise.all(
-          selected.map((s) =>
-            getShowRecommendations(s.id)
-              .then((r) => r.results.map(tmdbToLoot))
-              .catch(() => [] as LootShow[]),
-          ),
+        const seenIds = loadWdSeen()
+
+        // Fetch recommendations + similar across 2 pages each for each anchor
+        const rawGroups = await Promise.all(
+          selected.flatMap((s) => [
+            getShowRecommendations(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+            getShowRecommendations(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+            getSimilarShows(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+            getSimilarShows(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          ]),
         )
-        // Interleave results from each anchor so all anchors are represented
+
+        // Interleave so every anchor stays represented
         const merged: LootShow[] = []
-        const maxLen = Math.max(...groups.map((g) => g.length))
+        const maxLen = Math.max(...rawGroups.map((g) => g.length), 0)
         for (let i = 0; i < maxLen; i++) {
-          for (const group of groups) {
+          for (const group of rawGroups) {
             if (group[i]) merged.push(group[i])
           }
         }
-        const seen = new Set<number>()
+
+        // Deduplicate, filter owned + low quality
+        const dedupSeen = new Set<number>()
         const candidates = merged.filter((s) => {
-          if (seen.has(s.id) || ownedIds.has(s.id)) return false
-          seen.add(s.id)
+          if (dedupSeen.has(s.id) || ownedIds.has(s.id)) return false
+          if (s.rating > 0 && s.rating < 5.5) return false // skip low-rated
+          dedupSeen.add(s.id)
           return true
         })
-        // If mood selected, prefer candidates whose overview matches
-        const scored = mood
-          ? candidates.map((s) => ({
-              s,
-              score: wordScore(`${s.title} ${s.overview} ${s.genre}`.toLowerCase(), mood.words)
-                + (mood.genreHints.some((g) => s.genre === g) ? 3 : 0),
-            })).sort((a, b) => b.score - a.score).map((x) => x.s)
-          : candidates
-        const pool = scored.length > 0 ? scored : candidates
-        const pick = pool[discoverIdxRef.current % pool.length]
+
+        // Prefer unseen, fall back to full pool if everything has been shown
+        const unseen = candidates.filter((s) => !seenIds.has(s.id))
+        const pool = unseen.length >= 3 ? unseen : candidates
+
+        // Score: mood keywords + genre affinity from S/A tier collection
+        const scored = pool.map((s) => {
+          const text = `${s.title} ${s.overview} ${s.genre}`.toLowerCase()
+          const moodScore = mood
+            ? wordScore(text, mood.words) * 2 + (mood.genreHints.some((g) => s.genre === g) ? 3 : 0)
+            : 0
+          const tasteScore = (topTierGenres.get(s.genre) ?? 0) * 0.8
+          const popularityScore = Math.min(s.popularity / 200, 1.5)
+          return { s, score: moodScore + tasteScore + popularityScore }
+        }).sort((a, b) => b.score - a.score).map((x) => x.s)
+
+        const pick = scored[discoverIdxRef.current % Math.max(scored.length, 1)]
+        if (pick) saveWdSeen(pick.id)
         setResult({ kind: 'discover', show: pick })
       }
     } finally {
