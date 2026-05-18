@@ -1273,10 +1273,6 @@ function WatchDropPanel({
                 onClick={handleBack}
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[22px] leading-none text-white/70 ring-1 ring-white/10 active:scale-90"
               >‹</button>
-              <div className="flex-1 text-center text-[13px] font-black uppercase tracking-[0.18em] text-white/40">
-                {path === 'rewatch' ? 'Rewatch' : 'Find Something New'}
-              </div>
-              <div className="h-9 w-9" />
             </div>
           )}
 
@@ -1770,7 +1766,6 @@ function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: b
       <AnimatePresence>{shine && <ShineOverlay key="hero-shine" />}</AnimatePresence>
 
       <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-20">
-        <p className="mb-4 text-[10px] font-black uppercase tracking-[0.32em] text-[#f5c453]/90">Signal</p>
         {art?.logoPath ? (
           <img
             src={imgUrl(art.logoPath, 'w500')}
@@ -1849,7 +1844,7 @@ function CategoryGrid({
             onClick={onBack}
             className="h-9 px-3 rounded-full bg-white/[0.07] text-white/80 text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5"
           >
-            <ChevronLeft size={14} /> Back
+            <ChevronLeft size={14} />
           </button>
           <h2 className="text-sm font-black uppercase tracking-widest text-white">{title}</h2>
           <div className="w-[72px]" aria-hidden />
@@ -1873,7 +1868,7 @@ function CategoryGrid({
           onClick={onBack}
           className="fixed bottom-24 left-4 h-10 px-4 rounded-full bg-[#14141c]/95 border border-white/15 text-white text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5 shadow-[0_10px_24px_rgba(0,0,0,0.5)] z-40"
         >
-          <ChevronLeft size={14} /> Back
+          <ChevronLeft size={14} />
         </button>
       )}
     </div>
