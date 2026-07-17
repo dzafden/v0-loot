@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Bookmark, Check, ChevronLeft, Drama, EyeOff, MessageCircle, Plus, Sparkles, Star, Trash2, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, MessageCircle, Plus, Sparkles, Star, Trash2, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, RecommendationContext, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
@@ -18,7 +18,19 @@ import {
   progressForShow,
   upsertShow,
 } from '../../data/queries'
-import { getCredits, getSeason, getShowDetail, getShowImages, getShowKeywords, hasTmdbKey, imgUrl } from '../../lib/tmdb'
+import {
+  getCredits,
+  getSeason,
+  getShowDetail,
+  getShowImages,
+  getShowKeywords,
+  getShowWatchProviders,
+  getWatchRegion,
+  hasTmdbKey,
+  imgUrl,
+  type TmdbWatchProvider,
+  type WatchProviderResult,
+} from '../../lib/tmdb'
 import { getRarity, RARITIES } from '../../lib/rarity'
 import { cn } from '../../lib/utils'
 import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
@@ -81,6 +93,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const [watchlistOpen, setWatchlistOpen] = useState(false)
   const [dataMode, setDataMode] = useState(false)
   const [detailFacts, setDetailFacts] = useState<DetailFactState>({ tagline: '', rating: null, keywords: [] })
+  const [watchProviders, setWatchProviders] = useState<WatchProviderResult | null>(null)
   const persistedShow = useDexieQuery<Show | undefined>(['shows'], () => db.shows.get(show.id), undefined, [show.id])
   const liveShow = persistedShow ?? show
   const owned = Boolean(persistedShow)
@@ -147,6 +160,24 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         if (!cancelled) setDetailFacts((current) => ({ ...current, keywords: [] }))
       })
 
+    return () => {
+      cancelled = true
+    }
+  }, [show.id])
+
+  useEffect(() => {
+    if (!hasTmdbKey()) {
+      setWatchProviders(null)
+      return
+    }
+    let cancelled = false
+    getShowWatchProviders(show.id)
+      .then((providers) => {
+        if (!cancelled) setWatchProviders(providers)
+      })
+      .catch(() => {
+        if (!cancelled) setWatchProviders(null)
+      })
     return () => {
       cancelled = true
     }
@@ -402,6 +433,8 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           </button>
         )}
 
+        {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
+
         {(!tier || rankEditorOpen) && (
           <motion.section
             initial={{ opacity: 0, y: -8 }}
@@ -457,6 +490,69 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         </div>
       )}
     </div>
+  )
+}
+
+function uniqueProviders(groups: (TmdbWatchProvider[] | undefined)[]) {
+  const byId = new Map<number, TmdbWatchProvider>()
+  for (const group of groups) {
+    for (const provider of group ?? []) byId.set(provider.provider_id, provider)
+  }
+  return [...byId.values()].sort((a, b) => a.display_priority - b.display_priority)
+}
+
+function ProviderLogo({ provider }: { provider: TmdbWatchProvider }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2" title={provider.provider_name}>
+      {provider.logo_path ? (
+        <img src={imgUrl(provider.logo_path, 'w185')} alt="" className="h-9 w-9 shrink-0 rounded-[9px] object-cover" />
+      ) : (
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] bg-white/[0.08] text-[10px] font-black">
+          {provider.provider_name.slice(0, 2).toUpperCase()}
+        </span>
+      )}
+      <span className="truncate text-xs font-bold text-white/72">{provider.provider_name}</span>
+    </span>
+  )
+}
+
+function WhereToWatch({ providers, region }: { providers: WatchProviderResult; region: string }) {
+  const streaming = uniqueProviders([providers.flatrate, providers.free, providers.ads])
+  const transactional = uniqueProviders([providers.rent, providers.buy])
+  if (!streaming.length && !transactional.length) return null
+
+  return (
+    <section className="mt-6 border-y border-white/[0.07] py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-white/84">Where to watch</h2>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/28">{region}</p>
+        </div>
+        {providers.link && (
+          <a href={providers.link} target="_blank" rel="noreferrer" className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.06] text-white/38 active:scale-95" aria-label="Open streaming options">
+            <ExternalLink size={14} />
+          </a>
+        )}
+      </div>
+
+      {streaming.length > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+          {streaming.slice(0, 6).map((provider) => <ProviderLogo key={provider.provider_id} provider={provider} />)}
+        </div>
+      )}
+
+      {transactional.length > 0 && (
+        <details className="group mt-3">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white/34">
+            Rent or buy
+            <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+            {transactional.slice(0, 6).map((provider) => <ProviderLogo key={provider.provider_id} provider={provider} />)}
+          </div>
+        </details>
+      )}
+    </section>
   )
 }
 

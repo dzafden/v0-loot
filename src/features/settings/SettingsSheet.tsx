@@ -1,10 +1,24 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import { getTmdbKey, setTmdbKey } from '../../lib/tmdb'
+import {
+  getTmdbKey,
+  getWatchProviderRegions,
+  getWatchRegion,
+  imgUrl,
+  setTmdbKey,
+  setWatchRegion,
+} from '../../lib/tmdb'
 import { activeDiscoverFeedback, restoreDiscoverTitle } from '../../data/queries'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import { imgUrl } from '../../lib/tmdb'
+
+type RegionOption = { iso_3166_1: string; english_name: string; native_name?: string }
+
+const FALLBACK_REGIONS: RegionOption[] = [
+  { iso_3166_1: 'SI', english_name: 'Slovenia' },
+  { iso_3166_1: 'US', english_name: 'United States' },
+  { iso_3166_1: 'GB', english_name: 'United Kingdom' },
+]
 
 interface Props {
   open: boolean
@@ -14,7 +28,22 @@ interface Props {
 export function SettingsSheet({ open, onClose }: Props) {
   const [key, setKey] = useState(getTmdbKey())
   const [saved, setSaved] = useState(false)
+  const [region, setRegion] = useState(getWatchRegion())
+  const [regions, setRegions] = useState<RegionOption[]>(FALLBACK_REGIONS)
   const hiddenTitles = useDexieQuery(['discoverFeedback'], activeDiscoverFeedback, [], [])
+
+  useEffect(() => {
+    if (!open || !getTmdbKey()) return
+    let cancelled = false
+    getWatchProviderRegions()
+      .then((next) => {
+        if (!cancelled) setRegions(next)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [open, saved])
 
   return (
     <AnimatePresence>
@@ -83,6 +112,31 @@ export function SettingsSheet({ open, onClose }: Props) {
                   </span>
                 )}
               </div>
+            </section>
+
+            <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <h3 className="font-black uppercase tracking-tight">Streaming country</h3>
+              <p className="mb-3 mt-1 text-xs text-zinc-500">
+                Used to show services available where you live.
+              </p>
+              <select
+                value={region}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setRegion(next)
+                  setWatchRegion(next)
+                }}
+                className="h-11 w-full rounded-xl bg-white/[0.06] px-3 text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/20"
+              >
+                {!regions.some((option) => option.iso_3166_1 === region) && (
+                  <option value={region}>{region}</option>
+                )}
+                {regions.map((option) => (
+                  <option key={option.iso_3166_1} value={option.iso_3166_1} className="bg-[#17171c]">
+                    {option.english_name}
+                  </option>
+                ))}
+              </select>
             </section>
 
             {hiddenTitles.length > 0 && (

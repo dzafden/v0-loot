@@ -4,6 +4,8 @@ const TMDB_BASE = 'https://api.themoviedb.org/3'
 export const TMDB_IMG = 'https://image.tmdb.org/t/p'
 
 const API_KEY_STORAGE = 'loot:tmdb-api-key'
+const WATCH_REGION_STORAGE = 'loot:watch-region'
+const WATCH_PROVIDER_CACHE_MS = 24 * 60 * 60_000
 
 export function getTmdbKey(): string {
   const stored = localStorage.getItem(API_KEY_STORAGE)
@@ -18,6 +20,23 @@ export function setTmdbKey(key: string) {
 
 export function hasTmdbKey(): boolean {
   return getTmdbKey().length > 0
+}
+
+function inferredRegion() {
+  const locales = navigator.languages?.length ? navigator.languages : [navigator.language]
+  for (const locale of locales) {
+    const region = locale?.match(/[-_]([A-Z]{2})$/i)?.[1]
+    if (region) return region.toUpperCase()
+  }
+  return 'US'
+}
+
+export function getWatchRegion() {
+  return localStorage.getItem(WATCH_REGION_STORAGE) || inferredRegion()
+}
+
+export function setWatchRegion(region: string) {
+  localStorage.setItem(WATCH_REGION_STORAGE, region.toUpperCase())
 }
 
 async function tmdb<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -343,6 +362,22 @@ export interface TmdbAggregateCastMember {
   total_episode_count?: number
 }
 
+export interface TmdbWatchProvider {
+  provider_id: number
+  provider_name: string
+  logo_path: string | null
+  display_priority: number
+}
+
+export interface WatchProviderResult {
+  link?: string
+  flatrate?: TmdbWatchProvider[]
+  free?: TmdbWatchProvider[]
+  ads?: TmdbWatchProvider[]
+  rent?: TmdbWatchProvider[]
+  buy?: TmdbWatchProvider[]
+}
+
 export async function getShowDetail(id: number) {
   return tmdb<TmdbShowDetail>(`/tv/${id}`)
 }
@@ -395,6 +430,32 @@ export async function getShowRecommendations(showId: number, page = 1) {
   return tmdb<{ results: TmdbSearchResult[] }>(`/tv/${showId}/recommendations`, {
     page: String(page),
   })
+}
+
+export async function getWatchProviderRegions() {
+  const data = await tmdb<{
+    results: { iso_3166_1: string; english_name: string; native_name?: string }[]
+  }>('/watch/providers/regions')
+  return data.results.sort((a, b) => a.english_name.localeCompare(b.english_name))
+}
+
+export async function getShowWatchProviders(showId: number, region = getWatchRegion()) {
+  const cacheKey = `loot:watch-providers:${region}:${showId}`
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null') as { at: number; data: WatchProviderResult | null } | null
+    if (cached && Date.now() - cached.at < WATCH_PROVIDER_CACHE_MS) return cached.data
+  } catch {
+    // Ignore malformed or unavailable storage and fetch normally.
+  }
+
+  const data = await tmdb<{ results: Record<string, WatchProviderResult> }>(`/tv/${showId}/watch/providers`)
+  const result = data.results[region] || null
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data: result }))
+  } catch {
+    // Provider availability remains usable without persistent caching.
+  }
+  return result
 }
 
 export async function getSimilarShows(showId: number, page = 1) {
