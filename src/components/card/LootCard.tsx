@@ -4,7 +4,6 @@ import type { EmojiCategory, Show, Tier } from '../../types'
 import { rarityStyle, type Rarity } from '../../lib/rarity'
 import { TIER_STYLE } from '../../lib/rarity'
 import { imgUrl } from '../../lib/tmdb'
-import { ImdbBadge } from '../ui/ImdbBadge'
 
 export type CardActionType = 'none' | 'add' | 'remove'
 
@@ -134,8 +133,6 @@ function LootCardInner({
               {tier}
             </div>
           )}
-
-          <ImdbBadge showId={show.id} compact className={`absolute top-2 z-30 ${tier ? 'left-11' : 'left-2'}`} />
 
           {/* episode progress */}
           {episodeProgress && episodeProgress.total > 0 && (

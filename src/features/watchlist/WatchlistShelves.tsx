@@ -19,7 +19,6 @@ import { CSS } from '@dnd-kit/utilities'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, ChevronDown, GripVertical, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
-import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { db } from '../../data/db'
 import {
   createWatchlistShelf,
@@ -531,7 +530,6 @@ function SortableWatchlistCard({
           {item.show.year && <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-white/34">{item.show.year}</p>}
         </div>
       </button>
-      <ImdbBadge showId={item.show.id} compact className="absolute left-1.5 top-1.5 z-10 origin-top-left scale-[0.82]" />
       <button
         onClick={(e) => {
           e.stopPropagation()

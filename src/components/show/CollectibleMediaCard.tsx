@@ -126,6 +126,7 @@ export function CollectibleMediaCard({
   fallback,
   landscape = false,
   featured = false,
+  showImdb = false,
   tier,
   vibes,
   addSlot,
@@ -144,6 +145,7 @@ export function CollectibleMediaCard({
   fallback?: ReactNode
   landscape?: boolean
   featured?: boolean
+  showImdb?: boolean
   tier?: Tier
   vibes?: string[]
   addSlot?: ReactNode
@@ -182,14 +184,16 @@ export function CollectibleMediaCard({
       <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_50%_100%,rgba(245,196,83,0.18),transparent_62%)]" />
       {tier && <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 92% 10%, ${tierColor}36, transparent 9rem)` }} />}
       {shineSlot}
-      <ImdbBadge
-        showId={id}
-        compact={!featured}
-        className={cn(
-          'absolute z-30',
-          landscape ? (tier ? 'right-14 top-2' : 'right-3 top-3') : 'left-2 top-2',
-        )}
-      />
+      {showImdb && (
+        <ImdbBadge
+          showId={id}
+          compact={!featured}
+          className={cn(
+            'absolute z-30',
+            landscape ? (tier ? 'right-14 top-2' : 'right-3 top-3') : 'left-2 top-2',
+          )}
+        />
+      )}
       {addSlot && <div className={cn('absolute z-30', landscape ? 'bottom-3 right-3' : 'right-2 top-2')}>{addSlot}</div>}
       {tier && <RankMark tier={tier} featured={featured} className="absolute right-2 top-2 z-20" />}
       <VibeBubbles showId={id} vibes={vibes} seedOffset={featured ? 7 : 2} />

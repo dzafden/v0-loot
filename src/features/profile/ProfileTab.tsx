@@ -9,7 +9,6 @@ import type { Show, Tier } from '../../types'
 import { MyCast } from '../cast-roles/MyCast'
 import { RankMark, TIER_COLORS, VibeBubbles } from '../../components/show/CollectibleMediaCard'
 import { FullScreenOverlayShell, PickerTopBar } from '../../components/ui/FullScreenPickerShell'
-import { ImdbBadge } from '../../components/ui/ImdbBadge'
 
 const PROFILE_COLORS = [
   'from-rose-500 to-orange-500',
@@ -369,7 +368,6 @@ function Top8Card({
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-transparent to-black/10" />
           <RankMark tier={tier} featured={featured} compact className="absolute right-2 top-2 z-20" />
-          <ImdbBadge showId={show.id} compact className="absolute left-2 top-2 z-20" />
           {show && <VibeBubbles showId={show.id} vibes={vibes} seedOffset={index} />}
           <div className="absolute inset-x-0 bottom-0 p-3">
             <p className="line-clamp-2 text-sm font-black leading-[0.95] tracking-[-0.055em] text-white">{show.name}</p>

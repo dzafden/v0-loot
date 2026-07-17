@@ -2398,6 +2398,7 @@ function PortraitCard({
       <CollectibleMediaCard
         id={show.id}
         title={show.title}
+        showImdb
         imagePath={show.posterPath}
         addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
         shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
@@ -2485,6 +2486,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
       <CollectibleMediaCard
         id={show.id}
         title={show.title}
+        showImdb
         imageUrl={bg}
         logoPath={art?.logoPath}
         landscape
