@@ -20,6 +20,7 @@ import { getCredits, getSeason, getShowDetail, getShowImages, getShowKeywords, h
 import { getRarity, RARITIES } from '../../lib/rarity'
 import { cn } from '../../lib/utils'
 import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
+import { ImdbBadge } from '../../components/ui/ImdbBadge'
 
 const TIERS: Tier[] = ['S', 'A', 'B', 'C', 'D']
 const SUGGESTED_EMOJI = ['❤️', '🔥', '💀', '🥶', '😭', '🍔', '🥲', '🌹', '🥀', '👑', '🎯', '🤡', '🧠', '🎲', '🌶️', '⭐']
@@ -300,6 +301,7 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           )}
 
           <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-black uppercase tracking-[0.2em] text-white/58">
+            <ImdbBadge showId={show.id} compact className="mr-1" />
             {metadata.map((item) => <span key={item}>{item}</span>)}
           </div>
 

@@ -27,6 +27,7 @@ import type { Genre, SeasonCache, Show, Tier, TierAssignment } from '../../types
 import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
+import { ImdbBadge } from '../../components/ui/ImdbBadge'
 
 interface Props {
   onOpenSettings: () => void
@@ -1764,6 +1765,7 @@ function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: b
       <div className="absolute inset-0 bg-gradient-to-r from-black/78 via-black/22 to-transparent" />
       <div className="absolute -left-16 top-20 h-56 w-56 rounded-full bg-[#f5c453]/18 blur-3xl" style={{ animation: 'loot-breathe 6s ease-in-out infinite' }} />
       <AnimatePresence>{shine && <ShineOverlay key="hero-shine" />}</AnimatePresence>
+      <ImdbBadge showId={show.id} className="absolute right-5 top-5 z-20" />
 
       <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-20">
         {art?.logoPath ? (

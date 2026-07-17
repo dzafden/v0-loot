@@ -7,6 +7,7 @@ import { progressMap, setTier } from '../../data/queries'
 import type { Show, Tier } from '../../types'
 import { imgUrl } from '../../lib/tmdb'
 import { cn } from '../../lib/utils'
+import { ImdbBadge } from '../../components/ui/ImdbBadge'
 
 type TierData = Record<Tier, number[]>
 type TierStyle = { color: string; soft: string; text: string; label: Tier }
@@ -167,6 +168,7 @@ function SorterGame({ queue, onFinish }: { queue: Show[]; onFinish: () => void }
               </div>
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/84 via-transparent to-black/5" />
+            <ImdbBadge showId={displayShow.id} className="absolute left-4 top-4 z-20" />
             <div className="absolute bottom-0 inset-x-0 p-5">
               <h2 className="text-3xl font-black leading-[0.88] tracking-[-0.1em] text-white text-balance">{displayShow.name}</h2>
             </div>
@@ -277,6 +279,7 @@ function TierRow({ tier, shows, onOpenShow }: { tier: Tier; shows: Show[]; onOpe
                       </div>
                     )}
                   </div>
+                  <ImdbBadge showId={show.id} compact className="absolute left-1.5 top-1.5 z-20 scale-[0.86] origin-top-left" />
                 </button>
               ))}
               {!expanded && shows.length > visibleShows.length && (

@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { ImdbRatingsProvider } from './lib/imdbRatings'
 
 if (import.meta.env.DEV && 'serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations()
@@ -17,6 +18,8 @@ if (import.meta.env.DEV && 'caches' in window) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ImdbRatingsProvider>
+      <App />
+    </ImdbRatingsProvider>
   </StrictMode>,
 )

@@ -25,7 +25,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webp,woff2}'],
+        globPatterns: ['**/*.{js,css,html,json,svg,png,webp,woff2}'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/image\.tmdb\.org\/t\/p\/.*/,
