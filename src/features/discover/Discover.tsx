@@ -20,7 +20,7 @@ import {
   type DiscoverFeed,
   type LootShow,
 } from '../../lib/tmdb'
-import { cacheSeason, upsertShow, addToWatchlistShelf } from '../../data/queries'
+import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import type { Genre, SeasonCache, Show, Tier, TierAssignment } from '../../types'
@@ -696,7 +696,9 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const tierAssignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const watchlistShows = useDexieQuery(['watchlistShows'], () => db.watchlistShows.toArray(), [], [])
   const watchlistShelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
-const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
+  const hiddenFeedback = useDexieQuery(['discoverFeedback'], activeDiscoverFeedback, [], [])
+  const hiddenIds = useMemo(() => new Set(hiddenFeedback.map((feedback) => feedback.showId)), [hiddenFeedback])
+  const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
   const profileShows = librarySnapshot?.ownedShows ?? []
   const profileTierAssignments = librarySnapshot?.tierAssignments ?? []
@@ -708,6 +710,18 @@ const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const activeTasteAnchors = useMemo(() => rotateActiveAnchors(tasteAnchors, tasteSignature), [tasteAnchors, tasteSignature])
   const discoverSeed = useMemo(() => hashString(`${todayKey()}:${tasteSignature}`), [tasteSignature])
   const recommendationBoost = useMemo(() => recommendationBoosts(tasteRecommendations), [tasteRecommendations])
+  const visibleFeed = useMemo(() => {
+    if (!feed) return null
+    const next = {} as DiscoverFeed
+    FEED_KEYS.forEach((key) => {
+      next[key] = feed[key].filter((show: LootShow) => !hiddenIds.has(show.id))
+    })
+    return next
+  }, [feed, hiddenIds])
+  const visibleTasteRecommendations = useMemo(
+    () => tasteRecommendations.filter((show) => !hiddenIds.has(show.id)),
+    [hiddenIds, tasteRecommendations],
+  )
 
   useEffect(() => {
     if (librarySnapshot) return
@@ -830,8 +844,8 @@ const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   }, [activeCategory, categoryLoading, categoryPage, categoryTotalPages])
 
   const heroShow = useMemo(
-    () => feed ? discoverHero(feed, tasteWeights, profileOwnedSet, tasteRecommendations, recommendationBoost, impressions, discoverSeed) : undefined,
-    [discoverSeed, feed, impressions, profileOwnedSet, recommendationBoost, tasteRecommendations, tasteWeights],
+    () => visibleFeed ? discoverHero(visibleFeed, tasteWeights, profileOwnedSet, visibleTasteRecommendations, recommendationBoost, impressions, discoverSeed) : undefined,
+    [discoverSeed, impressions, profileOwnedSet, recommendationBoost, tasteWeights, visibleFeed, visibleTasteRecommendations],
   )
 
   const handleImpressions = (ids: number[]) => {
@@ -917,7 +931,7 @@ const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
         {activeCategory ? (
           <CategoryGrid
             title={activeCategory.title}
-            items={categoryItems}
+            items={categoryItems.filter((show) => !hiddenIds.has(show.id))}
             loading={categoryLoading}
             sentinelRef={sentinelRef}
             ownedIds={liveOwnedSet}
@@ -930,18 +944,18 @@ const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
           <SearchResults loading={searchLoading} results={results} ownedIds={liveOwnedIds} onOpenShow={onOpenShow} />
         ) : feedError ? (
           <p className="px-5 py-10 text-center text-rose-300 text-sm">{feedError}</p>
-        ) : feedLoading || !feed || !librarySnapshot ? (
+        ) : feedLoading || !visibleFeed || !librarySnapshot ? (
           <SkeletonRows />
         ) : (
           <>
             <PortalHero show={heroShow} isOwned={heroShow ? liveOwnedSet.has(heroShow.id) : false} onOpenShow={onOpenShow} />
             <FeedRows
-              feed={feed}
+              feed={visibleFeed}
               ownedIds={liveOwnedIds}
               profileOwnedIds={profileOwnedIds}
               profileShows={profileShows}
               profileTierAssignments={profileTierAssignments}
-              tasteRecommendations={tasteRecommendations}
+              tasteRecommendations={visibleTasteRecommendations}
               recommendationBoost={recommendationBoost}
               impressions={impressions}
               discoverSeed={discoverSeed}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Bookmark, Check, ChevronLeft, Drama, MessageCircle, Plus, Sparkles, Star, Trash2, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronLeft, Drama, EyeOff, MessageCircle, Plus, Sparkles, Star, Trash2, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
@@ -10,7 +10,9 @@ import {
   cacheSeason,
   createEmojiCategory,
   deleteShow,
+  hideDiscoverTitle,
   removeEmoji,
+  restoreDiscoverTitle,
   setAllCachedSeasonsWatched,
   setTier,
   progressForShow,
@@ -84,7 +86,9 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
   const tierAssignment = useDexieQuery(['tierAssignments'], () => db.tierAssignments.get(show.id), undefined, [show.id])
   const cast = useDexieQuery(['castRoles'], () => db.castRoles.where({ showId: show.id }).toArray(), [], [show.id])
+  const discoverFeedback = useDexieQuery(['discoverFeedback'], () => db.discoverFeedback.get(show.id), undefined, [show.id])
   const [progress, setProgress] = useState({ watched: 0, total: 0 })
+  const [feedbackUndoVisible, setFeedbackUndoVisible] = useState(false)
 
   useEffect(() => {
     if (scrollEl) scrollEl.scrollTo({ top: 0, behavior: 'auto' })
@@ -203,6 +207,17 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
     if (!confirm(`Remove "${show.name}" from your collection?`)) return
     await deleteShow(show.id)
     onBack()
+  }
+
+  const hideFromDiscover = async () => {
+    await hideDiscoverTitle(liveShow)
+    setFeedbackUndoVisible(true)
+    window.setTimeout(() => setFeedbackUndoVisible(false), 6000)
+  }
+
+  const restoreToDiscover = async () => {
+    await restoreDiscoverTitle(show.id)
+    setFeedbackUndoVisible(false)
   }
 
   const ensureSeasonCache = async () => {
@@ -366,6 +381,18 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
           </button>
         )}
 
+        {!owned && (
+          <button
+            onClick={() => discoverFeedback?.hiddenUntil && discoverFeedback.hiddenUntil > Date.now()
+              ? void restoreToDiscover()
+              : void hideFromDiscover()}
+            className="mt-3 inline-flex h-9 items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-white/28 transition-colors hover:text-white/58 active:scale-95"
+          >
+            <EyeOff size={13} />
+            {discoverFeedback?.hiddenUntil && discoverFeedback.hiddenUntil > Date.now() ? 'Show in Discover' : 'Not interested'}
+          </button>
+        )}
+
         {(!tier || rankEditorOpen) && (
           <motion.section
             initial={{ opacity: 0, y: -8 }}
@@ -414,6 +441,12 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
       </main>
       )}
       <WatchlistShelfPicker open={watchlistOpen} show={liveShow} onClose={() => setWatchlistOpen(false)} />
+      {feedbackUndoVisible && (
+        <div className="fixed inset-x-4 bottom-24 z-[70] mx-auto flex h-14 max-w-sm items-center justify-between rounded-[20px] bg-[#17141b]/96 px-4 text-[12px] font-bold text-white shadow-[0_22px_54px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
+          <span>Hidden from Discover</span>
+          <button onClick={() => void restoreToDiscover()} className="h-9 rounded-full bg-white px-4 text-[10px] font-black uppercase tracking-[0.14em] text-black active:scale-95">Undo</button>
+        </div>
+      )}
     </div>
   )
 }

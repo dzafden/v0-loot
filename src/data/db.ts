@@ -9,6 +9,7 @@ import type {
   CastRole,
   WatchlistShelf,
   CanvasItem,
+  DiscoverFeedback,
 } from '../types'
 
 export class LootDB extends Dexie {
@@ -22,6 +23,7 @@ export class LootDB extends Dexie {
   watchlistShows!: Table<Show, number>
   watchlistShelves!: Table<WatchlistShelf, string>
   canvasItems!: Table<CanvasItem, string>
+  discoverFeedback!: Table<DiscoverFeedback, number>
 
   constructor() {
     super('loot')
@@ -56,6 +58,19 @@ export class LootDB extends Dexie {
       watchlistShows: 'id, name, addedAt, updatedAt',
       watchlistShelves: 'id, name, createdAt, updatedAt',
       canvasItems: 'id, showId, kind, createdAt, updatedAt',
+    })
+    this.version(4).stores({
+      shows: 'id, name, addedAt, updatedAt, top8Position',
+      collections: 'id, name, createdAt',
+      emojiCategories: 'id, emoji, createdAt',
+      tierAssignments: 'showId, tier, updatedAt',
+      episodeProgress: 'key, showId, [showId+seasonNumber], watched, watchedAt',
+      seasonCache: 'key, showId, fetchedAt',
+      castRoles: 'id, showId, roleName, createdAt',
+      watchlistShows: 'id, name, addedAt, updatedAt',
+      watchlistShelves: 'id, name, createdAt, updatedAt',
+      canvasItems: 'id, showId, kind, createdAt, updatedAt',
+      discoverFeedback: 'showId, hiddenUntil, updatedAt',
     })
   }
 }

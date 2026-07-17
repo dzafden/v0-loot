@@ -10,9 +10,11 @@ import type {
   Tier,
   TierAssignment,
   WatchlistShelf,
+  DiscoverFeedback,
 } from '../types'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
 
 export const WATCHLIST_SHELF_SUGGESTIONS = [
   'Watch next',
@@ -35,7 +37,33 @@ type CanvasDraft = Omit<CanvasItem, 'id' | 'x' | 'y' | 'scale' | 'createdAt' | '
 // ---------- shows ----------
 
 export async function upsertShow(show: Show) {
-  await db.shows.put({ ...show, updatedAt: Date.now() })
+  await db.transaction('rw', [db.shows, db.discoverFeedback], async () => {
+    await db.shows.put({ ...show, updatedAt: Date.now() })
+    await db.discoverFeedback.delete(show.id)
+  })
+}
+
+// ---------- discover feedback ----------
+
+export async function hideDiscoverTitle(show: Pick<Show, 'id' | 'name' | 'posterPath'>, at = Date.now()) {
+  const feedback: DiscoverFeedback = {
+    showId: show.id,
+    name: show.name,
+    posterPath: show.posterPath,
+    dismissedAt: at,
+    hiddenUntil: at + DISCOVER_HIDE_MS,
+    updatedAt: at,
+  }
+  await db.discoverFeedback.put(feedback)
+  return feedback
+}
+
+export async function restoreDiscoverTitle(showId: number) {
+  await db.discoverFeedback.delete(showId)
+}
+
+export async function activeDiscoverFeedback(at = Date.now()) {
+  return db.discoverFeedback.filter((feedback) => feedback.hiddenUntil > at).toArray()
 }
 
 export async function deleteShow(id: number) {
@@ -279,7 +307,7 @@ export async function reorderWatchlistShelves(orderedIds: string[]) {
 }
 
 export async function addToWatchlistShelf(shelfId: string, show: Show) {
-  await db.transaction('rw', [db.watchlistShows, db.watchlistShelves], async () => {
+  await db.transaction('rw', [db.watchlistShows, db.watchlistShelves, db.discoverFeedback], async () => {
     await db.watchlistShows.put({
       ...show,
       addedAt: show.addedAt || Date.now(),
@@ -291,6 +319,7 @@ export async function addToWatchlistShelf(shelfId: string, show: Show) {
       showIds: [...shelf.showIds, show.id],
       updatedAt: Date.now(),
     })
+    await db.discoverFeedback.delete(show.id)
   })
 }
 
@@ -385,6 +414,7 @@ export async function setTier(showId: number, tier: Tier | null) {
     updatedAt: Date.now(),
   }
   await db.tierAssignments.put(assignment)
+  await db.discoverFeedback.delete(showId)
 }
 
 export async function reorderTier(tier: Tier, orderedIds: number[]) {

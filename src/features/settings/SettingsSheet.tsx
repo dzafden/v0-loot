@@ -2,6 +2,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { getTmdbKey, setTmdbKey } from '../../lib/tmdb'
+import { activeDiscoverFeedback, restoreDiscoverTitle } from '../../data/queries'
+import { useDexieQuery } from '../../hooks/useDexieQuery'
+import { imgUrl } from '../../lib/tmdb'
 
 interface Props {
   open: boolean
@@ -11,6 +14,7 @@ interface Props {
 export function SettingsSheet({ open, onClose }: Props) {
   const [key, setKey] = useState(getTmdbKey())
   const [saved, setSaved] = useState(false)
+  const hiddenTitles = useDexieQuery(['discoverFeedback'], activeDiscoverFeedback, [], [])
 
   return (
     <AnimatePresence>
@@ -28,7 +32,7 @@ export function SettingsSheet({ open, onClose }: Props) {
             exit={{ y: '100%' }}
             transition={{ type: 'spring', stiffness: 280, damping: 30 }}
             onClick={(e) => e.stopPropagation()}
-            className="absolute inset-x-0 bottom-0 max-h-[88vh] rounded-t-3xl bg-[#0f0f13] border-t border-white/10 p-5 pb-8"
+            className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-3xl bg-[#0f0f13] border-t border-white/10 p-5 pb-8"
           >
             <div className="mx-auto h-1 w-10 rounded-full bg-white/15 mb-4" />
             <div className="flex items-center justify-between mb-5">
@@ -80,6 +84,23 @@ export function SettingsSheet({ open, onClose }: Props) {
                 )}
               </div>
             </section>
+
+            {hiddenTitles.length > 0 && (
+              <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <h3 className="font-black uppercase tracking-tight">Hidden titles</h3>
+                <div className="mt-3 flex flex-col gap-2">
+                  {hiddenTitles.map((title) => (
+                    <div key={title.showId} className="flex items-center gap-3 rounded-[16px] bg-black/24 p-2">
+                      <div className="h-12 w-8 overflow-hidden rounded-[7px] bg-white/[0.05]">
+                        {title.posterPath && <img src={imgUrl(title.posterPath, 'w185')} alt="" className="h-full w-full object-cover" />}
+                      </div>
+                      <span className="min-w-0 flex-1 truncate text-sm font-bold text-white/78">{title.name}</span>
+                      <button onClick={() => void restoreDiscoverTitle(title.showId)} className="h-9 rounded-full bg-white/[0.08] px-3 text-[10px] font-black uppercase tracking-[0.12em] text-white/64 active:scale-95">Restore</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </motion.div>
         </motion.div>
       )}

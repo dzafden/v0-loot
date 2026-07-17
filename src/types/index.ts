@@ -55,6 +55,15 @@ export interface WatchlistShelf {
   updatedAt: number
 }
 
+export interface DiscoverFeedback {
+  showId: number
+  name: string
+  posterPath?: string | null
+  dismissedAt: number
+  hiddenUntil: number
+  updatedAt: number
+}
+
 export interface CanvasItem {
   id: string
   showId: number
