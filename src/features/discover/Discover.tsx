@@ -1190,8 +1190,8 @@ function WatchDropPanel({
     onClose()
   }
 
-  // Portal canvas pool — owned shows supplemented with TMDB cached data
-  const canvasPool = useMemo(() => {
+  // Portal poster pool — owned shows supplemented with TMDB cached data
+  const posterPool = useMemo(() => {
     const owned = ownedShows.filter((s) => s.posterPath) as { id: number; posterPath: string | null }[]
     const feed = getCachedDiscoverFeed()
     const feedItems = feed ? [...feed.trending, ...feed.popular, ...feed.topRated, ...feed.netflix, ...feed.hbo] : []
@@ -1200,14 +1200,14 @@ function WatchDropPanel({
     return seededShuffle([...owned, ...extra], hashString('pool-v2'))
   }, [ownedShows])
 
-  // Infinite scrolling row data for the portal canvas
+  // Infinite scrolling row data for the portal poster wall
   const rowData = useMemo(() => {
-    if (canvasPool.length === 0) return []
+    if (posterPool.length === 0) return []
     const NUM_ROWS = 6
     const durations = [34, 21, 29, 18, 26, 16]
     return Array.from({ length: NUM_ROWS }, (_, r) => {
-      const count = Math.max(20, canvasPool.length)
-      const shows = Array.from({ length: count }, (_, i) => canvasPool[(r * 7 + i) % canvasPool.length])
+      const count = Math.max(20, posterPool.length)
+      const shows = Array.from({ length: count }, (_, i) => posterPool[(r * 7 + i) % posterPool.length])
       const wobbles = shows.map((show, i) => {
         const h = hashString(`wb:${show.id}:${r}:${i}`)
         return {
@@ -1219,7 +1219,7 @@ function WatchDropPanel({
       })
       return { shows, wobbles, dir: r % 2 === 0 ? 'left' : 'right' as const, dur: durations[r] }
     })
-  }, [canvasPool])
+  }, [posterPool])
 
   return (
     <motion.div
