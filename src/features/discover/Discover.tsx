@@ -23,7 +23,7 @@ import {
 import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import type { Genre, SeasonCache, Show, Tier, TierAssignment } from '../../types'
+import type { Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
@@ -31,7 +31,7 @@ import { ImdbBadge } from '../../components/ui/ImdbBadge'
 
 interface Props {
   onOpenSettings: () => void
-  onOpenShow: (show: Show) => void
+  onOpenShow: (show: Show, context?: RecommendationContext) => void
 }
 
 const FEED_KEYS: (keyof DiscoverFeed)[] = ['trending', 'airingToday', 'popular', 'netflix', 'crime', 'hbo', 'scifi', 'apple', 'animation', 'mystery', 'amazon', 'topRated']
@@ -102,8 +102,13 @@ function saveWdSeen(id: number) {
   } catch {}
 }
 
-const tasteRecCache = new Map<string, { data: LootShow[]; ts: number }>()
-const tasteRecInflight = new Map<string, Promise<LootShow[]>>()
+type TasteRecommendationGroup = {
+  anchorId: number
+  shows: LootShow[]
+}
+
+const tasteRecCache = new Map<string, { data: TasteRecommendationGroup[]; ts: number }>()
+const tasteRecInflight = new Map<string, Promise<TasteRecommendationGroup[]>>()
 
 type DiscoverImpression = {
   count: number
@@ -540,11 +545,13 @@ async function getTasteRecommendationPool(anchors: Show[]) {
   const request = Promise.all(
     anchors.map((anchor) =>
       getShowRecommendations(anchor.id, 1)
-        .then((data) => data.results.map(tmdbToLoot))
-        .catch(() => []),
+        .then((data) => ({
+          anchorId: anchor.id,
+          shows: uniqueShows(data.results.map(tmdbToLoot)).filter((show) => show.posterPath || show.backdropPath),
+        }))
+        .catch(() => ({ anchorId: anchor.id, shows: [] })),
     ),
-  ).then((groups) => {
-    const data = uniqueShows(groups.flat()).filter((show) => show.posterPath || show.backdropPath)
+  ).then((data) => {
     tasteRecCache.set(cacheKey, { data, ts: Date.now() })
     return data
   })
@@ -684,7 +691,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [categoryTotalPages, setCategoryTotalPages] = useState(1)
   const [categoryLoading, setCategoryLoading] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
-  const [tasteRecommendations, setTasteRecommendations] = useState<LootShow[]>([])
+  const [tasteRecommendationGroups, setTasteRecommendationGroups] = useState<TasteRecommendationGroup[]>([])
   const [impressions] = useState<DiscoverImpressions>(() => readDiscoverImpressions())
   const [librarySnapshot, setLibrarySnapshot] = useState<DiscoverLibrarySnapshot | null>(() => readLibrarySnapshot())
   const [watchDropOpen, setWatchDropOpen] = useState(false)
@@ -709,6 +716,10 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const tasteSignature = librarySnapshot?.signature ?? ''
   const activeTasteAnchors = useMemo(() => rotateActiveAnchors(tasteAnchors, tasteSignature), [tasteAnchors, tasteSignature])
   const discoverSeed = useMemo(() => hashString(`${todayKey()}:${tasteSignature}`), [tasteSignature])
+  const tasteRecommendations = useMemo(
+    () => uniqueShows(tasteRecommendationGroups.flatMap((group) => group.shows)),
+    [tasteRecommendationGroups],
+  )
   const recommendationBoost = useMemo(() => recommendationBoosts(tasteRecommendations), [tasteRecommendations])
   const visibleFeed = useMemo(() => {
     if (!feed) return null
@@ -721,6 +732,13 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const visibleTasteRecommendations = useMemo(
     () => tasteRecommendations.filter((show) => !hiddenIds.has(show.id)),
     [hiddenIds, tasteRecommendations],
+  )
+  const visibleTasteRecommendationGroups = useMemo(
+    () => tasteRecommendationGroups.map((group) => ({
+      ...group,
+      shows: group.shows.filter((show) => !hiddenIds.has(show.id)),
+    })),
+    [hiddenIds, tasteRecommendationGroups],
   )
 
   useEffect(() => {
@@ -737,7 +755,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     const snapshot = createLibrarySnapshot(ownedShows, tierAssignments)
     writeLibrarySnapshot(snapshot)
     setLibrarySnapshot(snapshot)
-    setTasteRecommendations([])
+    setTasteRecommendationGroups([])
   }
 
   // Trending feed — fetched on mount, cached at module level for 5 min.
@@ -763,16 +781,19 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
 
   useEffect(() => {
     if (!keyOk || activeTasteAnchors.length === 0) {
-      setTasteRecommendations((prev) => (prev.length === 0 ? prev : []))
+      setTasteRecommendationGroups((prev) => (prev.length === 0 ? prev : []))
       return
     }
     let cancelled = false
     getTasteRecommendationPool(activeTasteAnchors)
-      .then((shows) => {
-        if (!cancelled) setTasteRecommendations(shows.filter((show) => !profileOwnedSet.has(show.id)))
+      .then((groups) => {
+        if (!cancelled) setTasteRecommendationGroups(groups.map((group) => ({
+          ...group,
+          shows: group.shows.filter((show) => !profileOwnedSet.has(show.id)),
+        })))
       })
       .catch(() => {
-        if (!cancelled) setTasteRecommendations((prev) => (prev.length === 0 ? prev : []))
+        if (!cancelled) setTasteRecommendationGroups((prev) => (prev.length === 0 ? prev : []))
       })
     return () => {
       cancelled = true
@@ -956,6 +977,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
               profileShows={profileShows}
               profileTierAssignments={profileTierAssignments}
               tasteRecommendations={visibleTasteRecommendations}
+              tasteRecommendationGroups={visibleTasteRecommendationGroups}
               recommendationBoost={recommendationBoost}
               impressions={impressions}
               discoverSeed={discoverSeed}
@@ -1942,6 +1964,47 @@ function SearchResults({
   )
 }
 
+type TastePacket = {
+  anchor: Show
+  tier?: Tier
+  shows: LootShow[]
+}
+
+function buildTastePackets(
+  groups: TasteRecommendationGroup[],
+  profileShows: Show[],
+  assignments: TierAssignment[],
+  ownedIds: Set<number>,
+  featuredId?: number,
+) {
+  const showsById = new Map(profileShows.map((show) => [show.id, show]))
+  const tierByShow = new Map(assignments.map((assignment) => [assignment.showId, assignment.tier]))
+  const priority = (show: Show) => {
+    const tier = tierByShow.get(show.id)
+    const tierScore = tier === 'S' ? 100 : tier === 'A' ? 80 : 0
+    const top8Score = typeof show.top8Position === 'number' ? 70 - show.top8Position : 0
+    return tierScore + top8Score
+  }
+  const used = new Set<number>([...ownedIds, ...(featuredId ? [featuredId] : [])])
+  const packets: TastePacket[] = []
+
+  const candidates = groups
+    .map((group) => ({ ...group, anchor: showsById.get(group.anchorId) }))
+    .filter((group): group is TasteRecommendationGroup & { anchor: Show } => Boolean(group.anchor && priority(group.anchor) > 0))
+    .sort((a, b) => priority(b.anchor) - priority(a.anchor))
+
+  for (const group of candidates) {
+    const available = group.shows.filter((show) => !used.has(show.id))
+    const shows = diversifyShows(available, 8, 3)
+    if (shows.length < 4) continue
+    shows.forEach((show) => used.add(show.id))
+    packets.push({ anchor: group.anchor, tier: tierByShow.get(group.anchor.id), shows })
+    if (packets.length >= 2) break
+  }
+
+  return packets
+}
+
 function FeedRows({
   feed,
   ownedIds,
@@ -1949,6 +2012,7 @@ function FeedRows({
   profileShows,
   profileTierAssignments,
   tasteRecommendations,
+  tasteRecommendationGroups,
   recommendationBoost,
   impressions,
   discoverSeed,
@@ -1963,12 +2027,13 @@ function FeedRows({
   profileShows: Show[]
   profileTierAssignments: TierAssignment[]
   tasteRecommendations: LootShow[]
+  tasteRecommendationGroups: TasteRecommendationGroup[]
   recommendationBoost: Map<number, number>
   impressions: DiscoverImpressions
   discoverSeed: number
   onImpressions: (ids: number[]) => void
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
-  onOpenShow: (show: Show) => void
+  onOpenShow: (show: Show, context?: RecommendationContext) => void
   featuredId?: number
 }) {
   const profileOwnedSet = useMemo(() => new Set(profileOwnedIds), [profileOwnedIds])
@@ -1991,14 +2056,25 @@ function FeedRows({
     const diverse = diversifyShows(canonRow(feed, tasteWeights, profileOwnedSet, tasteRecommendations, recommendationBoost, impressions, featuredId), 24, 3)
     return seededShuffle(diverse.slice(0, 18), discoverSeed + 17).slice(0, 12)
   }, [discoverSeed, feed, featuredId, impressions, profileOwnedSet, recommendationBoost, tasteRecommendations, tasteWeights])
+  const packets = useMemo(
+    () => buildTastePackets(tasteRecommendationGroups, profileShows, profileTierAssignments, profileOwnedSet, featuredId),
+    [featuredId, profileOwnedSet, profileShows, profileTierAssignments, tasteRecommendationGroups],
+  )
 
   useEffect(() => {
-    onImpressions([...(featuredId ? [featuredId] : []), ...personalized.slice(0, 8).map((show) => show.id)])
-  }, [featuredId, onImpressions, personalized])
+    const visibleRecommendations = packets.length
+      ? packets.flatMap((packet) => packet.shows).slice(0, 8)
+      : personalized.slice(0, 8)
+    onImpressions([...(featuredId ? [featuredId] : []), ...visibleRecommendations.map((show) => show.id)])
+  }, [featuredId, onImpressions, packets, personalized])
 
   return (
     <>
-      <CarouselRow title="For Your Taste" categoryKey="popular" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      {packets.length
+        ? packets.map((packet) => (
+            <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} onOpenShow={onOpenShow} />
+          ))
+        : <CarouselRow title="For Your Taste" categoryKey="popular" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
       <CarouselRow title="Trending This Week" categoryKey="trending" shows={sourceRow('trending', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="Airing Today" categoryKey="airingToday" shows={sourceRow('airingToday', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="Trending Now" categoryKey="popular" shows={sourceRow('popular', { preserveOrder: true })} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
@@ -2012,6 +2088,46 @@ function FeedRows({
       <CarouselRow title="On Amazon Prime" categoryKey="amazon" shows={sourceRow('amazon')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRow('topRated')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
     </>
+  )
+}
+
+function TastePacketRow({
+  packet,
+  ownedIds,
+  onOpenShow,
+}: {
+  packet: TastePacket
+  ownedIds: number[]
+  onOpenShow: (show: Show, context?: RecommendationContext) => void
+}) {
+  const anchorGenres = new Set([...(packet.anchor.genres ?? []), ...(packet.anchor.rawGenres ?? [])])
+  const heading = packet.tier
+    ? `Because you ranked ${packet.anchor.name} ${packet.tier}`
+    : `Because ${packet.anchor.name} is in your Top 8`
+
+  return (
+    <section className="mb-9">
+      <div className="mb-3 flex items-center gap-2.5 px-4">
+        <div className="h-9 w-7 flex-shrink-0 overflow-hidden rounded-[8px] bg-white/[0.06] ring-1 ring-white/[0.08]">
+          {packet.anchor.posterPath && <img src={imgUrl(packet.anchor.posterPath, 'w185')} alt="" className="h-full w-full object-cover" />}
+        </div>
+        <h2 className="min-w-0 text-[11px] font-black uppercase tracking-[0.14em] text-white/58">{heading}</h2>
+      </div>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 px-4">
+        {packet.shows.map((show) => (
+          <LandscapeCard
+            key={show.id}
+            show={show}
+            isOwned={ownedIds.includes(show.id)}
+            onOpenShow={(selected) => onOpenShow(selected, {
+              anchorName: packet.anchor.name,
+              anchorTier: packet.tier,
+              sharedGenre: anchorGenres.has(show.genre as Genre) ? show.genre : undefined,
+            })}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 

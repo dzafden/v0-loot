@@ -64,6 +64,12 @@ export interface DiscoverFeedback {
   updatedAt: number
 }
 
+export interface RecommendationContext {
+  anchorName: string
+  anchorTier?: Tier
+  sharedGenre?: string
+}
+
 export interface CanvasItem {
   id: string
   showId: number

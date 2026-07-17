@@ -12,16 +12,21 @@ import { SettingsSheet } from './features/settings/SettingsSheet'
 import { IOSInstallBanner } from './components/ui/IOSInstallBanner'
 import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
-import type { Show } from './types'
+import type { RecommendationContext, Show } from './types'
 
 type CastingTarget = {
   show: Show
   personId?: number
 }
 
+type DetailTarget = {
+  show: Show
+  recommendationContext?: RecommendationContext
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('discover')
-  const [detail, setDetail] = useState<Show | null>(null)
+  const [detail, setDetail] = useState<DetailTarget | null>(null)
   const [adding, setAdding] = useState(false)
   const [tracking, setTracking] = useState<Show | null>(null)
   const [castingFor, setCastingFor] = useState<CastingTarget | null>(null)
@@ -55,19 +60,23 @@ export default function App() {
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_-12%,rgba(255,190,106,0.18),transparent_34rem),radial-gradient(circle_at_88%_28%,rgba(74,222,128,0.08),transparent_22rem)]" aria-hidden />
       <div className="w-full max-w-md relative bg-[#08070a]/92 min-h-svh overflow-x-hidden shadow-[0_0_80px_rgba(0,0,0,0.75)]">
         {tab === 'discover' && (
-          <Discover onOpenSettings={() => setSettingsOpen(true)} onOpenShow={setDetail} />
+          <Discover
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenShow={(show, recommendationContext) => setDetail({ show, recommendationContext })}
+          />
         )}
         {tab === 'collection' && (
-          <Collection onAddShow={() => setAdding(true)} onOpenShow={setDetail} />
+          <Collection onAddShow={() => setAdding(true)} onOpenShow={(show) => setDetail({ show })} />
         )}
         {tab === 'rankings' && (
-          <Rankings onGoDiscover={() => setTab('discover')} onOpenShow={setDetail} />
+          <Rankings onGoDiscover={() => setTab('discover')} onOpenShow={(show) => setDetail({ show })} />
         )}
-        {tab === 'profile' && <ProfileTab onOpenShow={setDetail} />}
+        {tab === 'profile' && <ProfileTab onOpenShow={(show) => setDetail({ show })} />}
 
         {detail && !tracking && (
           <ShowDetail
-            show={detail}
+            show={detail.show}
+            recommendationContext={detail.recommendationContext}
             onBack={() => setDetail(null)}
             onTrackEpisodes={(s) => setTracking(s)}
             onAssignRole={(s, personId) => setCastingFor({ show: s, personId })}

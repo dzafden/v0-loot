@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import { Bookmark, Check, ChevronLeft, Drama, EyeOff, MessageCircle, Plus, Sparkles, Star, Trash2, Tv, X } from 'lucide-react'
-import type { CastRole, EmojiCategory, Show, Tier } from '../../types'
+import type { CastRole, EmojiCategory, RecommendationContext, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import {
@@ -63,12 +63,13 @@ function seasonLabel(info: SeasonInfo | null, progress: { watched: number; total
 
 interface Props {
   show: Show
+  recommendationContext?: RecommendationContext
   onBack: () => void
   onTrackEpisodes: (s: Show) => void
   onAssignRole: (s: Show, personId?: number) => void
 }
 
-export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Props) {
+export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisodes, onAssignRole }: Props) {
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const [episodeBulkBusy, setEpisodeBulkBusy] = useState<null | 'mark' | 'unmark'>(null)
   const [logoPath, setLogoPath] = useState<string | null>(null)
@@ -319,6 +320,14 @@ export function ShowDetail({ show, onBack, onTrackEpisodes, onAssignRole }: Prop
             <ImdbBadge showId={show.id} compact className="mr-1" />
             {metadata.map((item) => <span key={item}>{item}</span>)}
           </div>
+
+          {recommendationContext && (
+            <p className="mt-2 max-w-[300px] text-[10px] font-black uppercase tracking-[0.14em] text-white/42">
+              Recommended from {recommendationContext.anchorName}
+              {recommendationContext.anchorTier ? ` · ${recommendationContext.anchorTier}-tier` : ''}
+              {recommendationContext.sharedGenre ? ` · ${recommendationContext.sharedGenre}` : ''}
+            </p>
+          )}
 
           <div className="mt-3">
             <VibeRail showId={show.id} applied={showEmojis} accent={accent} />
