@@ -43,6 +43,17 @@ export async function upsertShow(show: Show) {
   })
 }
 
+export async function updateShowMetadata(
+  showId: number,
+  metadata: Pick<Show, 'seasonCount' | 'episodeCount' | 'status'>,
+) {
+  await db.transaction('rw', [db.shows, db.watchlistShows], async () => {
+    const patch = { ...metadata, updatedAt: Date.now() }
+    await db.shows.update(showId, patch)
+    await db.watchlistShows.update(showId, patch)
+  })
+}
+
 // ---------- discover feedback ----------
 
 export async function hideDiscoverTitle(show: Pick<Show, 'id' | 'name' | 'posterPath'>, at = Date.now()) {

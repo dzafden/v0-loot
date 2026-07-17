@@ -122,6 +122,9 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
         overview: r.overview,
         genres: genres as Genre[],
         rawGenres: genres,
+        seasonCount: detail.number_of_seasons,
+        episodeCount: detail.number_of_episodes,
+        status: detail.status,
         addedAt: Date.now(),
         updatedAt: Date.now(),
       }

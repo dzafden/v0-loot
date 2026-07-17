@@ -17,6 +17,7 @@ import {
   setTier,
   progressForShow,
   upsertShow,
+  updateShowMetadata,
 } from '../../data/queries'
 import {
   getCredits,
@@ -146,6 +147,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           rating: detail.vote_average ?? null,
         }))
         setSeasonInfo({ seasons: detail.number_of_seasons || seasons.length, episodes })
+        void updateShowMetadata(show.id, {
+          seasonCount: detail.number_of_seasons || seasons.length,
+          episodeCount: detail.number_of_episodes || episodes,
+          status: detail.status,
+        })
       })
       .catch(() => {
         setDetailFacts((current) => ({ ...current, tagline: '', rating: null }))

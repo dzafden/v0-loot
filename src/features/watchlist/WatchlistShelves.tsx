@@ -17,7 +17,9 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ChevronDown, GripVertical, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronDown, GripVertical, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
+import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { db } from '../../data/db'
 import {
   createWatchlistShelf,
@@ -32,6 +34,7 @@ import { useDexieQuery } from '../../hooks/useDexieQuery'
 import { imgUrl } from '../../lib/tmdb'
 import { cn } from '../../lib/utils'
 import type { Show, WatchlistShelf } from '../../types'
+import { buildSmartLenses, type SmartLensId } from './smartLenses'
 
 interface Props {
   onOpenShow: (show: Show) => void
@@ -72,6 +75,7 @@ export function WatchlistShelves({ onOpenShow, onAddToShelf, newShelfSignal = 0 
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [collapsedShelfIds, setCollapsedShelfIds] = useState<Set<string>>(() => new Set())
+  const [activeLensId, setActiveLensId] = useState<SmartLensId | null>(null)
   const shelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
   const ownedShows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const watchlistShows = useDexieQuery(['watchlistShows'], () => db.watchlistShows.toArray(), [], [])
@@ -110,6 +114,13 @@ export function WatchlistShelves({ onOpenShow, onAddToShelf, newShelfSignal = 0 
     }
     return map
   }, [showById, sortedShelves])
+
+  const watchlist = useMemo(() => {
+    const ids = new Set(sortedShelves.flatMap((shelf) => shelf.showIds))
+    return [...ids].map((id) => showById.get(id)).filter((show): show is Show => Boolean(show))
+  }, [showById, sortedShelves])
+  const smartLenses = useMemo(() => buildSmartLenses(watchlist), [watchlist])
+  const activeLens = smartLenses.find((lens) => lens.id === activeLensId) ?? null
 
   useEffect(() => {
     void ensureDefaultWatchlistShelves()
@@ -229,6 +240,56 @@ export function WatchlistShelves({ onOpenShow, onAddToShelf, newShelfSignal = 0 
         )}
       </AnimatePresence>
 
+      {smartLenses.length > 0 && (
+        <section className="mb-5">
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <Sparkles size={14} className="text-[#f5c453]" />
+            <h2 className="text-[10px] font-black uppercase tracking-[0.18em] text-white/42">Smart picks</h2>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {smartLenses.map((lens) => (
+              <button
+                key={lens.id}
+                onClick={() => setActiveLensId((current) => current === lens.id ? null : lens.id)}
+                className={cn(
+                  'shrink-0 rounded-full px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] transition-colors active:scale-95',
+                  activeLensId === lens.id ? 'bg-[#f5c453] text-black' : 'bg-white/[0.065] text-white/58 ring-1 ring-white/[0.06]',
+                )}
+                aria-pressed={activeLensId === lens.id}
+              >
+                {lens.label} · {lens.shows.length}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {activeLens ? (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="mb-4 flex items-start gap-3">
+            <button onClick={() => setActiveLensId(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/[0.06] text-white/62 active:scale-95" aria-label="Back to shelves">
+              <ArrowLeft size={16} />
+            </button>
+            <div>
+              <h2 className="text-[26px] font-black leading-none tracking-[-0.07em] text-white">{activeLens.label}</h2>
+              <p className="mt-1 text-xs font-semibold text-white/34">{activeLens.description}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2.5">
+            {activeLens.shows.map((lensShow) => (
+              <button key={lensShow.id} onClick={() => onOpenShow(lensShow)} className="aspect-[5/7] min-w-0 text-left active:scale-[0.98]">
+                <CollectibleMediaCard
+                  id={lensShow.id}
+                  title={lensShow.name}
+                  imagePath={lensShow.posterPath ?? lensShow.backdropPath}
+                  imageSize={lensShow.posterPath ? 'w342' : 'w500'}
+                  meta={lensShow.year ? <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-white/38">{lensShow.year}</p> : null}
+                />
+              </button>
+            ))}
+          </div>
+        </motion.section>
+      ) : (
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={sortedShelves.map((shelf) => shelfSortId(shelf.id))} strategy={rectSortingStrategy}>
           <div className="space-y-5">
@@ -258,6 +319,7 @@ export function WatchlistShelves({ onOpenShow, onAddToShelf, newShelfSignal = 0 
           </div>
         </SortableContext>
       </DndContext>
+      )}
     </div>
   )
 }
@@ -469,9 +531,7 @@ function SortableWatchlistCard({
           {item.show.year && <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-white/34">{item.show.year}</p>}
         </div>
       </button>
-      <div className="absolute left-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/34 text-white/42 backdrop-blur-xl">
-        <GripVertical size={12} />
-      </div>
+      <ImdbBadge showId={item.show.id} compact className="absolute left-1.5 top-1.5 z-10 origin-top-left scale-[0.82]" />
       <button
         onClick={(e) => {
           e.stopPropagation()

@@ -30,6 +30,9 @@ export interface Show {
   overview?: string
   genres: Genre[] // normalized genre tags (best-effort)
   rawGenres?: string[]
+  seasonCount?: number
+  episodeCount?: number
+  status?: string
   addedAt: number
   updatedAt: number
   // customization

@@ -114,13 +114,19 @@ export function WatchlistSearchSheet({ open, shelfId, onClose, onOpenSettings }:
     setError(null)
     try {
       let genres: string[] = []
+      let metadata: Pick<Show, 'seasonCount' | 'episodeCount' | 'status'> = {}
       try {
         const detail = await getShowDetail(result.id)
         genres = detail.genres.map((genre) => genre.name)
+        metadata = {
+          seasonCount: detail.number_of_seasons,
+          episodeCount: detail.number_of_episodes,
+          status: detail.status,
+        }
       } catch {
         // Watchlist can still save the object; details hydrate later if needed.
       }
-      await addToWatchlistShelf(activeShelf.id, tmdbResultToShow(result, genres))
+      await addToWatchlistShelf(activeShelf.id, { ...tmdbResultToShow(result, genres), ...metadata })
       navigator.vibrate?.([6, 18, 8])
     } catch (e) {
       setError((e as Error).message)

@@ -329,6 +329,8 @@ export async function getDiscoverCategoryPage(
 
 export interface TmdbShowDetail extends TmdbSearchResult {
   number_of_seasons: number
+  number_of_episodes?: number
+  status?: string
   seasons: { season_number: number; episode_count: number; name: string; poster_path?: string | null }[]
   genres: { id: number; name: string }[]
   overview?: string
