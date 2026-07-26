@@ -194,10 +194,10 @@ export function CollectibleMediaCard({
       {landscape ? (
         <>
           <div className="absolute inset-0 bg-gradient-to-r from-black/82 via-black/22 to-black/5" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/10 to-black/8" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/18 to-black/8" />
         </>
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-black/4 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/58 to-transparent" />
       )}
       <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_50%_100%,rgba(245,196,83,0.18),transparent_62%)]" />
       {tier && <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 92% 10%, ${tierColor}36, transparent 9rem)` }} />}
@@ -225,16 +225,19 @@ export function CollectibleMediaCard({
           />
         ) : null}
         {children ?? (
-          <div>
+          <div className={cn(
+            !landscape && 'rounded-[17px] border border-white/[0.1] bg-[#08080c]/88 px-3 py-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl',
+          )}>
             {!landscape || !logoPath ? (
-              <p className={cn('font-black text-white drop-shadow-[0_4px_10px_rgba(0,0,0,0.85)]', landscape ? 'max-w-[72%] text-[25px] leading-[0.94] tracking-[-0.05em]' : 'line-clamp-2 text-[13px] leading-tight tracking-[-0.04em]')}>
+              <p className={cn('font-black text-white drop-shadow-[0_4px_10px_rgba(0,0,0,0.85)]', landscape ? 'max-w-[72%] text-[25px] leading-[0.94] tracking-[-0.05em]' : 'line-clamp-2 text-[14px] leading-[1.05] tracking-[-0.035em]')}>
                 {title}
               </p>
             ) : null}
             {meta ? (
               <div className={cn(
-                'mt-2 w-fit max-w-full rounded-[12px] bg-black/62 px-2.5 py-1.5 shadow-[0_8px_20px_rgba(0,0,0,0.34)] ring-1 ring-white/[0.08] backdrop-blur-md',
-                landscape && 'max-w-[270px]',
+                landscape
+                  ? 'mt-2 w-fit max-w-[270px] rounded-[13px] border border-white/[0.1] bg-[#08080c]/82 px-2.5 py-1.5 shadow-[0_8px_20px_rgba(0,0,0,0.4)] backdrop-blur-xl'
+                  : 'mt-1.5 text-white/78',
               )}>
                 {meta}
               </div>

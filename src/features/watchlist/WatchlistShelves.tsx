@@ -282,7 +282,7 @@ export function WatchlistShelves({ onOpenShow, onAddToShelf, newShelfSignal = 0 
                   title={lensShow.name}
                   imagePath={lensShow.posterPath ?? lensShow.backdropPath}
                   imageSize={lensShow.posterPath ? 'w342' : 'w500'}
-                  meta={lensShow.year ? <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-white/38">{lensShow.year}</p> : null}
+                  meta={lensShow.year ? <p className="text-[9px] font-black uppercase tracking-[0.14em] text-white/78">{lensShow.year}</p> : null}
                 />
               </button>
             ))}

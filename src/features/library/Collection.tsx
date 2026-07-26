@@ -429,7 +429,7 @@ function CollectionGridCard({
         featured={large}
         tier={tier}
         vibes={vibes}
-        meta={show.year ? <span className="text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
+        meta={show.year ? <span className="text-[10px] font-bold tracking-[0.04em] text-white/78">{show.year}</span> : undefined}
       />
     </button>
   )

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { deriveTradition, tmdbToLoot } from './tmdb'
-import { getSupportedVibes } from './vibe-engine'
+import { getSupportedVibes, getVibeChipTitle } from './vibe-engine'
 import { pickAnimationKey } from '../engine/genre-animations'
 
 describe('animation pivot taxonomy', () => {
@@ -35,6 +35,13 @@ describe('animation pivot taxonomy', () => {
     expect(ids).toContain('shounen_escalation')
     expect(ids).toContain('stop_motion_craft')
     expect(ids).not.toContain('courtroom_showdowns')
+  })
+
+  it('keeps card chip vocabulary short enough to read without truncation', () => {
+    const labels = getSupportedVibes().map((vibe) => getVibeChipTitle(vibe.id))
+    expect(labels.every((label) => label && label.length <= 13)).toBe(true)
+    expect(getVibeChipTitle('comfort_rewatch_classics')).toBe('Comfort')
+    expect(getVibeChipTitle('cartoon_nostalgia')).toBe('Nostalgia')
   })
 
   it('uses tradition and vibe when Animation would collapse motion', () => {

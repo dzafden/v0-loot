@@ -30,7 +30,7 @@ import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
-import { getVibeTitle } from '../../lib/vibe-engine'
+import { getVibeChipTitle, getVibeTitle } from '../../lib/vibe-engine'
 import { pickAnimationKey } from '../../engine/genre-animations'
 import { getSecondaryAnimationGenre, getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
 import { dominantColor } from '../../lib/dominantColor'
@@ -2273,7 +2273,7 @@ function SkeletonRows() {
                 key={j}
                 className={cn(
                   'flex-shrink-0 rounded-[20px] bg-white/5 animate-pulse',
-                  isLandscape ? 'w-[350px] aspect-[16/9]' : 'w-[156px] aspect-[2/3]',
+                  isLandscape ? 'w-[350px] aspect-[16/9]' : 'w-[168px] aspect-[2/3]',
                 )}
               />
             ))}
@@ -2326,7 +2326,7 @@ function CarouselRow({
           onClick={() => onOpenCategory(categoryKey, title)}
           className={cn(
             'flex-shrink-0 snap-start rounded-[28px] bg-white/[0.035] text-white/62 hover:bg-white/[0.07] transition-colors',
-            landscape ? 'w-[90vw] min-w-[340px] max-w-[380px] aspect-[16/9]' : 'w-[156px] aspect-[2/3]',
+            landscape ? 'w-[90vw] min-w-[340px] max-w-[380px] aspect-[16/9]' : 'w-[168px] aspect-[2/3]',
           )}
         >
           <div className="w-full h-full grid place-items-center">
@@ -2374,11 +2374,12 @@ function DiscoveryReason({ show }: { show: LootShow }) {
 }
 
 function TaxonomyChip({ show, landscape = false }: { show: LootShow; landscape?: boolean }) {
-  const label = getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)
+  const label = getVibeChipTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)
   if (!label) return null
   return (
-    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 truncate rounded-full bg-gradient-to-r from-black/88 to-black/68 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.1em] text-white/86 shadow-[0_8px_18px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.1] backdrop-blur-md', landscape ? 'max-w-[calc(100%-76px)]' : 'max-w-[92px]')}>
-      {label}
+    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[0.14] bg-[#08080c]/94 px-3 text-[10px] font-black uppercase tracking-[0.075em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.52)] backdrop-blur-xl', landscape ? 'max-w-[calc(100%-76px)]' : 'max-w-[108px]')}>
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5c453] shadow-[0_0_10px_rgba(245,196,83,0.7)]" aria-hidden />
+      <span className="truncate">{label}</span>
     </span>
   )
 }
@@ -2547,7 +2548,7 @@ function PortraitCard({
       }}
       className={cn(
         'relative cursor-pointer transition-transform duration-300 active:scale-[0.98]',
-        variant === 'carousel' ? 'flex-shrink-0 snap-start w-[156px] aspect-[2/3]' : 'aspect-[2/3]',
+        variant === 'carousel' ? 'flex-shrink-0 snap-start w-[168px] aspect-[2/3]' : 'aspect-[2/3]',
       )}
     >
       <CollectibleMediaCard
@@ -2557,7 +2558,7 @@ function PortraitCard({
         motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
         addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
         shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
-        meta={show.year !== '—' ? <span className="mt-1 block text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
+        meta={show.year !== '—' ? <span className="block text-[10px] font-bold tracking-[0.04em] text-white/78">{show.year}</span> : undefined}
       />
       <TaxonomyChip show={show} />
       <DiscoveryReason show={show} />
@@ -2649,11 +2650,11 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
         addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
         shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
         meta={art?.tagline ? (
-          <p className="max-w-[250px] text-[14px] font-semibold leading-[1.2] text-white/78 line-clamp-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]">
+          <p className="max-w-[250px] text-[14px] font-semibold leading-[1.25] text-white/92 line-clamp-2">
             {art.tagline}
           </p>
         ) : (
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/42">
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-white/78">
             {show.year !== '—' ? show.year : show.genre}
           </p>
         )}

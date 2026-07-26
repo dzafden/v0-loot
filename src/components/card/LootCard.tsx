@@ -169,13 +169,13 @@ function LootCardInner({
 
         {/* Info bar */}
         {!compact && (
-          <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end px-3 pb-3 pt-12 bg-gradient-to-t from-black/88 via-black/32 to-transparent">
-            <div className="flex justify-between items-end w-full">
+          <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end px-3 pb-3 pt-16 bg-gradient-to-t from-black via-black/66 to-transparent">
+            <div className="flex w-full items-end justify-between rounded-[17px] border border-white/[0.1] bg-[#08080c]/88 px-3 py-2.5 shadow-[0_12px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl">
               <div className="flex flex-col overflow-hidden pr-2">
-                <h3 className="font-black text-white text-[14px] leading-[0.95] tracking-[-0.06em] line-clamp-2">
+                <h3 className="line-clamp-2 text-[14px] font-black leading-[1.05] tracking-[-0.035em] text-white">
                   {show.name}
                 </h3>
-                <span className="text-[10px] font-bold text-white/42 uppercase tracking-widest truncate mt-1">
+                <span className="mt-1.5 truncate text-[10px] font-bold uppercase tracking-[0.1em] text-white/72">
                   {show.year}
                   {show.year && taxonomyLabel ? ' • ' : ''}
                   {taxonomyLabel}

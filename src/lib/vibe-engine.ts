@@ -192,6 +192,27 @@ const VIBES: VibeDefinition[] = [
   },
 ]
 
+const VIBE_CHIP_TITLES: Record<string, string> = {
+  shounen_escalation: 'Shounen',
+  slice_of_life_cozy: 'Cozy',
+  isekai_power_fantasy: 'Isekai',
+  dark_fantasy_grim: 'Dark Fantasy',
+  adult_animation_cynical: 'Sharp Edges',
+  cartoon_nostalgia: 'Nostalgia',
+  stop_motion_craft: 'Stop-Motion',
+  sports_underdog: 'Underdog',
+  mecha_scifi: 'Mecha',
+  magical_girl: 'Magical Girl',
+  psychological_mindbend: 'Mindbend',
+  found_family: 'Found Family',
+  comfort_rewatch_classics: 'Comfort',
+  art_house_animation: 'Art-House',
+  superhero_animated: 'Superheroes',
+  kids_all_ages: 'All-Ages',
+  romance_yearning: 'Romance',
+  horror_animated: 'Horror',
+}
+
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
 }
@@ -335,4 +356,8 @@ export function getSupportedVibes() {
 
 export function getVibeTitle(vibeId: string | undefined) {
   return VIBES.find((vibe) => vibe.id === vibeId)?.title
+}
+
+export function getVibeChipTitle(vibeId: string | undefined) {
+  return vibeId ? VIBE_CHIP_TITLES[vibeId] ?? getVibeTitle(vibeId) : undefined
 }
