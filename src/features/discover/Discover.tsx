@@ -1,4 +1,4 @@
-import { useAnimation, motion, AnimatePresence } from 'framer-motion'
+import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
 import {
@@ -8,6 +8,8 @@ import {
   getDiscoverCategoryPage,
   getSeason,
   getShowDetail,
+  getShowWatchProviders,
+  getWatchRegion,
   getTmdbKey,
   getShowRecommendations,
   getSimilarShows,
@@ -30,6 +32,9 @@ import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { getVibeTitle } from '../../lib/vibe-engine'
 import { pickAnimationKey } from '../../engine/genre-animations'
+import { getSecondaryAnimationGenre, getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
+import { dominantColor } from '../../lib/dominantColor'
+import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 interface Props {
   onOpenSettings: () => void
@@ -886,6 +891,31 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     () => visibleFeed ? discoverHero(visibleFeed, tasteWeights, profileOwnedSet, visibleTasteRecommendations, recommendationBoost, impressions, discoverSeed) : undefined,
     [discoverSeed, impressions, profileOwnedSet, recommendationBoost, tasteWeights, visibleFeed, visibleTasteRecommendations],
   )
+  const heroRecommendation = useMemo(() => {
+    if (!heroShow) return null
+    const group = visibleTasteRecommendationGroups.find((candidate) => candidate.shows.some((show) => show.id === heroShow.id))
+    const anchor = group ? profileShows.find((show) => show.id === group.anchorId) : undefined
+    if (!anchor) return null
+    const tier = profileTierAssignments.find((assignment) => assignment.showId === anchor.id)?.tier
+    return {
+      reason: tier ? `Because you ranked ${anchor.name} ${tier}` : `Because ${anchor.name} is in your collection`,
+      context: {
+        anchorName: anchor.name,
+        anchorTier: tier,
+        sharedGenre: anchor.rawGenres?.find((genre) => heroShow.rawGenres.includes(genre) && genre !== 'Animation'),
+      } satisfies RecommendationContext,
+    }
+  }, [heroShow, profileShows, profileTierAssignments, visibleTasteRecommendationGroups])
+  const todayPicks = useMemo(() => {
+    if (!visibleFeed) return []
+    return uniqueShows([
+      ...visibleTasteRecommendations,
+      ...visibleFeed.freshStudios,
+      ...visibleFeed.newAnime,
+      ...visibleFeed.newWestern,
+      ...visibleFeed.animatedFilms,
+    ]).filter((show) => !profileOwnedSet.has(show.id)).slice(0, 3)
+  }, [profileOwnedSet, visibleFeed, visibleTasteRecommendations])
 
   const handleImpressions = (ids: number[]) => {
     recordDiscoverImpressions(ids)
@@ -916,7 +946,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   return (
     <div className="relative flex flex-col min-h-full pb-28 overflow-hidden" onTouchStart={onDiscoverTouchStart} onTouchEnd={onDiscoverTouchEnd}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_50%_0%,rgba(245,196,83,0.16),transparent_22rem)]" aria-hidden />
-      <div className="sticky top-0 z-30 bg-[#08070a]/45 backdrop-blur-2xl pt-4 pb-3 px-4 flex flex-col gap-3">
+      {!activeCategory && <div className="sticky top-0 z-30 bg-[#08070a]/45 backdrop-blur-2xl pt-4 pb-3 px-4 flex flex-col gap-3">
         <div className="relative group">
           <Search
             size={16}
@@ -964,7 +994,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           </button>
         )}
         {searchError && <p className="text-xs text-rose-300">{searchError}</p>}
-      </div>
+      </div>}
 
       <div className="relative z-10 flex-1 pt-1">
         {activeCategory ? (
@@ -987,7 +1017,17 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           <SkeletonRows />
         ) : (
           <>
-            <PortalHero show={heroShow} isOwned={heroShow ? liveOwnedSet.has(heroShow.id) : false} onOpenShow={onOpenShow} />
+            {heroShow && heroRecommendation ? (
+              <PortalHero
+                show={heroShow}
+                reason={heroRecommendation.reason}
+                recommendationContext={heroRecommendation.context}
+                isOwned={liveOwnedSet.has(heroShow.id)}
+                onOpenShow={onOpenShow}
+              />
+            ) : (
+              <TodayPicks shows={todayPicks} ownedIds={liveOwnedSet} onOpenShow={onOpenShow} />
+            )}
             <FeedRows
               feed={visibleFeed}
               ownedIds={liveOwnedIds}
@@ -1002,7 +1042,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
               onImpressions={handleImpressions}
               onOpenCategory={openCategory}
               onOpenShow={onOpenShow}
-              featuredId={heroShow?.id}
+              featuredId={heroRecommendation ? heroShow?.id : undefined}
             />
           </>
         )}
@@ -1759,14 +1799,31 @@ function DiscoverResultCard({
 }
 
 
-function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
+function PortalHero({
+  show,
+  reason,
+  recommendationContext,
+  isOwned,
+  onOpenShow,
+}: {
+  show: LootShow
+  reason: string
+  recommendationContext: RecommendationContext
+  isOwned: boolean
+  onOpenShow: (show: Show, context?: RecommendationContext) => void
+}) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
-  const [art, setArt] = useState<LandscapeArt | null>(() => show ? landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null : null)
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null)
+  const [portalAccent, setPortalAccent] = useState('#f5c453')
+  const [extraMeta, setExtraMeta] = useState<string[]>([])
+  const heroRef = useRef<HTMLElement | null>(null)
+  const reducedMotion = useReducedMotion()
+  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] })
+  const backdropY = useTransform(scrollYProgress, [0, 1], [0, 72])
   const controls = useAnimation()
 
   useEffect(() => {
-    if (!show) return
     const cached = landscapeArtCache.get(`${show.mediaType}:${show.id}`)
     if (cached) {
       setArt(cached)
@@ -1786,14 +1843,31 @@ function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: b
     }
   }, [show])
 
-  if (!show) return null
-
   const bg = show.backdropPath
     ? imgUrl(show.backdropPath, 'original')
     : show.posterPath
       ? imgUrl(show.posterPath, 'w500')
       : ''
   const copy = art?.tagline || ''
+
+  useEffect(() => {
+    let cancelled = false
+    if (bg) dominantColor(bg).then((color) => { if (!cancelled) setPortalAccent(color) })
+    Promise.all([
+      getShowDetail(show.id, show.mediaType).catch(() => null),
+      getShowWatchProviders(show.id, getWatchRegion(), show.mediaType).catch(() => null),
+    ]).then(([detail, providers]) => {
+      if (cancelled) return
+      const runtime = show.mediaType === 'movie'
+        ? detail?.runtime ? `${detail.runtime} min` : 'Film'
+        : detail?.number_of_seasons
+          ? `${detail.number_of_seasons} season${detail.number_of_seasons === 1 ? '' : 's'}${detail.number_of_episodes ? ` · ${detail.number_of_episodes} eps` : ''}`
+          : null
+      const provider = [...(providers?.flatrate ?? []), ...(providers?.free ?? []), ...(providers?.ads ?? [])][0]?.provider_name
+      setExtraMeta([runtime, provider ? `On ${provider}` : null].filter((item): item is string => Boolean(item)))
+    })
+    return () => { cancelled = true }
+  }, [bg, show.id, show.mediaType])
 
   const handleAdd = async () => {
     if (isOwned || adding) return
@@ -1813,24 +1887,36 @@ function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: b
 
   return (
     <motion.section
+      ref={heroRef}
       animate={controls}
-      onClick={() => onOpenShow(lootToShow(show))}
+      initial={reducedMotion ? false : { opacity: 0, scale: 0.965, y: 18 }}
+      whileInView={reducedMotion ? undefined : { opacity: 1, scale: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.18 }}
+      transition={{ duration: 0.52, ease: [0.22, 1, 0.36, 1] }}
+      onClick={() => onOpenShow(lootToShow(show), recommendationContext)}
       className="relative mx-3 mb-8 h-[430px] overflow-hidden rounded-[34px] bg-black shadow-[0_26px_80px_rgba(0,0,0,0.72)] loot-vignette"
-      style={{ animation: 'loot-rise 520ms ease both' }}
+      style={{ boxShadow: `0 26px 80px rgba(0,0,0,0.72), 0 0 42px ${portalAccent}30` }}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
+        if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show), recommendationContext)
       }}
     >
-      {bg && <img src={bg} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
+      {bg && <motion.img src={bg} alt="" className="absolute -inset-y-12 left-0 h-[calc(100%+6rem)] w-full object-cover opacity-80" style={{ y: reducedMotion ? 0 : backdropY }} />}
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/18 to-black/92" />
       <div className="absolute inset-0 bg-gradient-to-r from-black/78 via-black/22 to-transparent" />
-      <div className="absolute -left-16 top-20 h-56 w-56 rounded-full bg-[#f5c453]/18 blur-3xl" style={{ animation: 'loot-breathe 6s ease-in-out infinite' }} />
+      <motion.div
+        className="absolute -left-16 top-20 h-56 w-56 rounded-full blur-3xl"
+        style={{ background: `${portalAccent}36` }}
+        animate={reducedMotion ? undefined : { scale: [1, 1.12, 1], opacity: [0.65, 0.92, 0.65] }}
+        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+      />
       <AnimatePresence>{shine && <ShineOverlay key="hero-shine" />}</AnimatePresence>
-      <ImdbBadge showId={show.id} className="absolute right-5 top-5 z-20" />
 
       <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-20">
+        <p className="mb-4 inline-flex max-w-[278px] items-center rounded-full bg-black/42 px-3 py-2 text-[9px] font-black uppercase tracking-[0.15em] text-white/76 ring-1 ring-white/[0.1] backdrop-blur-xl">
+          {reason}
+        </p>
         {art?.logoPath ? (
           <img
             src={imgUrl(art.logoPath, 'w500')}
@@ -1843,16 +1929,50 @@ function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: b
           </h2>
         )}
         {copy && (
-          <p className="max-w-[255px] text-lg font-medium leading-[1.05] text-white/82 text-balance">
+          <p className="max-w-[275px] text-[16px] font-semibold leading-[1.12] text-white/82 text-balance">
             {copy}
           </p>
         )}
+        <div className="mt-4 flex max-w-[300px] flex-wrap items-center gap-x-2.5 gap-y-2 text-[9px] font-black uppercase tracking-[0.13em] text-white/70">
+          <ImdbBadge showId={show.id} compact />
+          {show.year !== '—' && <span>{show.year}</span>}
+          {(getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)) && (
+            <span>{getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)}</span>
+          )}
+          {extraMeta.map((item) => <span key={item}>{item}</span>)}
+        </div>
       </div>
 
       <div className="absolute bottom-6 right-5 z-20">
         <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="lg" />
       </div>
     </motion.section>
+  )
+}
+
+function TodayPicks({ shows, ownedIds, onOpenShow }: { shows: LootShow[]; ownedIds: Set<number>; onOpenShow: (show: Show) => void }) {
+  if (!shows.length) return null
+  return (
+    <section className="mx-3 mb-9 rounded-[32px] bg-white/[0.025] p-3 ring-1 ring-white/[0.06]">
+      <div className="mb-3 px-1">
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#f5c453]">Today&apos;s picks</p>
+        <h2 className="mt-1 text-[21px] font-black tracking-[-0.05em] text-white">Three ways into animation</h2>
+      </div>
+      <div className="grid grid-cols-3 gap-2.5">
+        {shows.slice(0, 3).map((show) => (
+          <button key={show.id} onClick={() => onOpenShow(lootToShow(show))} className="relative aspect-[2/3] min-w-0 text-left active:scale-[0.98]">
+            <CollectibleMediaCard
+              id={show.id}
+              title={show.title}
+              imagePath={show.posterPath}
+              motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
+              meta={show.year !== '—' ? <span className="block text-[9px] font-bold text-white/70">{show.year}</span> : undefined}
+            />
+            {ownedIds.has(show.id) && <span className="absolute right-2 top-2 z-30 grid h-7 w-7 place-items-center rounded-full bg-[#f5c453] text-[12px] font-black text-black">✓</span>}
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -1873,16 +1993,8 @@ function CategoryGrid({
   onOpenShow: (show: Show) => void
   onBack: () => void
 }) {
-  const [showFloatingBack, setShowFloatingBack] = useState(false)
   const touchStartX = useRef<number | null>(null)
   const touchStartY = useRef<number | null>(null)
-
-  useEffect(() => {
-    const onScroll = () => setShowFloatingBack(window.scrollY > 140)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
 
   const onTouchStart: React.TouchEventHandler<HTMLDivElement> = (e) => {
     const t = e.touches[0]
@@ -1903,16 +2015,19 @@ function CategoryGrid({
 
   return (
     <div className="px-4 pb-8" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <div className="sticky top-0 z-20 -mx-4 px-4 pt-1 pb-3 bg-[#08070a]/70 backdrop-blur-2xl mb-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-20 -mx-4 mb-4 bg-[#08070a]/72 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl">
+        <div className="flex h-12 items-center gap-3 rounded-full bg-white/[0.065] px-2.5 shadow-[0_14px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.09]">
           <button
             onClick={onBack}
-            className="h-9 px-3 rounded-full bg-white/[0.07] text-white/80 text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/28 text-white/80 active:scale-95"
+            aria-label="Back to Discover"
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={18} />
           </button>
-          <h2 className="text-sm font-black uppercase tracking-widest text-white">{title}</h2>
-          <div className="w-[72px]" aria-hidden />
+          <h2 className="min-w-0 flex-1 truncate text-[12px] font-black uppercase tracking-[0.13em] text-white">{title}</h2>
+          <span className="shrink-0 rounded-full bg-black/28 px-2.5 py-1 text-[9px] font-black tabular-nums text-white/48">
+            {loading && items.length === 0 ? '…' : items.length}
+          </span>
         </div>
       </div>
 
@@ -1927,15 +2042,6 @@ function CategoryGrid({
           <div className="w-7 h-7 border-2 border-[#f5c453] border-t-transparent rounded-full animate-spin" />
         </div>
       )}
-
-      {showFloatingBack && (
-        <button
-          onClick={onBack}
-          className="fixed bottom-24 left-4 h-10 px-4 rounded-full bg-[#14141c]/95 border border-white/15 text-white text-xs font-black uppercase tracking-widest inline-flex items-center gap-1.5 shadow-[0_10px_24px_rgba(0,0,0,0.5)] z-40"
-        >
-          <ChevronLeft size={14} />
-        </button>
-      )}
     </div>
   )
 }
@@ -1943,7 +2049,7 @@ function CategoryGrid({
 function NoKey({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <div className="px-5 py-16 text-center">
-      <p className="text-sm text-white/75">Add a TMDB API key to discover anime, cartoons, adult animation, and animated films. Live action is never included.</p>
+      <p className="text-sm text-white/75">Add a TMDB API key to discover anime, cartoons, grown-up animation, and animated films. Live action is never included.</p>
       <button
         onClick={onOpenSettings}
         className="mt-4 rounded-xl bg-white text-black px-4 h-10 text-sm font-semibold"
@@ -2105,7 +2211,7 @@ function FeedRows({
       <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRow('freshStudios', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRow('newAnime', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRow('newWestern', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Adult Animation" categoryKey="adultAnimation" shows={sourceRow('adultAnimation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRow('adultAnimation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRow('allAges')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRow('handmade')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRow('vibeCrate')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
@@ -2262,16 +2368,16 @@ function DiscoveryReason({ show }: { show: LootShow }) {
   const evidence = vibeId ? show.vibeEvidence[vibeId] ?? [] : []
   return (
     <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 hidden truncate rounded-md bg-black/72 px-2 py-1 text-[8px] font-bold text-amber-200/80 backdrop-blur md:block" title={evidence.join(' · ')}>
-      Why: {getVibeTitle(vibeId) ?? show.tradition}{evidence.length ? ` · ${evidence.join(', ')}` : ''}
+      Why: {getVibeTitle(vibeId) ?? getTraditionDisplayLabel(show.tradition)}{evidence.length ? ` · ${evidence.join(', ')}` : ''}
     </div>
   )
 }
 
 function TaxonomyChip({ show, landscape = false }: { show: LootShow; landscape?: boolean }) {
-  const traditionLabel = `${show.tradition[0].toUpperCase()}${show.tradition.slice(1)}`
-  const label = landscape ? getVibeTitle(show.vibeIds[0]) ?? traditionLabel : traditionLabel
+  const label = getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)
+  if (!label) return null
   return (
-    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 truncate rounded-full bg-black/68 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.1em] text-white/78 backdrop-blur-md', landscape ? 'max-w-[calc(100%-76px)]' : 'max-w-[92px]')}>
+    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 truncate rounded-full bg-gradient-to-r from-black/88 to-black/68 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.1em] text-white/86 shadow-[0_8px_18px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.1] backdrop-blur-md', landscape ? 'max-w-[calc(100%-76px)]' : 'max-w-[92px]')}>
       {label}
     </span>
   )
@@ -2317,6 +2423,8 @@ function AddButton({
 // Diagonal shine sweep — the "loot card claimed" pattern from trading card games.
 // A white gradient bar sweeps left-to-right once across the card on success.
 function ShineOverlay() {
+  const reducedMotion = useReducedMotion()
+  if (reducedMotion) return <div className="absolute inset-0 z-20 pointer-events-none bg-white/10" />
   return (
     <motion.div
       className="absolute inset-0 z-20 pointer-events-none overflow-hidden"

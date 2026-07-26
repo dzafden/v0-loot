@@ -2,6 +2,7 @@
 
 import type { AnimationTradition, MediaType } from '../types'
 import { scoreShowVibes } from './vibe-engine'
+import { isSafeGrownUpAnimation } from './animation-taxonomy'
 
 const TMDB_BASE = 'https://api.themoviedb.org/3'
 export const TMDB_IMG = 'https://image.tmdb.org/t/p'
@@ -318,12 +319,13 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
   if (inflight) return inflight
   inflight = (async () => {
     const recent = daysAgo(240)
-    const [freshStudiosPrimary, freshStudiosExpanded, newAnimeRaw, newWesternRaw, adultAnimationRaw, allAgesRaw, handmadeRaw, animatedFilmsRaw, topRatedRaw] =
+    const [freshStudiosPrimary, freshStudiosExpanded, newAnimeRaw, newWesternRaw, grownUpNetworkRaw, grownUpKeywordRaw, allAgesRaw, handmadeRaw, animatedFilmsRaw, topRatedRaw] =
       await Promise.all([
         getFreshByNetworks([19, 47, 80]),
         getFreshByNetworks([56, 213, 49, 453, 1112]),
         discoverList('tv', { with_origin_country: 'JP', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
         discoverList('tv', { with_origin_country: 'US|GB|CA|AU', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
+        discoverList('tv', { with_networks: '19|47|80', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
         discoverList('tv', { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
         discoverList('tv', { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
         discoverList('tv', { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }),
@@ -334,7 +336,10 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
       new Map([...freshStudiosPrimary, ...freshStudiosExpanded].map((show) => [show.id, show])).values(),
     )
     const map = (items: TmdbSearchResult[]) => items.map(tmdbToLoot)
-    const basePool = map([...freshStudiosRaw, ...newAnimeRaw, ...newWesternRaw, ...adultAnimationRaw, ...allAgesRaw])
+    const grownUpRaw = Array.from(
+      new Map([...grownUpNetworkRaw, ...grownUpKeywordRaw].map((show) => [show.id, show])).values(),
+    ).filter(isSafeGrownUpAnimation)
+    const basePool = map([...freshStudiosRaw, ...newAnimeRaw, ...newWesternRaw, ...grownUpRaw, ...allAgesRaw])
     const dayIndex = Math.floor(Date.now() / 86_400_000)
     const vibeIds = Array.from(new Set(basePool.flatMap((show) => show.vibeIds)))
     const rotatingVibe = vibeIds.length ? vibeIds[dayIndex % vibeIds.length] : undefined
@@ -342,7 +347,7 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
       freshStudios: balanceTraditions(map(freshStudiosRaw)),
       newAnime: map(newAnimeRaw),
       newWestern: map(newWesternRaw),
-      adultAnimation: balanceTraditions(map(adultAnimationRaw)),
+      adultAnimation: balanceTraditions(map(grownUpRaw)),
       allAges: balanceTraditions(map(allAgesRaw)),
       handmade: balanceTraditions(map(handmadeRaw)),
       vibeCrate: balanceTraditions(rotatingVibe ? basePool.filter((show) => show.vibeIds.includes(rotatingVibe)) : basePool),
@@ -379,7 +384,7 @@ export async function getDiscoverCategoryPage(
       params = { with_origin_country: 'US|GB|CA|AU', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }
       break
     case 'adultAnimation':
-      params = { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }
+      params = { with_networks: '19|47|80', sort_by: 'popularity.desc', 'vote_count.gte': '20' }
       break
     case 'allAges':
       params = { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }
@@ -407,7 +412,9 @@ export async function getDiscoverCategoryPage(
   )
 
   return {
-    results: data.results.map((item) => tmdbToLoot(normalizeListItem(item, mediaType))),
+    results: data.results
+      .filter((item) => key !== 'adultAnimation' || isSafeGrownUpAnimation(item))
+      .map((item) => tmdbToLoot(normalizeListItem(item, mediaType))),
     totalPages: Math.max(1, data.total_pages ?? 1),
   }
 }

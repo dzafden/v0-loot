@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, Plus, Trash2, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, Plus, Trash2, Trophy, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, RecommendationContext, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
@@ -34,6 +34,9 @@ import { getRarity, RARITIES } from '../../lib/rarity'
 import { cn } from '../../lib/utils'
 import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
+import { getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
+import { getVibeTitle } from '../../lib/vibe-engine'
+import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 const TIERS: Tier[] = ['S', 'A', 'B', 'C', 'D']
 const SUGGESTED_EMOJI = ['❤️', '🔥', '💀', '🥶', '😭', '🍔', '🥲', '🌹', '🥀', '👑', '🎯', '🤡', '🧠', '🎲', '🌶️', '⭐']
@@ -80,6 +83,7 @@ interface Props {
 }
 
 export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisodes, onAssignRole }: Props) {
+  const reducedMotion = useReducedMotion()
   const mediaType = show.mediaType ?? 'tv'
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const [episodeBulkBusy, setEpisodeBulkBusy] = useState<null | 'mark' | 'unmark'>(null)
@@ -97,6 +101,23 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
   const tierAssignment = useDexieQuery(['tierAssignments'], () => db.tierAssignments.get(show.id), undefined, [show.id])
   const cast = useDexieQuery(['castRoles'], () => db.castRoles.where({ showId: show.id }).toArray(), [], [show.id])
+  const nextEpisode = useDexieQuery(
+    ['episodeProgress', 'seasonCache'],
+    async () => {
+      const [cachedSeasons, watchedRows] = await Promise.all([
+        db.seasonCache.where({ showId: show.id }).sortBy('seasonNumber'),
+        db.episodeProgress.where({ showId: show.id }).toArray(),
+      ])
+      const watched = new Set(watchedRows.filter((row) => row.watched).map((row) => `${row.seasonNumber}:${row.episodeNumber}`))
+      for (const season of cachedSeasons) {
+        const episode = season.episodes.find((candidate) => !watched.has(`${season.seasonNumber}:${candidate.episode_number}`))
+        if (episode) return `S${season.seasonNumber}E${episode.episode_number}`
+      }
+      return null
+    },
+    null,
+    [show.id],
+  )
   const discoverFeedback = useDexieQuery(['discoverFeedback'], () => db.discoverFeedback.get(show.id), undefined, [show.id])
   const [progress, setProgress] = useState({ watched: 0, total: 0 })
   const [feedbackUndoVisible, setFeedbackUndoVisible] = useState(false)
@@ -213,9 +234,22 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
   const metadata = [
     liveShow.year,
-    liveShow.vibeIds?.[0]?.replace(/_/g, ' ') ?? liveShow.tradition ?? liveShow.rawGenres?.find((genre) => genre !== 'Animation'),
+    getVibeTitle(liveShow.vibeIds?.[0]) ?? getTraditionDisplayLabel(liveShow.tradition) ?? liveShow.rawGenres?.find((genre) => genre !== 'Animation'),
     mediaType === 'movie' ? 'Film' : seasonLabel(seasonInfo, progress),
   ].filter((item): item is string | number => item !== null && item !== undefined && item !== '')
+  const fullyWatched = progress.total > 0 && progress.watched >= progress.total
+  const primaryAction = !owned
+    ? { label: 'Collection', icon: Plus, onClick: () => void handleAddToCollection() }
+    : mediaType === 'tv' && !fullyWatched
+      ? {
+          label: progress.watched > 0 ? `Continue${nextEpisode ? ` ${nextEpisode}` : ''}` : 'Start watching',
+          icon: Tv,
+          onClick: () => onTrackEpisodes(liveShow),
+        }
+      : !tier
+        ? { label: 'Rank it', icon: Trophy, onClick: () => setRankEditorOpen(true) }
+        : null
+  const PrimaryIcon = primaryAction?.icon
 
   const handleAddToCollection = async () => {
     await upsertShow({
@@ -289,7 +323,14 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   }
 
   return (
-    <div ref={setScrollEl} className="fixed inset-0 z-[45] overflow-y-auto overscroll-contain bg-[#060509] pb-24 text-white">
+    <motion.div
+      ref={setScrollEl}
+      initial={reducedMotion ? false : { opacity: 0, scale: 0.94, y: 22 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={reducedMotion ? undefined : { opacity: 0, scale: 0.975, y: 10 }}
+      transition={{ duration: reducedMotion ? 0 : 0.34, ease: [0.22, 1, 0.36, 1] }}
+      className="fixed inset-0 z-[45] origin-center overflow-y-auto overscroll-contain bg-[#060509] pb-24 text-white"
+    >
       <div className="relative h-[clamp(330px,42svh,390px)] overflow-hidden">
         {liveShow.backdropPath ? (
           <img
@@ -313,13 +354,12 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             initial={{ opacity: 0, y: -8, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             className={cn(
-              'grid h-11 min-w-11 place-items-center rounded-[17px] px-3 font-black uppercase backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95',
+              'grid h-11 min-w-11 place-items-center rounded-[17px] border bg-black/34 px-3 font-black uppercase backdrop-blur-xl active:scale-95',
               tier ? 'text-[16px]' : 'text-[9px] tracking-[0.14em]',
             )}
             style={{
-              background: tier ? accent : 'rgba(0,0,0,0.42)',
-              color: tier ? '#fff' : accent,
-              boxShadow: tier ? `0 16px 38px ${accent}42, inset 0 1px 0 rgba(255,255,255,0.22)` : undefined,
+              color: tier ? accent : 'rgba(255,255,255,0.66)',
+              borderColor: tier ? `${accent}66` : 'rgba(255,255,255,0.1)',
             }}
             aria-label={tier ? `Change ${tier} rank` : 'Rank this show'}
           >
@@ -330,10 +370,10 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         <AnimatePresence>
           {rankEditorOpen && (
             <motion.div
-              initial={{ opacity: 0, transform: 'translateY(-4px) scale(0.97)' }}
+              initial={reducedMotion ? false : { opacity: 0, transform: 'translateY(-4px) scale(0.97)' }}
               animate={{ opacity: 1, transform: 'translateY(0) scale(1)' }}
-              exit={{ opacity: 0, transform: 'translateY(-3px) scale(0.98)' }}
-              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              exit={reducedMotion ? undefined : { opacity: 0, transform: 'translateY(-3px) scale(0.98)' }}
+              transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.23, 1, 0.32, 1] }}
               className="absolute right-4 top-[calc(max(1rem,env(safe-area-inset-top))+3.5rem)] z-30 origin-top-right"
             >
               <InlineRank tier={tier} onTier={handleTier} />
@@ -377,44 +417,28 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           </section>
         )}
 
-        {!owned ? (
-          <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {primaryAction ? (
             <button
-              onClick={() => void handleAddToCollection()}
+              onClick={primaryAction.onClick}
               className="flex h-12 items-center justify-center gap-2 rounded-[18px] bg-[#f5c453] text-[10px] font-black uppercase tracking-[0.14em] text-black shadow-[0_16px_36px_rgba(245,196,83,0.16)] active:scale-[0.98]"
             >
-              <Plus size={16} strokeWidth={3} />
-              Collection
+              {PrimaryIcon && <PrimaryIcon size={16} strokeWidth={3} />}
+              {primaryAction.label}
             </button>
-            <button
-              onClick={() => setWatchlistOpen(true)}
-              className="flex h-12 items-center justify-center gap-2 rounded-[18px] bg-white/[0.08] text-[10px] font-black uppercase tracking-[0.14em] text-white ring-1 ring-white/[0.08] active:scale-[0.98]"
-            >
-              <Bookmark size={15} fill="currentColor" />
-              Watchlist
-            </button>
-          </div>
-        ) : (
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {mediaType === 'tv' ? (
-              <button
-                onClick={() => onTrackEpisodes(liveShow)}
-                className="flex h-12 items-center justify-center gap-2 rounded-[18px] text-[10px] font-black uppercase tracking-[0.14em] text-black active:scale-[0.98]"
-                style={{ background: accent }}
-              >
-                <Tv size={16} strokeWidth={2.8} />
-                Episodes
-              </button>
-            ) : <div className="flex h-12 items-center justify-center rounded-[18px] bg-white/[0.06] text-[10px] font-black uppercase tracking-[0.14em] text-white/44">Animated Film</div>}
-            <button
-              onClick={() => setWatchlistOpen(true)}
-              className="flex h-12 items-center justify-center gap-2 rounded-[18px] bg-white/[0.08] text-[10px] font-black uppercase tracking-[0.14em] text-white ring-1 ring-white/[0.08] active:scale-[0.98]"
-            >
-              <Bookmark size={15} fill="currentColor" />
-              Watchlist
-            </button>
-          </div>
-        )}
+          ) : (
+            <div className="flex h-12 items-center justify-center rounded-[18px] border border-white/[0.08] bg-white/[0.025] text-[10px] font-black uppercase tracking-[0.14em] text-white/38">
+              {mediaType === 'movie' ? 'Animated film' : 'Fully watched'}
+            </div>
+          )}
+          <button
+            onClick={() => setWatchlistOpen(true)}
+            className="flex h-12 items-center justify-center gap-2 rounded-[18px] border border-white/[0.1] bg-transparent text-[10px] font-black uppercase tracking-[0.14em] text-white/66 active:scale-[0.98]"
+          >
+            <Bookmark size={15} />
+            Watchlist
+          </button>
+        </div>
 
         {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
 
@@ -478,7 +502,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           <button onClick={() => void restoreToDiscover()} className="h-9 rounded-full bg-white px-4 text-[10px] font-black uppercase tracking-[0.14em] text-black active:scale-95">Undo</button>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -590,9 +614,9 @@ function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) 
               className={cn('h-11 w-11 rounded-[14px] border text-lg font-black transition-transform active:scale-95', active && 'scale-[1.04]')}
               style={{
                 color: style.color,
-                background: active ? style.soft : style.wash,
+                background: active ? 'rgba(255,255,255,0.055)' : 'rgba(255,255,255,0.02)',
                 borderColor: active ? `${style.color}aa` : `${style.color}38`,
-                boxShadow: active ? `0 8px 22px ${style.color}38` : undefined,
+                boxShadow: active ? `inset 0 0 0 1px ${style.color}24` : undefined,
               }}
               aria-pressed={active}
               aria-label={`${rank} rank`}
@@ -630,8 +654,8 @@ function CastSection({
         <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/42">
           <Drama size={14} /> Cast
         </div>
-        <button onClick={onCast} className="h-9 rounded-full px-4 text-[10px] font-black uppercase tracking-[0.16em] text-black active:scale-95" style={{ background: accent }}>
-          Cast role
+        <button onClick={onCast} className="h-9 rounded-full border border-white/[0.1] bg-transparent px-4 text-[10px] font-black uppercase tracking-[0.16em] text-white/62 active:scale-95">
+          Assign roles
         </button>
       </div>
 
@@ -683,8 +707,10 @@ function CastSection({
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/16 to-black/8" />
                 <span
-                  className={cn('absolute right-1.5 top-1.5 grid h-8 w-8 place-items-center rounded-full font-black shadow-[0_12px_24px_rgba(0,0,0,0.45)]', assignedRole ? 'bg-white text-black' : 'text-black')}
-                  style={assignedRole ? undefined : { background: accent }}
+                  className={cn(
+                    'absolute right-1.5 top-1.5 grid h-8 w-8 place-items-center rounded-full font-black backdrop-blur-md transition-all',
+                    assignedRole ? 'bg-white/88 text-black' : 'bg-black/46 text-white/38 ring-1 ring-white/[0.12] group-hover:bg-white/88 group-hover:text-black group-focus-visible:bg-white/88 group-focus-visible:text-black',
+                  )}
                 >
                   {assignedRole ? <Check size={16} strokeWidth={3} /> : <Plus size={18} strokeWidth={3} />}
                 </span>
@@ -703,7 +729,7 @@ function CastSection({
             <span className="block text-[15px] font-black tracking-[-0.04em] text-white/82">Cast info unavailable</span>
             <span className="mt-1 block text-[11px] font-bold text-white/36">Add a role manually</span>
           </span>
-          <span className="grid h-11 w-11 place-items-center rounded-full text-black" style={{ background: accent }}>
+          <span className="grid h-11 w-11 place-items-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/52">
             <Plus size={19} strokeWidth={3} />
           </span>
         </button>
@@ -727,6 +753,7 @@ function TrackingSection({
   onBulk: (watchAll: boolean) => void
   accent: string
 }) {
+  const reducedMotion = useReducedMotion()
   const complete = progress.total > 0 && progress.watched >= progress.total
   const percent = progress.total > 0 ? Math.min(100, (progress.watched / progress.total) * 100) : 0
   const percentLabel = progress.total > 0 ? `${Math.round(percent)}% watched` : 'Choose seasons and episodes'
@@ -751,7 +778,7 @@ function TrackingSection({
               </p>
               <p className="mt-1 text-[12px] font-bold text-white/50">{percentLabel}</p>
             </div>
-            <button onClick={onOpen} className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full bg-white text-black shadow-[0_14px_28px_rgba(0,0,0,0.4)] active:scale-95" aria-label="Open episode tracker">
+            <button onClick={onOpen} className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full border border-white/[0.12] bg-black/24 text-white/72 backdrop-blur-md active:scale-95" aria-label="Open episode tracker">
               <Tv size={20} strokeWidth={2.8} />
             </button>
           </div>
@@ -760,17 +787,17 @@ function TrackingSection({
             <motion.div
               initial={false}
               animate={{ width: `${percent}%` }}
-              transition={{ type: 'spring', stiffness: 190, damping: 24 }}
+              transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 190, damping: 24 }}
               className="h-full rounded-full"
               style={{ background: `linear-gradient(90deg, ${accent}, rgba(255,255,255,0.86))` }}
             />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <button onClick={onOpen} className="h-12 rounded-[20px] bg-white/[0.11] px-4 text-[11px] font-black uppercase tracking-[0.16em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] active:scale-[0.98]">
+            <button onClick={onOpen} className="h-12 rounded-[20px] border border-white/[0.1] bg-transparent px-4 text-[11px] font-black uppercase tracking-[0.16em] text-white/68 active:scale-[0.98]">
               Episodes
             </button>
-            <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-12 rounded-[20px] px-4 text-[11px] font-black uppercase tracking-[0.16em] text-black disabled:opacity-50 active:scale-[0.98]" style={{ background: accent }}>
+            <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-12 rounded-[20px] border bg-transparent px-4 text-[11px] font-black uppercase tracking-[0.16em] disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}55` }}>
               {busy ? 'Saving' : complete ? 'Unmark all' : 'Mark watched'}
             </button>
           </div>
@@ -793,7 +820,7 @@ function VibeRail({ showId, applied, accent }: { showId: number; applied: EmojiC
         {visible.map((category) => {
           const on = appliedIds.has(category.id)
           return (
-            <button key={category.id} onClick={() => on ? void removeEmoji(category.id, showId) : void applyEmoji(category.id, showId)} className={cn('min-h-8 rounded-full px-2.5 text-left text-[11px] font-black uppercase tracking-[0.1em] backdrop-blur-xl active:scale-95', on ? 'bg-white text-black' : 'bg-black/36 text-white/70 ring-1 ring-white/[0.08]')}>
+            <button key={category.id} onClick={() => on ? void removeEmoji(category.id, showId) : void applyEmoji(category.id, showId)} className={cn('min-h-8 rounded-full border px-2.5 text-left text-[11px] font-black uppercase tracking-[0.1em] backdrop-blur-xl active:scale-95', on ? 'border-white/24 bg-white/[0.08] text-white/82' : 'border-white/[0.08] bg-black/24 text-white/58')}>
               <span className="mr-1 text-sm leading-none">{category.emoji}</span>{category.label}
             </button>
           )
@@ -823,7 +850,7 @@ function VibeRail({ showId, applied, accent }: { showId: number; applied: EmojiC
               setCreating(false)
               setEmoji('')
               setLabel('')
-            }} className="grid h-9 w-9 place-items-center rounded-full text-black disabled:opacity-40" style={{ background: accent }}>
+            }} className="grid h-9 w-9 place-items-center rounded-full border bg-transparent disabled:opacity-40" style={{ color: accent, borderColor: `${accent}66` }}>
               <Check size={14} strokeWidth={3} />
             </button>
             <button onClick={() => { setCreating(false); setEmoji(''); setLabel('') }} className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.06] text-white/70">

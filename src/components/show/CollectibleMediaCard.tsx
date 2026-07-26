@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils'
 import type { Tier } from '../../types'
 import { ImdbBadge } from '../ui/ImdbBadge'
 import { getAnimationPreset } from '../../engine/genre-animations'
+import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 export const TIER_COLORS: Record<Tier, string> = {
   S: '#fb7185',
@@ -71,7 +72,15 @@ export function VibeBubbles({
   seedOffset?: number
   className?: string
 }) {
+  const reducedMotion = useReducedMotion()
   if (!vibes?.length) return null
+  if (reducedMotion) {
+    return (
+      <div className={cn('pointer-events-none absolute bottom-7 right-2 flex gap-1 opacity-38', className)}>
+        {vibes.slice(0, 3).map((emoji, index) => <span key={`${emoji}-${index}`} className="text-sm">{emoji}</span>)}
+      </div>
+    )
+  }
   const particles = Array.from({ length: Math.min(9, Math.max(5, vibes.length * 3)) }, (_, index) => vibes[index % vibes.length])
 
   return (
@@ -161,12 +170,13 @@ export function CollectibleMediaCard({
   const artUrl = imageUrl ?? (imagePath ? imgUrl(imagePath, imageSize) : '')
   const tierColor = tier ? TIER_COLORS[tier] : '#f5c453'
   const motionPreset = getAnimationPreset(motionKey)
+  const reducedMotion = useReducedMotion()
 
   return (
     <motion.div
       initial={false}
       variants={motionPreset.idle}
-      whileHover={motionKey ? 'animate' : undefined}
+      whileHover={!reducedMotion && motionKey ? 'animate' : undefined}
       className={cn(
         'group relative h-full w-full overflow-hidden bg-[#151117] text-left shadow-[0_18px_44px_rgba(0,0,0,0.42)]',
         landscape ? 'rounded-[28px]' : 'rounded-[24px]',
@@ -221,7 +231,14 @@ export function CollectibleMediaCard({
                 {title}
               </p>
             ) : null}
-            {meta}
+            {meta ? (
+              <div className={cn(
+                'mt-2 w-fit max-w-full rounded-[12px] bg-black/62 px-2.5 py-1.5 shadow-[0_8px_20px_rgba(0,0,0,0.34)] ring-1 ring-white/[0.08] backdrop-blur-md',
+                landscape && 'max-w-[270px]',
+              )}>
+                {meta}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

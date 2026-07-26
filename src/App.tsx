@@ -13,6 +13,7 @@ import { IOSInstallBanner } from './components/ui/IOSInstallBanner'
 import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
 import type { RecommendationContext, Show } from './types'
+import { AnimatePresence } from 'framer-motion'
 
 type CastingTarget = {
   show: Show
@@ -73,15 +74,18 @@ export default function App() {
         )}
         {tab === 'profile' && <ProfileTab onOpenShow={(show) => setDetail({ show })} />}
 
-        {detail && !tracking && (
-          <ShowDetail
-            show={detail.show}
-            recommendationContext={detail.recommendationContext}
-            onBack={() => setDetail(null)}
-            onTrackEpisodes={(s) => setTracking(s)}
-            onAssignRole={(s, personId) => setCastingFor({ show: s, personId })}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {detail && !tracking && (
+            <ShowDetail
+              key={detail.show.id}
+              show={detail.show}
+              recommendationContext={detail.recommendationContext}
+              onBack={() => setDetail(null)}
+              onTrackEpisodes={(s) => setTracking(s)}
+              onAssignRole={(s, personId) => setCastingFor({ show: s, personId })}
+            />
+          )}
+        </AnimatePresence>
 
         <BottomNav
           active={tab}
