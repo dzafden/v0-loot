@@ -166,7 +166,7 @@ export function CollectibleMediaCard({
     <motion.div
       initial={false}
       variants={motionPreset.idle}
-      animate={motionKey ? 'animate' : undefined}
+      whileHover={motionKey ? 'animate' : undefined}
       className={cn(
         'group relative h-full w-full overflow-hidden bg-[#151117] text-left shadow-[0_18px_44px_rgba(0,0,0,0.42)]',
         landscape ? 'rounded-[28px]' : 'rounded-[24px]',
@@ -202,22 +202,22 @@ export function CollectibleMediaCard({
           )}
         />
       )}
-      {addSlot && <div className={cn('absolute z-30', landscape ? 'bottom-3 right-3' : 'right-2 top-2')}>{addSlot}</div>}
+      {addSlot && <div className="absolute right-3 top-3 z-40">{addSlot}</div>}
       {tier && <RankMark tier={tier} featured={featured} className="absolute right-2 top-2 z-20" />}
       <VibeBubbles showId={id} vibes={vibes} seedOffset={featured ? 7 : 2} />
-      <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 z-10', landscape ? 'top-0 flex flex-col justify-between p-4 pr-16' : 'p-3')}>
+      <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 z-10', landscape ? 'top-0 flex flex-col justify-between p-5 pr-20' : 'p-3')}>
         {landscape && logoPath ? (
           <img
             src={imgUrl(logoPath, logoSize)}
             alt={title}
             loading="lazy"
-            className="max-h-[68px] max-w-[62%] object-contain object-left drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)]"
+            className="mt-8 max-h-[64px] max-w-[58%] object-contain object-left drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)]"
           />
         ) : null}
         {children ?? (
           <div>
             {!landscape || !logoPath ? (
-              <p className={cn('font-black text-white drop-shadow-[0_4px_10px_rgba(0,0,0,0.85)]', landscape ? 'max-w-[62%] text-2xl leading-none tracking-tight' : 'line-clamp-2 text-xs leading-tight tracking-[-0.04em]')}>
+              <p className={cn('font-black text-white drop-shadow-[0_4px_10px_rgba(0,0,0,0.85)]', landscape ? 'max-w-[72%] text-[25px] leading-[0.94] tracking-[-0.05em]' : 'line-clamp-2 text-[13px] leading-tight tracking-[-0.04em]')}>
                 {title}
               </p>
             ) : null}

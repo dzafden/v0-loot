@@ -2167,7 +2167,7 @@ function SkeletonRows() {
                 key={j}
                 className={cn(
                   'flex-shrink-0 rounded-[20px] bg-white/5 animate-pulse',
-                  isLandscape ? 'w-[280px] aspect-[16/9]' : 'w-[130px] aspect-[2/3]',
+                  isLandscape ? 'w-[350px] aspect-[16/9]' : 'w-[156px] aspect-[2/3]',
                 )}
               />
             ))}
@@ -2197,9 +2197,9 @@ function CarouselRow({
 }) {
   if (shows.length === 0) return null
   return (
-    <div className="mb-9">
-      <div className="flex items-center justify-between mb-3 px-4">
-        <h2 className="font-black tracking-[0.2em] text-[11px] uppercase text-white/54">{title}</h2>
+    <section className="mb-11">
+      <div className="mb-4 flex items-center justify-between px-4">
+        <h2 className="font-black tracking-[0.18em] text-[12px] uppercase text-white/62">{title}</h2>
         <button
           onClick={() => onOpenCategory(categoryKey, title)}
           className="text-white/28 hover:text-white transition-colors"
@@ -2208,7 +2208,7 @@ function CarouselRow({
           <ChevronRight size={18} />
         </button>
       </div>
-      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 px-4">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 pb-3 px-4">
         {shows.map((show) =>
           landscape ? (
             <LandscapeCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onOpenShow={onOpenShow} />
@@ -2219,8 +2219,8 @@ function CarouselRow({
         <button
           onClick={() => onOpenCategory(categoryKey, title)}
           className={cn(
-            'flex-shrink-0 snap-center rounded-[24px] bg-white/[0.035] text-white/62 hover:bg-white/[0.07] transition-colors',
-            landscape ? 'w-[220px] aspect-[16/9]' : 'w-[130px] aspect-[2/3]',
+            'flex-shrink-0 snap-start rounded-[28px] bg-white/[0.035] text-white/62 hover:bg-white/[0.07] transition-colors',
+            landscape ? 'w-[90vw] min-w-[340px] max-w-[380px] aspect-[16/9]' : 'w-[156px] aspect-[2/3]',
           )}
         >
           <div className="w-full h-full grid place-items-center">
@@ -2228,7 +2228,7 @@ function CarouselRow({
           </div>
         </button>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -2261,16 +2261,17 @@ function DiscoveryReason({ show }: { show: LootShow }) {
   const vibeId = show.vibeIds[0]
   const evidence = vibeId ? show.vibeEvidence[vibeId] ?? [] : []
   return (
-    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 truncate rounded-md bg-black/72 px-2 py-1 text-[8px] font-bold text-amber-200/80 backdrop-blur" title={evidence.join(' · ')}>
+    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 hidden truncate rounded-md bg-black/72 px-2 py-1 text-[8px] font-bold text-amber-200/80 backdrop-blur md:block" title={evidence.join(' · ')}>
       Why: {getVibeTitle(vibeId) ?? show.tradition}{evidence.length ? ` · ${evidence.join(', ')}` : ''}
     </div>
   )
 }
 
 function TaxonomyChip({ show, landscape = false }: { show: LootShow; landscape?: boolean }) {
-  const label = getVibeTitle(show.vibeIds[0]) ?? `${show.tradition[0].toUpperCase()}${show.tradition.slice(1)}`
+  const traditionLabel = `${show.tradition[0].toUpperCase()}${show.tradition.slice(1)}`
+  const label = landscape ? getVibeTitle(show.vibeIds[0]) ?? traditionLabel : traditionLabel
   return (
-    <span className={cn('pointer-events-none absolute z-30 max-w-[70%] truncate rounded-full bg-black/64 px-2 py-1 text-[8px] font-black uppercase tracking-[0.1em] text-white/72 backdrop-blur', landscape ? 'left-3 top-3' : 'left-10 top-2')}>
+    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 truncate rounded-full bg-black/68 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.1em] text-white/78 backdrop-blur-md', landscape ? 'max-w-[calc(100%-76px)]' : 'max-w-[92px]')}>
       {label}
     </span>
   )
@@ -2438,19 +2439,17 @@ function PortraitCard({
       }}
       className={cn(
         'relative cursor-pointer transition-transform duration-300 active:scale-[0.98]',
-        variant === 'carousel' ? 'flex-shrink-0 snap-center w-[130px] aspect-[2/3]' : 'aspect-[2/3]',
+        variant === 'carousel' ? 'flex-shrink-0 snap-start w-[156px] aspect-[2/3]' : 'aspect-[2/3]',
       )}
     >
       <CollectibleMediaCard
         id={show.id}
         title={show.title}
-        showImdb
         imagePath={show.posterPath}
         motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
         addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
         shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
-        meta={variant === 'grid' && show.year !== '—' ? <span className="text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
-        children={variant === 'carousel' ? <></> : undefined}
+        meta={show.year !== '—' ? <span className="mt-1 block text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
       />
       <TaxonomyChip show={show} />
       <DiscoveryReason show={show} />
@@ -2530,20 +2529,19 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
       }}
-      className="relative group cursor-pointer flex-shrink-0 snap-center rounded-[28px] overflow-hidden bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] w-[300px] aspect-[1.9/1] transition-transform duration-300 active:scale-[0.98]"
+      className="relative group cursor-pointer flex-shrink-0 snap-start overflow-hidden rounded-[30px] bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] w-[90vw] min-w-[340px] max-w-[380px] aspect-[16/9] transition-transform duration-300 active:scale-[0.98]"
     >
       <CollectibleMediaCard
         id={show.id}
         title={show.title}
-        showImdb
         imageUrl={bg}
         motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
         logoPath={art?.logoPath}
         landscape
-        addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="lg" />}
+        addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
         shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
         meta={art?.tagline ? (
-          <p className="max-w-[190px] text-[13px] font-semibold leading-[1.05] text-white/76 line-clamp-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]">
+          <p className="max-w-[250px] text-[14px] font-semibold leading-[1.2] text-white/78 line-clamp-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]">
             {art.tagline}
           </p>
         ) : (
