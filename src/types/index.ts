@@ -14,6 +14,9 @@ export type Genre =
 
 export type Tier = 'S' | 'A' | 'B' | 'C' | 'D'
 
+export type MediaType = 'tv' | 'movie'
+export type AnimationTradition = 'anime' | 'western' | 'euro' | 'other'
+
 export type OverlayKind =
   | 'none'
   | 'vignette'
@@ -30,6 +33,11 @@ export interface Show {
   overview?: string
   genres: Genre[] // normalized genre tags (best-effort)
   rawGenres?: string[]
+  /** Existing records are read as TV; every new record persists this explicitly. */
+  mediaType: MediaType
+  tradition?: AnimationTradition
+  vibeIds?: string[]
+  vibeEvidence?: Record<string, string[]>
   seasonCount?: number
   episodeCount?: number
   status?: string

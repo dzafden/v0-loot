@@ -1,8 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react'
+import { motion } from 'framer-motion'
 import { imgUrl } from '../../lib/tmdb'
 import { cn } from '../../lib/utils'
 import type { Tier } from '../../types'
 import { ImdbBadge } from '../ui/ImdbBadge'
+import { getAnimationPreset } from '../../engine/genre-animations'
 
 export const TIER_COLORS: Record<Tier, string> = {
   S: '#fb7185',
@@ -132,6 +134,7 @@ export function CollectibleMediaCard({
   addSlot,
   shineSlot,
   meta,
+  motionKey,
   className,
   children,
 }: {
@@ -151,14 +154,19 @@ export function CollectibleMediaCard({
   addSlot?: ReactNode
   shineSlot?: ReactNode
   meta?: ReactNode
+  motionKey?: string
   className?: string
   children?: ReactNode
 }) {
   const artUrl = imageUrl ?? (imagePath ? imgUrl(imagePath, imageSize) : '')
   const tierColor = tier ? TIER_COLORS[tier] : '#f5c453'
+  const motionPreset = getAnimationPreset(motionKey)
 
   return (
-    <div
+    <motion.div
+      initial={false}
+      variants={motionPreset.idle}
+      animate={motionKey ? 'animate' : undefined}
       className={cn(
         'group relative h-full w-full overflow-hidden bg-[#151117] text-left shadow-[0_18px_44px_rgba(0,0,0,0.42)]',
         landscape ? 'rounded-[28px]' : 'rounded-[24px]',
@@ -217,6 +225,6 @@ export function CollectibleMediaCard({
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   )
 }

@@ -83,6 +83,25 @@ export class LootDB extends Dexie {
       canvasItems: null,
       discoverFeedback: 'showId, hiddenUntil, updatedAt',
     })
+    this.version(6).stores({
+      shows: 'id, name, addedAt, updatedAt, top8Position, tradition',
+      collections: 'id, name, createdAt',
+      emojiCategories: 'id, emoji, createdAt',
+      tierAssignments: 'showId, tier, updatedAt',
+      episodeProgress: 'key, showId, [showId+seasonNumber], watched, watchedAt',
+      seasonCache: 'key, showId, fetchedAt',
+      castRoles: 'id, showId, roleName, createdAt',
+      watchlistShows: 'id, name, addedAt, updatedAt, tradition',
+      watchlistShelves: 'id, name, createdAt, updatedAt',
+      discoverFeedback: 'showId, hiddenUntil, updatedAt',
+    }).upgrade(async (tx) => {
+      await tx.table('shows').toCollection().modify((show) => {
+        show.mediaType ??= 'tv'
+      })
+      await tx.table('watchlistShows').toCollection().modify((show) => {
+        show.mediaType ??= 'tv'
+      })
+    })
   }
 }
 

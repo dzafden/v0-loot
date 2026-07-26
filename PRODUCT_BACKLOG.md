@@ -1,10 +1,10 @@
 # Loot Product Backlog
 
-Last updated: 2026-05-11
+Last updated: 2026-07-26
 Owner: Product
 
 ## North Star
-Wow a 10-year-old Fortnite/Minecraft player in the first 15 seconds, while giving them reliable ways to discover, collect, rank, inspect, and express TV identity.
+Become the most trusted place to discover, collect, rank, inspect, and express an animation identity across anime, adult animation, Western cartoons, and animated films. No live action, ever.
 
 ## Workflow
 Status values:

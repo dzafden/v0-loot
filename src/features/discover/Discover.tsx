@@ -28,13 +28,15 @@ import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
+import { getVibeTitle } from '../../lib/vibe-engine'
+import { pickAnimationKey } from '../../engine/genre-animations'
 
 interface Props {
   onOpenSettings: () => void
   onOpenShow: (show: Show, context?: RecommendationContext) => void
 }
 
-const FEED_KEYS: (keyof DiscoverFeed)[] = ['trending', 'airingToday', 'popular', 'netflix', 'crime', 'hbo', 'scifi', 'apple', 'animation', 'mystery', 'amazon', 'topRated']
+const FEED_KEYS: (keyof DiscoverFeed)[] = ['freshStudios', 'newAnime', 'newWestern', 'adultAnimation', 'allAges', 'handmade', 'vibeCrate', 'animatedFilms', 'topRated']
 const TIER_TASTE_WEIGHT: Record<Tier, number> = { S: 9, A: 6, B: 3, C: 1, D: -3 }
 const TASTE_ANCHOR_LIMIT = 18
 const ACTIVE_ANCHOR_COUNT = 8
@@ -382,9 +384,18 @@ function buildTasteWeights(ownedShows: Show[], assignments: TierAssignment[]) {
   for (const show of ownedShows) {
     const tier = tierByShow.get(show.id)
     const base = 1 + (tier ? TIER_TASTE_WEIGHT[tier] : 0) + (typeof show.top8Position === 'number' ? 4 : 0)
-    const genres = [...(show.genres ?? []), ...(show.rawGenres ?? [])].filter(Boolean)
+    for (const vibeId of show.vibeIds ?? []) {
+      const key = `vibe:${vibeId}`
+      weights.set(key, (weights.get(key) ?? 0) + base * 1.5)
+    }
+    if (show.tradition) {
+      const key = `tradition:${show.tradition}`
+      weights.set(key, (weights.get(key) ?? 0) + base)
+    }
+    const genres = [...(show.rawGenres ?? [])].filter((genre) => genre && genre !== 'Animation')
     for (const genre of genres) {
-      weights.set(genre, (weights.get(genre) ?? 0) + base)
+      const key = `genre:${genre}`
+      weights.set(key, (weights.get(key) ?? 0) + base * 0.5)
     }
   }
   return weights
@@ -406,13 +417,13 @@ function pickTasteAnchors(ownedShows: Show[], assignments: TierAssignment[]) {
     .slice()
     .sort((a, b) => anchorScore(b, tierByShow) - anchorScore(a, tierByShow))
   const selected: Show[] = []
-  const genreCounts = new Map<string, number>()
+  const tasteAxisCounts = new Map<string, number>()
 
   for (const show of sorted) {
-    const genre = show.genres?.[0] ?? show.rawGenres?.[0] ?? 'Default'
-    if ((genreCounts.get(genre) ?? 0) >= 2) continue
+    const axis = show.vibeIds?.[0] ?? show.tradition ?? 'other'
+    if ((tasteAxisCounts.get(axis) ?? 0) >= 2) continue
     selected.push(show)
-    genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1)
+    tasteAxisCounts.set(axis, (tasteAxisCounts.get(axis) ?? 0) + 1)
     if (selected.length >= TASTE_ANCHOR_LIMIT) return selected
   }
 
@@ -433,8 +444,15 @@ function rotateActiveAnchors(anchors: Show[], signature: string) {
 }
 
 function tasteScore(show: LootShow, tasteWeights: Map<string, number>, recommendationBoost: Map<number, number> = new Map(), impressions: DiscoverImpressions = {}) {
+  const vibeAffinity = show.vibeIds.reduce((sum, vibeId) => sum + (tasteWeights.get(`vibe:${vibeId}`) ?? 0), 0)
+  const traditionAffinity = tasteWeights.get(`tradition:${show.tradition}`) ?? 0
+  const genreAffinity = show.rawGenres
+    .filter((genre) => genre !== 'Animation')
+    .reduce((sum, genre) => sum + (tasteWeights.get(`genre:${genre}`) ?? 0), 0)
   return (recommendationBoost.get(show.id) ?? 0)
-    + (tasteWeights.get(show.genre) ?? 0) * 10
+    + vibeAffinity * 12
+    + traditionAffinity * 7
+    + genreAffinity * 4
     + show.rating * 1.5
     + Math.log10(Math.max(1, show.popularity)) * 3
     - impressionPenalty(show, impressions)
@@ -473,14 +491,15 @@ function personalizeShows(
   )
 }
 
-function diversifyShows(shows: LootShow[], limit: number, maxPerGenre = 3) {
+function diversifyShows(shows: LootShow[], limit: number, maxPerAxis = 3) {
   const picked: LootShow[] = []
-  const genreCounts = new Map<string, number>()
+  const axisCounts = new Map<string, number>()
   for (const show of shows) {
-    const count = genreCounts.get(show.genre) ?? 0
-    if (count >= maxPerGenre) continue
+    const axis = `${show.tradition}:${show.vibeIds[0] ?? show.genre}`
+    const count = axisCounts.get(axis) ?? 0
+    if (count >= maxPerAxis) continue
     picked.push(show)
-    genreCounts.set(show.genre, count + 1)
+    axisCounts.set(axis, count + 1)
     if (picked.length >= limit) return picked
   }
   for (const show of shows) {
@@ -519,13 +538,11 @@ function discoverHero(
 ) {
   const pool = [
     ...recommendations,
-    ...feed.trending,
-    ...feed.popular,
-    ...feed.airingToday,
+    ...feed.freshStudios,
+    ...feed.newAnime,
+    ...feed.newWestern,
+    ...feed.animatedFilms,
     ...feed.topRated,
-    ...feed.netflix,
-    ...feed.hbo,
-    ...feed.apple,
   ]
   const ranked = diversifyShows(personalizeShows(pool, tasteWeights, ownedSet, { recommendationBoost, impressions }), 18, 3)
   const rotatingTop = seededShuffle(ranked.slice(0, 10), seed)
@@ -544,7 +561,7 @@ async function getTasteRecommendationPool(anchors: Show[]) {
 
   const request = Promise.all(
     anchors.map((anchor) =>
-      getShowRecommendations(anchor.id, 1)
+      getShowRecommendations(anchor.id, 1, anchor.mediaType ?? 'tv')
         .then((data) => ({
           anchorId: anchor.id,
           shows: uniqueShows(data.results.map(tmdbToLoot)).filter((show) => show.posterPath || show.backdropPath),
@@ -612,13 +629,14 @@ function fallbackEpisode(show: Show, seed: number): EpisodeOption {
 }
 
 async function loadEpisodeOptions(show: Show) {
+  if ((show.mediaType ?? 'tv') === 'movie') return []
   const cached = cachedEpisodeOptions(show.id, await db.seasonCache.where({ showId: show.id }).toArray())
   if (cached.length) return cached
   if (!getTmdbKey()) return [fallbackEpisode(show, hashString(show.name))]
 
   try {
-    const detail = await getShowDetail(show.id)
-    const realSeasons = detail.seasons
+    const detail = await getShowDetail(show.id, 'tv')
+    const realSeasons = (detail.seasons ?? [])
       .filter((season) => season.season_number !== 0 && season.episode_count > 0)
       .sort((a, b) => a.season_number - b.season_number)
 
@@ -908,7 +926,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search for shows..."
+            placeholder="Search animation only…"
             disabled={!keyOk}
             className="w-full bg-black/26 border border-white/[0.08] rounded-full py-2.5 pl-9 pr-9 font-bold text-sm text-white placeholder:text-white/28 outline-none focus:border-[#f5c453]/55 focus:bg-black/42 transition-colors disabled:opacity-50"
           />
@@ -1048,7 +1066,7 @@ function WatchDropPanel({
 
   // Rewatch: owned shows sorted by tier (S→A→B→C→D→unranked), then top8 bonus
   const rewatchList = useMemo(() =>
-    [...ownedShows].sort((a, b) => {
+    ownedShows.filter((show) => (show.mediaType ?? 'tv') === 'tv').sort((a, b) => {
       const ta = TIER_ORDER[tierByShow.get(a.id) ?? ''] ?? 5
       const tb = TIER_ORDER[tierByShow.get(b.id) ?? ''] ?? 5
       if (ta !== tb) return ta - tb
@@ -1110,10 +1128,10 @@ function WatchDropPanel({
 
         // ── Anchor-based pool: recommendations + similar, 2 pages each ──────
         const anchorFetches = selected.flatMap((s) => [
-          getShowRecommendations(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-          getShowRecommendations(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-          getSimilarShows(s.id, 1).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
-          getSimilarShows(s.id, 2).then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getShowRecommendations(s.id, 1, s.mediaType ?? 'tv').then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getShowRecommendations(s.id, 2, s.mediaType ?? 'tv').then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getSimilarShows(s.id, 1, s.mediaType ?? 'tv').then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+          getSimilarShows(s.id, 2, s.mediaType ?? 'tv').then((r) => r.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
         ])
 
         // ── Mood-based pool: TMDB /discover filtered by keyword IDs + genre ─
@@ -1194,7 +1212,7 @@ function WatchDropPanel({
   const posterPool = useMemo(() => {
     const owned = ownedShows.filter((s) => s.posterPath) as { id: number; posterPath: string | null }[]
     const feed = getCachedDiscoverFeed()
-    const feedItems = feed ? [...feed.trending, ...feed.popular, ...feed.topRated, ...feed.netflix, ...feed.hbo] : []
+    const feedItems = feed ? FEED_KEYS.flatMap((key) => feed[key]) : []
     const ownedIds = new Set(owned.map((s) => s.id))
     const extra = feedItems.filter((s) => s.posterPath && !ownedIds.has(s.id))
     return seededShuffle([...owned, ...extra], hashString('pool-v2'))
@@ -1507,15 +1525,15 @@ function WatchDropPanel({
 }
 
 function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOption }) {
-  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType ?? 'tv'}:${show.id}`) ?? null)
   useEffect(() => {
     if (art) return
     let cancelled = false
-    getLandscapeArt(show.id)
+    getLandscapeArt(show.id, show.mediaType)
       .then((next) => { if (!cancelled) setArt(next) })
       .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
     return () => { cancelled = true }
-  }, [art, show.id])
+  }, [art, show.id, show.mediaType])
 
   const heroSrc = episode.stillPath
     ? imgUrl(episode.stillPath, 'w500')
@@ -1574,18 +1592,18 @@ function DiscoverResultCard({
   onRetry: () => void
   loading: boolean
 }) {
-  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null)
   const [action, setAction] = useState<'watchlist' | 'library' | null>(null)
   const [done, setDone] = useState<'watchlist' | 'library' | null>(null)
 
   useEffect(() => {
     if (art) return
     let cancelled = false
-    getLandscapeArt(show.id)
+    getLandscapeArt(show.id, show.mediaType)
       .then((next) => { if (!cancelled) setArt(next) })
       .catch(() => { if (!cancelled) setArt({ logoPath: null, tagline: '' }) })
     return () => { cancelled = true }
-  }, [art, show.id])
+  }, [art, show.id, show.mediaType])
 
   const handleWatchlist = async () => {
     if (action || done) return
@@ -1598,8 +1616,13 @@ function DiscoverResultCard({
         id: show.id, name: show.title, posterPath: show.posterPath,
         backdropPath: show.backdropPath, overview: show.overview,
         year: show.year ? parseInt(show.year) : undefined,
-        genres: [show.genre as Genre].filter(Boolean),
-        rawGenres: [show.genre], addedAt: now, updatedAt: now,
+        genres: show.rawGenres as Genre[],
+        rawGenres: show.rawGenres,
+        mediaType: show.mediaType,
+        tradition: show.tradition,
+        vibeIds: show.vibeIds,
+        vibeEvidence: show.vibeEvidence,
+        addedAt: now, updatedAt: now,
       })
       setDone('watchlist')
       setTimeout(onDone, 900)
@@ -1618,8 +1641,12 @@ function DiscoverResultCard({
         posterPath: show.posterPath,
         backdropPath: show.backdropPath,
         overview: show.overview,
-        genres: [show.genre as Genre].filter(Boolean),
-        rawGenres: [show.genre],
+        genres: show.rawGenres as Genre[],
+        rawGenres: show.rawGenres,
+        mediaType: show.mediaType,
+        tradition: show.tradition,
+        vibeIds: show.vibeIds,
+        vibeEvidence: show.vibeEvidence,
         addedAt: now,
         updatedAt: now,
       })
@@ -1735,19 +1762,19 @@ function DiscoverResultCard({
 function PortalHero({ show, isOwned, onOpenShow }: { show?: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
-  const [art, setArt] = useState<LandscapeArt | null>(() => show ? landscapeArtCache.get(show.id) ?? null : null)
+  const [art, setArt] = useState<LandscapeArt | null>(() => show ? landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null : null)
   const controls = useAnimation()
 
   useEffect(() => {
     if (!show) return
-    const cached = landscapeArtCache.get(show.id)
+    const cached = landscapeArtCache.get(`${show.mediaType}:${show.id}`)
     if (cached) {
       setArt(cached)
       return
     }
     setArt(null)
     let cancelled = false
-    getLandscapeArt(show.id)
+    getLandscapeArt(show.id, show.mediaType)
       .then((next) => {
         if (!cancelled) setArt(next)
       })
@@ -1916,7 +1943,7 @@ function CategoryGrid({
 function NoKey({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <div className="px-5 py-16 text-center">
-      <p className="text-sm text-white/75">Add a TMDB API key in Settings to discover shows.</p>
+      <p className="text-sm text-white/75">Add a TMDB API key to discover anime, cartoons, adult animation, and animated films. Live action is never included.</p>
       <button
         onClick={onOpenSettings}
         className="mt-4 rounded-xl bg-white text-black px-4 h-10 text-sm font-semibold"
@@ -1949,7 +1976,7 @@ function SearchResults({
     return (
       <div className="flex flex-col items-center justify-center py-20 opacity-40 px-4">
         <Search size={40} className="mb-3 text-zinc-500" />
-        <p className="font-black uppercase tracking-widest text-sm">No matches</p>
+        <p className="font-black uppercase tracking-widest text-sm">No animated titles found</p>
       </div>
     )
   }
@@ -2074,18 +2101,15 @@ function FeedRows({
         ? packets.map((packet) => (
             <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} onOpenShow={onOpenShow} />
           ))
-        : <CarouselRow title="For Your Taste" categoryKey="popular" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
-      <CarouselRow title="Trending This Week" categoryKey="trending" shows={sourceRow('trending', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Airing Today" categoryKey="airingToday" shows={sourceRow('airingToday', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Trending Now" categoryKey="popular" shows={sourceRow('popular', { preserveOrder: true })} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="On Netflix" categoryKey="netflix" shows={sourceRow('netflix')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Crime" categoryKey="crime" shows={sourceRow('crime')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="On HBO" categoryKey="hbo" shows={sourceRow('hbo')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Sci-Fi & Fantasy" categoryKey="scifi" shows={sourceRow('scifi')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="On Apple TV+" categoryKey="apple" shows={sourceRow('apple')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Animation" categoryKey="animation" shows={sourceRow('animation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Mystery" categoryKey="mystery" shows={sourceRow('mystery')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="On Amazon Prime" categoryKey="amazon" shows={sourceRow('amazon')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        : <CarouselRow title="For Your Taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
+      <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRow('freshStudios', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRow('newAnime', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRow('newWestern', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Adult Animation" categoryKey="adultAnimation" shows={sourceRow('adultAnimation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRow('allAges')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRow('handmade')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRow('vibeCrate')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Animated Films" categoryKey="animatedFilms" shows={sourceRow('animatedFilms')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRow('topRated')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
     </>
   )
@@ -2214,9 +2238,6 @@ async function persistShow(show: LootShow) {
 
 function lootToShow(show: LootShow): Show {
   const yr = show.year && show.year !== '—' ? Number(show.year) : undefined
-  // Use genre from the discover feed directly — avoids an extra API round-trip
-  // that could silently fail and make the add appear to do nothing.
-  const genreStr = show.genre as Genre
   return {
     id: show.id,
     name: show.title,
@@ -2224,11 +2245,35 @@ function lootToShow(show: LootShow): Show {
     posterPath: show.posterPath,
     backdropPath: show.backdropPath,
     overview: show.overview,
-    genres: genreStr ? [genreStr] : [],
-    rawGenres: genreStr ? [genreStr] : [],
+    genres: show.rawGenres as Genre[],
+    rawGenres: show.rawGenres,
+    mediaType: show.mediaType,
+    tradition: show.tradition,
+    vibeIds: show.vibeIds,
+    vibeEvidence: show.vibeEvidence,
     addedAt: Date.now(),
     updatedAt: Date.now(),
   }
+}
+
+function DiscoveryReason({ show }: { show: LootShow }) {
+  if (!import.meta.env.DEV) return null
+  const vibeId = show.vibeIds[0]
+  const evidence = vibeId ? show.vibeEvidence[vibeId] ?? [] : []
+  return (
+    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 truncate rounded-md bg-black/72 px-2 py-1 text-[8px] font-bold text-amber-200/80 backdrop-blur" title={evidence.join(' · ')}>
+      Why: {getVibeTitle(vibeId) ?? show.tradition}{evidence.length ? ` · ${evidence.join(', ')}` : ''}
+    </div>
+  )
+}
+
+function TaxonomyChip({ show, landscape = false }: { show: LootShow; landscape?: boolean }) {
+  const label = getVibeTitle(show.vibeIds[0]) ?? `${show.tradition[0].toUpperCase()}${show.tradition.slice(1)}`
+  return (
+    <span className={cn('pointer-events-none absolute z-30 max-w-[70%] truncate rounded-full bg-black/64 px-2 py-1 text-[8px] font-black uppercase tracking-[0.1em] text-white/72 backdrop-blur', landscape ? 'left-3 top-3' : 'left-10 top-2')}>
+      {label}
+    </span>
+  )
 }
 
 // ── Shared "collect" button — iOS App Store / Spotify pattern ────────────────
@@ -2301,8 +2346,8 @@ type TmdbLogoAsset = {
 }
 
 const TMDB_API_BASE = 'https://api.themoviedb.org/3'
-const landscapeArtCache = new Map<number, LandscapeArt>()
-const landscapeArtInflight = new Map<number, Promise<LandscapeArt>>()
+const landscapeArtCache = new Map<string, LandscapeArt>()
+const landscapeArtInflight = new Map<string, Promise<LandscapeArt>>()
 
 function bestLogo(items: TmdbLogoAsset[] = []) {
   return [...items]
@@ -2310,16 +2355,17 @@ function bestLogo(items: TmdbLogoAsset[] = []) {
     .sort((a, b) => (b.vote_average ?? 0) - (a.vote_average ?? 0))[0]?.file_path ?? null
 }
 
-async function getLandscapeArt(showId: number): Promise<LandscapeArt> {
-  const cached = landscapeArtCache.get(showId)
+async function getLandscapeArt(showId: number, mediaType: 'tv' | 'movie' = 'tv'): Promise<LandscapeArt> {
+  const cacheId = `${mediaType}:${showId}`
+  const cached = landscapeArtCache.get(cacheId)
   if (cached) return cached
 
-  const existing = landscapeArtInflight.get(showId)
+  const existing = landscapeArtInflight.get(cacheId)
   if (existing) return existing
 
   const request = (async () => {
     const key = getTmdbKey()
-    const url = new URL(`${TMDB_API_BASE}/tv/${showId}`)
+    const url = new URL(`${TMDB_API_BASE}/${mediaType}/${showId}`)
     url.searchParams.set('api_key', key)
     url.searchParams.set('append_to_response', 'images')
     url.searchParams.set('include_image_language', 'en,null')
@@ -2335,15 +2381,15 @@ async function getLandscapeArt(showId: number): Promise<LandscapeArt> {
       logoPath: bestLogo(data.images?.logos ?? []),
       tagline: data.tagline?.trim() ?? '',
     }
-    landscapeArtCache.set(showId, art)
+    landscapeArtCache.set(cacheId, art)
     return art
   })()
 
-  landscapeArtInflight.set(showId, request)
+  landscapeArtInflight.set(cacheId, request)
   try {
     return await request
   } finally {
-    landscapeArtInflight.delete(showId)
+    landscapeArtInflight.delete(cacheId)
   }
 }
 
@@ -2400,11 +2446,14 @@ function PortraitCard({
         title={show.title}
         showImdb
         imagePath={show.posterPath}
+        motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
         addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
         shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
         meta={variant === 'grid' && show.year !== '—' ? <span className="text-[10px] font-bold text-white/52">{show.year}</span> : undefined}
         children={variant === 'carousel' ? <></> : undefined}
       />
+      <TaxonomyChip show={show} />
+      <DiscoveryReason show={show} />
     </motion.div>
   )
 }
@@ -2412,7 +2461,7 @@ function PortraitCard({
 function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
-  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(show.id) ?? null)
+  const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null)
   const [isVisible, setIsVisible] = useState(false)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const cardControls = useAnimation()
@@ -2459,7 +2508,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
   useEffect(() => {
     if (!isVisible || art) return
     let cancelled = false
-    getLandscapeArt(show.id)
+    getLandscapeArt(show.id, show.mediaType)
       .then((next) => {
         if (!cancelled) setArt(next)
       })
@@ -2469,7 +2518,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
     return () => {
       cancelled = true
     }
-  }, [art, isVisible, show.id])
+  }, [art, isVisible, show.id, show.mediaType])
 
   return (
     <motion.div
@@ -2488,6 +2537,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
         title={show.title}
         showImdb
         imageUrl={bg}
+        motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
         logoPath={art?.logoPath}
         landscape
         addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="lg" />}
@@ -2502,6 +2552,8 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
           </p>
         )}
       />
+      <TaxonomyChip show={show} landscape />
+      <DiscoveryReason show={show} />
     </motion.div>
   )
 }

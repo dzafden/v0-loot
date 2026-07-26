@@ -1,7 +1,12 @@
 // TMDB API client — user provides their own key in app settings.
 
+import type { AnimationTradition, MediaType } from '../types'
+import { scoreShowVibes } from './vibe-engine'
+
 const TMDB_BASE = 'https://api.themoviedb.org/3'
 export const TMDB_IMG = 'https://image.tmdb.org/t/p'
+export const ANIMATION_GENRE_ID = 16
+export type RetrievalMode = 'canon' | 'fresh'
 
 const API_KEY_STORAGE = 'loot:tmdb-api-key'
 const WATCH_REGION_STORAGE = 'loot:watch-region'
@@ -60,6 +65,10 @@ export interface TmdbSearchResult {
   genre_ids?: number[]
   vote_average?: number
   popularity?: number
+  vote_count?: number
+  origin_country?: string[]
+  original_language?: string
+  mediaType?: MediaType
 }
 
 // Display-shape used by Discover carousels and search results.
@@ -74,6 +83,11 @@ export interface LootShow {
   rating: number
   overview: string
   popularity: number
+  rawGenres: string[]
+  tradition: AnimationTradition
+  mediaType: MediaType
+  vibeIds: string[]
+  vibeEvidence: Record<string, string[]>
 }
 
 const GENRES: Record<number, string> = {
@@ -104,46 +118,161 @@ export function getGenreName(id: number): string {
   return GENRES[id] ?? 'Drama'
 }
 
+export function deriveTradition(
+  originCountry: string[] = [],
+  originalLanguage?: string,
+): AnimationTradition {
+  const countries = new Set(originCountry.map((country) => country.toUpperCase()))
+  if (originalLanguage?.toLowerCase() === 'ja' || countries.has('JP')) return 'anime'
+  if (['US', 'CA', 'GB', 'AU', 'IE', 'NZ'].some((country) => countries.has(country))) return 'western'
+  if (['FR', 'DE', 'ES', 'IT', 'BE', 'NL', 'DK', 'SE', 'NO', 'PL', 'CZ'].some((country) => countries.has(country))) return 'euro'
+  return 'other'
+}
+
+function withAnimationGenre(params: Record<string, string> = {}) {
+  const requested = (params.with_genres ?? '').trim()
+  const groups = requested
+    .split(',')
+    .map((group) => group.trim())
+    .filter((group) => group && group !== String(ANIMATION_GENRE_ID))
+  return {
+    ...params,
+    with_genres: [String(ANIMATION_GENRE_ID), ...groups].join(','),
+  }
+}
+
+type RawTmdbListItem = Omit<TmdbSearchResult, 'name'> & {
+  name?: string
+  title?: string
+  release_date?: string
+}
+
+function normalizeListItem(raw: RawTmdbListItem, mediaType: MediaType): TmdbSearchResult {
+  return {
+    ...raw,
+    name: raw.name ?? raw.title ?? 'Untitled',
+    first_air_date: raw.first_air_date ?? raw.release_date,
+    origin_country: raw.origin_country ?? [],
+    mediaType,
+  }
+}
+
 export function tmdbToLoot(raw: TmdbSearchResult): LootShow {
+  const rawGenres = (raw.genre_ids ?? []).map(getGenreName)
+  const tradition = deriveTradition(raw.origin_country, raw.original_language)
+  const profile = scoreShowVibes({
+    id: raw.id,
+    title: raw.name,
+    overview: raw.overview ?? '',
+    genreNames: rawGenres,
+    year: raw.first_air_date ? Number(raw.first_air_date.slice(0, 4)) : undefined,
+    networkIds: [],
+    keywords: [],
+    popularity: raw.popularity,
+  })
+  const topVibes = profile.vibes.filter((vibe) => vibe.score >= 0.16).slice(0, 3)
   return {
     id: raw.id,
     title: raw.name,
     posterPath: raw.poster_path ?? null,
     backdropPath: raw.backdrop_path ?? null,
     year: raw.first_air_date?.slice(0, 4) ?? '—',
-    genre: raw.genre_ids?.[0] ? getGenreName(raw.genre_ids[0]) : 'Drama',
+    genre: rawGenres.find((genre) => genre !== 'Animation') ?? rawGenres[0] ?? 'Animation',
     rating: raw.vote_average ?? 0,
     overview: raw.overview ?? '',
     popularity: raw.popularity ?? 0,
+    rawGenres,
+    tradition,
+    mediaType: raw.mediaType ?? 'tv',
+    vibeIds: topVibes.map((vibe) => vibe.vibeId),
+    vibeEvidence: Object.fromEntries(topVibes.map((vibe) => [vibe.vibeId, vibe.evidence])),
   }
 }
 
+function balanceTraditions(shows: LootShow[], limit = 20) {
+  const buckets = new Map<AnimationTradition, LootShow[]>([
+    ['anime', []], ['western', []], ['euro', []], ['other', []],
+  ])
+  shows.forEach((show) => buckets.get(show.tradition)?.push(show))
+  const active = Array.from(buckets.values()).filter((bucket) => bucket.length)
+  if (active.length < 2) return shows.slice(0, limit)
+  const balanced: LootShow[] = []
+  let cursor = 0
+  while (balanced.length < limit && active.some((bucket) => bucket.length)) {
+    const bucket = active[cursor % active.length]
+    const next = bucket.shift()
+    if (next) balanced.push(next)
+    cursor += 1
+  }
+  return balanced
+}
+
 export async function searchShows(query: string) {
-  const data = await tmdb<{ results: TmdbSearchResult[] }>('/search/tv', { query })
-  return data.results
+  const [tv, movies] = await Promise.all([
+    tmdb<{ results: RawTmdbListItem[] }>('/search/tv', { query }),
+    tmdb<{ results: RawTmdbListItem[] }>('/search/movie', { query }),
+  ])
+  return [
+    ...tv.results.map((result) => normalizeListItem(result, 'tv')),
+    ...movies.results.map((result) => normalizeListItem(result, 'movie')),
+  ]
+    .filter((result) => result.genre_ids?.includes(ANIMATION_GENRE_ID))
+    .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
 }
 
 // ── Curated lists ───────────────────────────────────────────────────────────
 
-async function listFromTmdb(path: string, params: Record<string, string> = {}) {
-  const data = await tmdb<{ results: TmdbSearchResult[] }>(path, params)
-  return data.results.slice(0, 20)
+async function discoverList(
+  mediaType: MediaType,
+  params: Record<string, string> = {},
+  limit = 20,
+) {
+  const data = await tmdb<{ results: RawTmdbListItem[] }>(`/discover/${mediaType}`, withAnimationGenre(params))
+  return data.results.map((result) => normalizeListItem(result, mediaType)).slice(0, limit)
 }
 
-export const getTrendingShows = () => listFromTmdb('/trending/tv/week')
-export const getTopRatedShows = () => listFromTmdb('/tv/top_rated')
-export const getPopularShows = () => listFromTmdb('/tv/popular')
-export const getAiringToday = () => listFromTmdb('/tv/airing_today')
+const isoDate = (date: Date) => date.toISOString().slice(0, 10)
+const daysAgo = (days: number) => isoDate(new Date(Date.now() - days * 86_400_000))
+
+export const getTrendingShows = () => discoverList('tv', {
+  sort_by: 'popularity.desc', 'first_air_date.gte': daysAgo(90), 'vote_count.gte': '20',
+})
+export const getTopRatedShows = () => discoverList('tv', {
+  sort_by: 'vote_average.desc', 'vote_count.gte': '200',
+})
+export const getPopularShows = () => discoverList('tv', {
+  sort_by: 'popularity.desc', 'vote_count.gte': '50',
+})
+export const getAiringToday = () => {
+  const today = isoDate(new Date())
+  return discoverList('tv', {
+    sort_by: 'popularity.desc', 'air_date.gte': today, 'air_date.lte': today, 'vote_count.gte': '5',
+  })
+}
+
+export const getFreshByNetworks = (networkIds: number[], page = 1) => discoverList('tv', {
+  with_networks: networkIds.join('|'),
+  sort_by: 'first_air_date.desc',
+  'vote_count.gte': '5',
+  page: String(page),
+})
+
+export const getFreshByKeyword = (keywordId: number, page = 1) => discoverList('tv', {
+  with_keywords: String(keywordId),
+  sort_by: 'first_air_date.desc',
+  'vote_count.gte': '5',
+  page: String(page),
+})
 
 export const getShowsByGenre = (genreId: number) =>
-  listFromTmdb('/discover/tv', {
+  discoverList('tv', {
     with_genres: String(genreId),
     sort_by: 'popularity.desc',
     'vote_count.gte': '50',
   })
 
 export const getNetworkShows = (networkId: number) =>
-  listFromTmdb('/discover/tv', {
+  discoverList('tv', {
     with_networks: String(networkId),
     sort_by: 'popularity.desc',
     'vote_count.gte': '20',
@@ -152,33 +281,27 @@ export const getNetworkShows = (networkId: number) =>
 // ── Discover feed (combined fetch + module-level TTL cache) ────────────────
 
 export interface DiscoverFeed {
-  trending: LootShow[]
+  freshStudios: LootShow[]
+  newAnime: LootShow[]
+  newWestern: LootShow[]
+  adultAnimation: LootShow[]
+  allAges: LootShow[]
+  handmade: LootShow[]
+  vibeCrate: LootShow[]
+  animatedFilms: LootShow[]
   topRated: LootShow[]
-  popular: LootShow[]
-  airingToday: LootShow[]
-  crime: LootShow[]
-  scifi: LootShow[]
-  animation: LootShow[]
-  mystery: LootShow[]
-  netflix: LootShow[]
-  hbo: LootShow[]
-  apple: LootShow[]
-  amazon: LootShow[]
 }
 
 export type DiscoverCategoryKey =
-  | 'trending'
-  | 'airingToday'
+  | 'freshStudios'
+  | 'newAnime'
+  | 'newWestern'
+  | 'adultAnimation'
+  | 'allAges'
+  | 'handmade'
+  | 'vibeCrate'
+  | 'animatedFilms'
   | 'topRated'
-  | 'popular'
-  | 'crime'
-  | 'scifi'
-  | 'animation'
-  | 'mystery'
-  | 'netflix'
-  | 'hbo'
-  | 'apple'
-  | 'amazon'
 
 const FEED_TTL_MS = 5 * 60_000
 let feedCache: { data: DiscoverFeed; ts: number } | null = null
@@ -194,34 +317,37 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
   if (feedCache && Date.now() - feedCache.ts < FEED_TTL_MS) return feedCache.data
   if (inflight) return inflight
   inflight = (async () => {
-    const [trending, topRated, popular, airingToday, crime, scifi, animation, mystery, netflix, hbo, apple, amazon] =
+    const recent = daysAgo(240)
+    const [freshStudiosPrimary, freshStudiosExpanded, newAnimeRaw, newWesternRaw, adultAnimationRaw, allAgesRaw, handmadeRaw, animatedFilmsRaw, topRatedRaw] =
       await Promise.all([
-        getTrendingShows(),
+        getFreshByNetworks([19, 47, 80]),
+        getFreshByNetworks([56, 213, 49, 453, 1112]),
+        discoverList('tv', { with_origin_country: 'JP', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
+        discoverList('tv', { with_origin_country: 'US|GB|CA|AU', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
+        discoverList('tv', { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
+        discoverList('tv', { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
+        discoverList('tv', { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }),
+        discoverList('movie', { sort_by: 'popularity.desc', 'vote_count.gte': '50' }),
         getTopRatedShows(),
-        getPopularShows(),
-        getAiringToday(),
-        getShowsByGenre(80),
-        getShowsByGenre(10765),
-        getShowsByGenre(16),
-        getShowsByGenre(9648),
-        getNetworkShows(213),
-        getNetworkShows(49),
-        getNetworkShows(2552),
-        getNetworkShows(1024),
       ])
+    const freshStudiosRaw = Array.from(
+      new Map([...freshStudiosPrimary, ...freshStudiosExpanded].map((show) => [show.id, show])).values(),
+    )
+    const map = (items: TmdbSearchResult[]) => items.map(tmdbToLoot)
+    const basePool = map([...freshStudiosRaw, ...newAnimeRaw, ...newWesternRaw, ...adultAnimationRaw, ...allAgesRaw])
+    const dayIndex = Math.floor(Date.now() / 86_400_000)
+    const vibeIds = Array.from(new Set(basePool.flatMap((show) => show.vibeIds)))
+    const rotatingVibe = vibeIds.length ? vibeIds[dayIndex % vibeIds.length] : undefined
     const data: DiscoverFeed = {
-      trending: trending.map(tmdbToLoot),
-      topRated: topRated.map(tmdbToLoot),
-      popular: popular.map(tmdbToLoot),
-      airingToday: airingToday.map(tmdbToLoot),
-      crime: crime.map(tmdbToLoot),
-      scifi: scifi.map(tmdbToLoot),
-      animation: animation.map(tmdbToLoot),
-      mystery: mystery.map(tmdbToLoot),
-      netflix: netflix.map(tmdbToLoot),
-      hbo: hbo.map(tmdbToLoot),
-      apple: apple.map(tmdbToLoot),
-      amazon: amazon.map(tmdbToLoot),
+      freshStudios: balanceTraditions(map(freshStudiosRaw)),
+      newAnime: map(newAnimeRaw),
+      newWestern: map(newWesternRaw),
+      adultAnimation: balanceTraditions(map(adultAnimationRaw)),
+      allAges: balanceTraditions(map(allAgesRaw)),
+      handmade: balanceTraditions(map(handmadeRaw)),
+      vibeCrate: balanceTraditions(rotatingVibe ? basePool.filter((show) => show.vibeIds.includes(rotatingVibe)) : basePool),
+      animatedFilms: balanceTraditions(map(animatedFilmsRaw)),
+      topRated: balanceTraditions(map(topRatedRaw)),
     }
     feedCache = { data, ts: Date.now() }
     return data
@@ -238,105 +364,66 @@ export async function getDiscoverCategoryPage(
   page = 1,
 ): Promise<{ results: LootShow[]; totalPages: number }> {
   const p = String(page)
-  let data: { results: TmdbSearchResult[]; total_pages: number }
+  let mediaType: MediaType = 'tv'
+  let params: Record<string, string>
+  const recent = daysAgo(240)
 
   switch (key) {
-    case 'trending':
-      data = await tmdb('/trending/tv/week', { page: p })
+    case 'freshStudios':
+      params = { with_networks: '19|47|80', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }
       break
-    case 'airingToday':
-      data = await tmdb('/tv/airing_today', { page: p })
+    case 'newAnime':
+      params = { with_origin_country: 'JP', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }
+      break
+    case 'newWestern':
+      params = { with_origin_country: 'US|GB|CA|AU', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }
+      break
+    case 'adultAnimation':
+      params = { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }
+      break
+    case 'allAges':
+      params = { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }
+      break
+    case 'handmade':
+      params = { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }
+      break
+    case 'vibeCrate':
+      params = { with_networks: '19|47|80', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }
+      break
+    case 'animatedFilms':
+      mediaType = 'movie'
+      params = { sort_by: 'popularity.desc', 'vote_count.gte': '50' }
       break
     case 'topRated':
-      data = await tmdb('/tv/top_rated', { page: p })
-      break
-    case 'popular':
-      data = await tmdb('/tv/popular', { page: p })
-      break
-    case 'crime':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_genres: '80',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '50',
-      })
-      break
-    case 'scifi':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_genres: '10765',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '50',
-      })
-      break
-    case 'animation':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_genres: '16',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '50',
-      })
-      break
-    case 'mystery':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_genres: '9648',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '50',
-      })
-      break
-    case 'netflix':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_networks: '213',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '20',
-      })
-      break
-    case 'hbo':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_networks: '49',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '20',
-      })
-      break
-    case 'apple':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_networks: '2552',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '20',
-      })
-      break
-    case 'amazon':
-      data = await tmdb('/discover/tv', {
-        page: p,
-        with_networks: '1024',
-        sort_by: 'popularity.desc',
-        'vote_count.gte': '20',
-      })
+      params = { sort_by: 'vote_average.desc', 'vote_count.gte': '200' }
       break
     default:
-      data = await tmdb('/tv/popular', { page: p })
+      params = { sort_by: 'popularity.desc', 'vote_count.gte': '50' }
   }
 
+  const data = await tmdb<{ results: RawTmdbListItem[]; total_pages: number }>(
+    `/discover/${mediaType}`,
+    withAnimationGenre({ ...params, page: p }),
+  )
+
   return {
-    results: data.results.map(tmdbToLoot),
+    results: data.results.map((item) => tmdbToLoot(normalizeListItem(item, mediaType))),
     totalPages: Math.max(1, data.total_pages ?? 1),
   }
 }
 
 export interface TmdbShowDetail extends TmdbSearchResult {
-  number_of_seasons: number
+  number_of_seasons?: number
   number_of_episodes?: number
   status?: string
-  seasons: { season_number: number; episode_count: number; name: string; poster_path?: string | null }[]
+  seasons?: { season_number: number; episode_count: number; name: string; poster_path?: string | null }[]
   genres: { id: number; name: string }[]
   overview?: string
   first_air_date?: string
   networks?: { id: number; name: string }[]
   tagline?: string
+  runtime?: number
+  release_date?: string
 }
 
 export interface TmdbImageAsset {
@@ -380,12 +467,23 @@ export interface WatchProviderResult {
   buy?: TmdbWatchProvider[]
 }
 
-export async function getShowDetail(id: number) {
-  return tmdb<TmdbShowDetail>(`/tv/${id}`)
+export async function getShowDetail(id: number, mediaType: MediaType = 'tv') {
+  const raw = await tmdb<TmdbShowDetail & { title?: string; release_date?: string }>(`/${mediaType}/${id}`)
+  return {
+    ...raw,
+    name: raw.name ?? raw.title ?? 'Untitled',
+    first_air_date: raw.first_air_date ?? raw.release_date,
+    seasons: raw.seasons ?? [],
+    mediaType,
+  }
 }
 
-export async function getShowKeywords(showId: number) {
-  return tmdb<{ results: { id: number; name: string }[] }>(`/tv/${showId}/keywords`)
+export async function getShowKeywords(showId: number, mediaType: MediaType = 'tv') {
+  const data = await tmdb<{
+    results?: { id: number; name: string }[]
+    keywords?: { id: number; name: string }[]
+  }>(`/${mediaType}/${showId}/keywords`)
+  return { results: data.results ?? data.keywords ?? [] }
 }
 
 export async function searchKeywords(query: string) {
@@ -405,33 +503,46 @@ export async function discoverShowsByMood(
   }
   if (keywordIds.length) params.with_keywords = keywordIds.join('|') // OR — match any
   if (genreIds.length) params.with_genres = genreIds.join('|')       // OR — match any
-  return tmdb<{ results: TmdbSearchResult[] }>('/discover/tv', params)
+  const data = await tmdb<{ results: RawTmdbListItem[] }>('/discover/tv', withAnimationGenre(params))
+  return { results: data.results.map((result) => normalizeListItem(result, 'tv')) }
 }
 
-export async function getShowImages(showId: number) {
+export async function getShowImages(showId: number, mediaType: MediaType = 'tv') {
   return tmdb<{
     backdrops: TmdbImageAsset[]
     logos: TmdbImageAsset[]
     posters: TmdbImageAsset[]
-  }>(`/tv/${showId}/images`, {
+  }>(`/${mediaType}/${showId}/images`, {
     include_image_language: 'en,null',
   })
 }
 
-export async function getShowVideos(showId: number) {
-  return tmdb<{ results: TmdbVideoAsset[] }>(`/tv/${showId}/videos`, {
+export async function getShowVideos(showId: number, mediaType: MediaType = 'tv') {
+  return tmdb<{ results: TmdbVideoAsset[] }>(`/${mediaType}/${showId}/videos`, {
     include_video_language: 'en,null',
   })
 }
 
-export async function getAggregateCredits(showId: number) {
-  return tmdb<{ cast: TmdbAggregateCastMember[] }>(`/tv/${showId}/aggregate_credits`)
+export async function getAggregateCredits(showId: number, mediaType: MediaType = 'tv') {
+  if (mediaType === 'tv') return tmdb<{ cast: TmdbAggregateCastMember[] }>(`/tv/${showId}/aggregate_credits`)
+  const data = await tmdb<{ cast: Array<TmdbAggregateCastMember & { character?: string }> }>(`/movie/${showId}/credits`)
+  return {
+    cast: data.cast.map((member) => ({
+      ...member,
+      roles: member.character ? [{ character: member.character }] : [],
+    })),
+  }
 }
 
-export async function getShowRecommendations(showId: number, page = 1) {
-  return tmdb<{ results: TmdbSearchResult[] }>(`/tv/${showId}/recommendations`, {
+export async function getShowRecommendations(showId: number, page = 1, mediaType: MediaType = 'tv') {
+  const data = await tmdb<{ results: RawTmdbListItem[] }>(`/${mediaType}/${showId}/recommendations`, {
     page: String(page),
   })
+  return {
+    results: data.results
+      .map((result) => normalizeListItem(result, mediaType))
+      .filter((result) => result.genre_ids?.includes(ANIMATION_GENRE_ID)),
+  }
 }
 
 export async function getWatchProviderRegions() {
@@ -441,8 +552,8 @@ export async function getWatchProviderRegions() {
   return data.results.sort((a, b) => a.english_name.localeCompare(b.english_name))
 }
 
-export async function getShowWatchProviders(showId: number, region = getWatchRegion()) {
-  const cacheKey = `loot:watch-providers:${region}:${showId}`
+export async function getShowWatchProviders(showId: number, region = getWatchRegion(), mediaType: MediaType = 'tv') {
+  const cacheKey = `loot:watch-providers:${region}:${mediaType}:${showId}`
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null') as { at: number; data: WatchProviderResult | null } | null
     if (cached && Date.now() - cached.at < WATCH_PROVIDER_CACHE_MS) return cached.data
@@ -450,7 +561,7 @@ export async function getShowWatchProviders(showId: number, region = getWatchReg
     // Ignore malformed or unavailable storage and fetch normally.
   }
 
-  const data = await tmdb<{ results: Record<string, WatchProviderResult> }>(`/tv/${showId}/watch/providers`)
+  const data = await tmdb<{ results: Record<string, WatchProviderResult> }>(`/${mediaType}/${showId}/watch/providers`)
   const result = data.results[region] || null
   try {
     localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data: result }))
@@ -460,10 +571,15 @@ export async function getShowWatchProviders(showId: number, region = getWatchReg
   return result
 }
 
-export async function getSimilarShows(showId: number, page = 1) {
-  return tmdb<{ results: TmdbSearchResult[] }>(`/tv/${showId}/similar`, {
+export async function getSimilarShows(showId: number, page = 1, mediaType: MediaType = 'tv') {
+  const data = await tmdb<{ results: RawTmdbListItem[] }>(`/${mediaType}/${showId}/similar`, {
     page: String(page),
   })
+  return {
+    results: data.results
+      .map((result) => normalizeListItem(result, mediaType))
+      .filter((result) => result.genre_ids?.includes(ANIMATION_GENRE_ID)),
+  }
 }
 
 export async function getSeason(showId: number, seasonNumber: number) {
@@ -474,7 +590,7 @@ export async function getSeason(showId: number, seasonNumber: number) {
   }>(`/tv/${showId}/season/${seasonNumber}`)
 }
 
-export async function getCredits(showId: number) {
+export async function getCredits(showId: number, mediaType: MediaType = 'tv') {
   return tmdb<{
     cast: {
       id: number
@@ -482,7 +598,7 @@ export async function getCredits(showId: number) {
       character: string
       profile_path: string | null
     }[]
-  }>(`/tv/${showId}/credits`)
+  }>(`/${mediaType}/${showId}/credits`)
 }
 
 export function imgUrl(path: string | null | undefined, size: 'w185' | 'w342' | 'w500' | 'original' = 'w342') {

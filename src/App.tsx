@@ -102,7 +102,7 @@ export default function App() {
           }}
         />
         <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-        {tracking && <EpisodeTracker show={tracking} onClose={() => setTracking(null)} />}
+        {tracking && (tracking.mediaType ?? 'tv') === 'tv' && <EpisodeTracker show={tracking} onClose={() => setTracking(null)} />}
         <AssignRoleSheet show={castingFor?.show ?? null} initialPersonId={castingFor?.personId} onClose={() => setCastingFor(null)} />
 
         <IOSInstallBanner />

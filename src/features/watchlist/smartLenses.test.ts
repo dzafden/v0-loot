@@ -8,6 +8,7 @@ function show(id: number, genres: string[] = [], metadata: Partial<Show> = {}): 
     name: `Show ${id}`,
     genres: genres as Genre[],
     rawGenres: genres,
+    mediaType: 'tv',
     addedAt: id,
     updatedAt: id,
     ...metadata,

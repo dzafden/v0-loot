@@ -11,6 +11,8 @@ import type {
   WatchlistShelf,
   DiscoverFeedback,
 } from '../types'
+import { deriveTradition, getShowDetail, getShowKeywords, hasTmdbKey } from '../lib/tmdb'
+import { buildVibeCandidate, scoreShowVibes } from '../lib/vibe-engine'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
@@ -29,11 +31,47 @@ export const WATCHLIST_SHELF_SUGGESTIONS = [
 
 // ---------- shows ----------
 
+async function classifyPersistedShow(show: Show, target: 'shows' | 'watchlistShows') {
+  if (!hasTmdbKey()) return
+  try {
+    const mediaType = show.mediaType ?? 'tv'
+    const [detail, keywords] = await Promise.all([
+      getShowDetail(show.id, mediaType),
+      getShowKeywords(show.id, mediaType),
+    ])
+    const profile = scoreShowVibes(buildVibeCandidate({
+      id: show.id,
+      name: show.name,
+      first_air_date: show.year ? `${show.year}-01-01` : undefined,
+      poster_path: show.posterPath,
+      backdrop_path: show.backdropPath,
+      overview: show.overview,
+      popularity: 0,
+      mediaType,
+    }, detail, keywords.results))
+    const top = profile.vibes.filter((vibe) => vibe.score >= 0.16).slice(0, 3)
+    const patch: Partial<Show> = {
+      mediaType,
+      tradition: show.tradition ?? deriveTradition(detail.origin_country, detail.original_language),
+      rawGenres: detail.genres.map((genre) => genre.name),
+      genres: detail.genres.map((genre) => genre.name) as Show['genres'],
+      vibeIds: top.map((vibe) => vibe.vibeId),
+      vibeEvidence: Object.fromEntries(top.map((vibe) => [vibe.vibeId, vibe.evidence])),
+      updatedAt: Date.now(),
+    }
+    await db[target].update(show.id, patch)
+  } catch {
+    // Taxonomy enrichment is best-effort and never blocks a save.
+  }
+}
+
 export async function upsertShow(show: Show) {
+  const normalized = { ...show, mediaType: show.mediaType ?? 'tv' as const }
   await db.transaction('rw', [db.shows, db.discoverFeedback], async () => {
-    await db.shows.put({ ...show, updatedAt: Date.now() })
+    await db.shows.put({ ...normalized, updatedAt: Date.now() })
     await db.discoverFeedback.delete(show.id)
   })
+  void classifyPersistedShow(normalized, 'shows')
 }
 
 export async function updateShowMetadata(
@@ -282,9 +320,10 @@ export async function reorderWatchlistShelves(orderedIds: string[]) {
 }
 
 export async function addToWatchlistShelf(shelfId: string, show: Show) {
+  const normalized = { ...show, mediaType: show.mediaType ?? 'tv' as const }
   await db.transaction('rw', [db.watchlistShows, db.watchlistShelves, db.discoverFeedback], async () => {
     await db.watchlistShows.put({
-      ...show,
+      ...normalized,
       addedAt: show.addedAt || Date.now(),
       updatedAt: Date.now(),
     })
@@ -296,6 +335,7 @@ export async function addToWatchlistShelf(shelfId: string, show: Show) {
     })
     await db.discoverFeedback.delete(show.id)
   })
+  void classifyPersistedShow(normalized, 'watchlistShows')
 }
 
 export async function removeFromWatchlistShelf(shelfId: string, showId: number) {

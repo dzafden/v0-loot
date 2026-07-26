@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Search, Check, Upload, AlertCircle } from 'lucide-react'
 import {
+  deriveTradition,
   getSeason,
   getShowDetail,
   hasTmdbKey,
@@ -36,6 +37,8 @@ function tmdbResultToShow(r: TmdbSearchResult): Show {
     overview: r.overview ?? '',
     genres: [],
     rawGenres: [],
+    mediaType: r.mediaType ?? 'tv',
+    tradition: deriveTradition(r.origin_country, r.original_language),
     addedAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -110,7 +113,8 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
     if (ownedIds.has(r.id)) return
     setAdding(r.id)
     try {
-      const detail = await getShowDetail(r.id)
+      const mediaType = r.mediaType ?? 'tv'
+      const detail = await getShowDetail(r.id, mediaType)
       const genres = detail.genres.map((g) => g.name) as string[]
       const yr = (r.first_air_date ?? '').slice(0, 4)
       const show: Show = {
@@ -122,6 +126,8 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
         overview: r.overview,
         genres: genres as Genre[],
         rawGenres: genres,
+        mediaType,
+        tradition: deriveTradition(r.origin_country ?? detail.origin_country, r.original_language ?? detail.original_language),
         seasonCount: detail.number_of_seasons,
         episodeCount: detail.number_of_episodes,
         status: detail.status,
@@ -129,8 +135,10 @@ export function AddShowSheet({ open, onClose, onOpenSettings }: Props) {
         updatedAt: Date.now(),
       }
       await upsertShow(show)
-      await hydrateSeasonCache(show.id, detail.seasons)
-      await setAllCachedSeasonsWatched(show.id, true)
+      if (mediaType === 'tv') {
+        await hydrateSeasonCache(show.id, detail.seasons ?? [])
+        await setAllCachedSeasonsWatched(show.id, true)
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -230,22 +238,23 @@ function SearchMode({
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search a TV show…"
+            placeholder="Search animated shows and films…"
             className="w-full bg-black/30 border border-white/10 rounded-full py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-[#f5c453] transition-colors"
           />
         </div>
         {error && <p className="text-xs text-rose-400 mt-2 px-1">{error}</p>}
       </div>
 
-      <ShowSearchResultDeck
+              <ShowSearchResultDeck
         query={q}
         loading={loading}
         results={results}
         error={error}
         isSaved={(result) => ownedIds.has(result.id)}
         isSaving={(result) => adding === result.id}
-        onSave={onAdd}
-      />
+                onSave={onAdd}
+                noResultsLabel="No animated titles found"
+              />
     </>
   )
 }

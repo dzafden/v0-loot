@@ -10,7 +10,7 @@
  * extended without touching the card component.
  */
 import type { Variants, Transition } from 'framer-motion'
-import type { Genre } from '../types'
+import type { AnimationTradition, Genre } from '../types'
 
 export interface AnimationPreset {
   /** Played when the card mounts. */
@@ -283,7 +283,7 @@ export const reducedMotionPreset: AnimationPreset = {
   interact: { tap: { opacity: 0.85, transition: { duration: 0.1 } } },
 }
 
-const REGISTRY: Record<Genre, AnimationPreset> = {
+const REGISTRY: Record<string, AnimationPreset> = {
   Horror: horror,
   Comedy: comedy,
   Drama: drama,
@@ -294,6 +294,28 @@ const REGISTRY: Record<Genre, AnimationPreset> = {
   Animation: animation,
   Documentary: documentary,
   Default: defaultPreset,
+  anime: sciFi,
+  western: comedy,
+  euro: drama,
+  other: animation,
+  shounen_escalation: action,
+  slice_of_life_cozy: romance,
+  isekai_power_fantasy: sciFi,
+  dark_fantasy_grim: horror,
+  adult_animation_cynical: comedy,
+  cartoon_nostalgia: animation,
+  stop_motion_craft: documentary,
+  sports_underdog: action,
+  mecha_scifi: sciFi,
+  magical_girl: romance,
+  psychological_mindbend: thriller,
+  found_family: animation,
+  comfort_rewatch_classics: drama,
+  art_house_animation: documentary,
+  superhero_animated: action,
+  kids_all_ages: animation,
+  romance_yearning: romance,
+  horror_animated: horror,
 }
 
 export function getAnimationPreset(genre: string | undefined): AnimationPreset {
@@ -328,4 +350,15 @@ export function pickPrimaryGenre(genres: string[] | undefined): Genre {
   if (lower.some((g) => g.includes('sci'))) return 'Sci-Fi'
   if (lower.some((g) => g.includes('anim'))) return 'Animation'
   return 'Default'
+}
+
+/** Animation is the catalogue rule, so motion falls through to culture and vibe. */
+export function pickAnimationKey(
+  genres: string[] | undefined,
+  tradition?: AnimationTradition,
+  vibeIds?: string[],
+): string {
+  const primary = pickPrimaryGenre(genres)
+  if (primary !== 'Animation') return primary
+  return tradition ?? vibeIds?.[0] ?? 'Animation'
 }

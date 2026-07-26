@@ -257,14 +257,14 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       </motion.div>
       <h2 className="text-xl font-extrabold tracking-tight">Your collection is empty</h2>
       <p className="mt-2 text-sm text-white/55 max-w-[260px]">
-        Drop your first show to start the inventory.
+        Add your first animated series or film. Loot never includes live action.
       </p>
       <button
         onClick={onAdd}
         className="mt-5 rounded-xl bg-amber-300 text-amber-950 px-5 h-11 text-sm font-bold inline-flex items-center gap-2 shadow-glow-sm"
       >
         <IconPlus size={18} />
-        Add a show
+        Add animation
       </button>
     </div>
   )

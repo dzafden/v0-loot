@@ -137,7 +137,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
       return
     }
     let cancelled = false
-    getShowImages(focusedShow.id)
+    getShowImages(focusedShow.id, focusedShow.mediaType ?? 'tv')
       .then((images) => {
         const logo = bestLogo(images.logos)
         logoCache.set(focusedShow.id, logo)
@@ -334,6 +334,8 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
         ) : shows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 opacity-60 bg-white/[0.035] rounded-[34px] mt-4">
             <Package size={56} strokeWidth={1.5} className="mb-4 text-white/35" />
+            <p className="text-sm font-black uppercase tracking-[0.14em] text-white/72">Animation only</p>
+            <p className="mt-2 max-w-[250px] text-center text-xs leading-relaxed text-white/42">Anime, adult animation, cartoons, and animated films. No live action—ever.</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 opacity-50">
@@ -394,7 +396,7 @@ function CollectionGridCard({
       return
     }
     let cancelled = false
-    getShowImages(show.id)
+    getShowImages(show.id, show.mediaType ?? 'tv')
       .then((images) => {
         const logo = bestLogo(images.logos)
         logoCache.set(show.id, logo)

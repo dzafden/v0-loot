@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Loot — TV Show Inventory',
+        name: 'Loot — Animation Inventory',
         short_name: 'Loot',
-        description: 'Your TV shows as animated loot.',
+        description: 'Discover and collect animation only — anime, cartoons, adult animation, and animated films.',
         theme_color: '#0b0b0f',
         background_color: '#0b0b0f',
         display: 'standalone',

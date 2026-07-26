@@ -45,7 +45,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
     let cancelled = false
     setCastLoading(true)
     setPicked(null)
-    getCredits(show.id)
+    getCredits(show.id, show.mediaType ?? 'tv')
       .then((d) => {
         if (cancelled) return
         setCast(d.cast)
@@ -64,7 +64,7 @@ export function CharacterRolePicker({ show, existingPersonIds = new Set(), initi
     return () => {
       cancelled = true
     }
-  }, [show.id, initialPersonId, existingPersonIds])
+  }, [show.id, show.mediaType, initialPersonId, existingPersonIds])
 
   const canCast = picked && (role !== '__custom__' || customRole.trim())
 

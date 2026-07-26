@@ -9,7 +9,7 @@ import {
   WATCHLIST_SHELF_SUGGESTIONS,
 } from '../../data/queries'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import { getShowDetail, hasTmdbKey, searchShows, type TmdbSearchResult } from '../../lib/tmdb'
+import { deriveTradition, getShowDetail, hasTmdbKey, searchShows, type TmdbSearchResult } from '../../lib/tmdb'
 import { cn } from '../../lib/utils'
 import type { Genre, Show } from '../../types'
 import { PickerTopBar, fullScreenOverlayClass } from '../../components/ui/FullScreenPickerShell'
@@ -33,6 +33,8 @@ function tmdbResultToShow(r: TmdbSearchResult, genres: string[] = []): Show {
     overview: r.overview ?? '',
     genres: genres as Genre[],
     rawGenres: genres,
+    mediaType: r.mediaType ?? 'tv',
+    tradition: deriveTradition(r.origin_country, r.original_language),
     addedAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -116,7 +118,7 @@ export function WatchlistSearchSheet({ open, shelfId, onClose, onOpenSettings }:
       let genres: string[] = []
       let metadata: Pick<Show, 'seasonCount' | 'episodeCount' | 'status'> = {}
       try {
-        const detail = await getShowDetail(result.id)
+        const detail = await getShowDetail(result.id, result.mediaType ?? 'tv')
         genres = detail.genres.map((genre) => genre.name)
         metadata = {
           seasonCount: detail.number_of_seasons,
@@ -244,8 +246,8 @@ export function WatchlistSearchSheet({ open, shelfId, onClose, onOpenSettings }:
                 loading={loading}
                 results={results}
                 error={error}
-                emptyLabel="Type to find a show"
-                noResultsLabel="No matches"
+                emptyLabel="Find an animated series or film"
+                noResultsLabel="No animated titles found"
                 isSaved={(result) => Boolean(activeShelf?.showIds.includes(result.id))}
                 isSaving={(result) => adding === result.id}
                 onSave={addResult}

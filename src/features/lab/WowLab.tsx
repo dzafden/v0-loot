@@ -15,7 +15,9 @@ import {
   type TmdbAggregateCastMember,
   type TmdbImageAsset,
   type TmdbVideoAsset,
+  type TmdbSearchResult,
 } from '../../lib/tmdb'
+import type { MediaType } from '../../types'
 import { cn } from '../../lib/utils'
 
 type LabShow = {
@@ -32,6 +34,7 @@ type LabShow = {
   keywords: string[]
   trailer: TmdbVideoAsset | null
   cast: TmdbAggregateCastMember[]
+  mediaType: MediaType
 }
 
 const FALLBACK_SHOWS: LabShow[] = [
@@ -49,6 +52,7 @@ const FALLBACK_SHOWS: LabShow[] = [
     keywords: ['mystery', 'siblings', 'summer', 'supernatural'],
     trailer: null,
     cast: [],
+    mediaType: 'tv',
   },
   {
     id: 15260,
@@ -64,6 +68,7 @@ const FALLBACK_SHOWS: LabShow[] = [
     keywords: ['adventure', 'friendship', 'magic', 'quest'],
     trailer: null,
     cast: [],
+    mediaType: 'tv',
   },
   {
     id: 37854,
@@ -79,6 +84,7 @@ const FALLBACK_SHOWS: LabShow[] = [
     keywords: ['pirates', 'crew', 'found family', 'quest'],
     trailer: null,
     cast: [],
+    mediaType: 'tv',
   },
 ]
 
@@ -107,13 +113,14 @@ function shortOverview(text: string) {
 async function enrichShow(query: string): Promise<LabShow | null> {
   const [raw] = await searchShows(query)
   if (!raw) return null
+  const mediaType = raw.mediaType ?? 'tv'
 
   const [detail, images, videos, keywords, credits] = await Promise.all([
-    getShowDetail(raw.id),
-    getShowImages(raw.id),
-    getShowVideos(raw.id),
-    getShowKeywords(raw.id),
-    getAggregateCredits(raw.id),
+    getShowDetail(raw.id, mediaType),
+    getShowImages(raw.id, mediaType),
+    getShowVideos(raw.id, mediaType),
+    getShowKeywords(raw.id, mediaType),
+    getAggregateCredits(raw.id, mediaType),
   ])
 
   return {
@@ -130,17 +137,19 @@ async function enrichShow(query: string): Promise<LabShow | null> {
     keywords: (keywords.results ?? []).slice(0, 5).map((k) => k.name),
     trailer: bestTrailer(videos.results ?? []),
     cast: (credits.cast ?? []).filter((c) => c.profile_path).slice(0, 6),
+    mediaType,
   }
 }
 
-async function enrichRawShow(raw: { id: number; name: string; first_air_date?: string; overview?: string; poster_path?: string | null; backdrop_path?: string | null; vote_average?: number; genre_ids?: number[] }): Promise<LabShow | null> {
+async function enrichRawShow(raw: TmdbSearchResult): Promise<LabShow | null> {
   try {
+    const mediaType = raw.mediaType ?? 'tv'
     const [detail, images, videos, keywords, credits] = await Promise.all([
-      getShowDetail(raw.id),
-      getShowImages(raw.id),
-      getShowVideos(raw.id),
-      getShowKeywords(raw.id),
-      getAggregateCredits(raw.id),
+      getShowDetail(raw.id, mediaType),
+      getShowImages(raw.id, mediaType),
+      getShowVideos(raw.id, mediaType),
+      getShowKeywords(raw.id, mediaType),
+      getAggregateCredits(raw.id, mediaType),
     ])
 
     return {
@@ -157,6 +166,7 @@ async function enrichRawShow(raw: { id: number; name: string; first_air_date?: s
       keywords: (keywords.results ?? []).slice(0, 5).map((k) => k.name),
       trailer: bestTrailer(videos.results ?? []),
       cast: (credits.cast ?? []).filter((c) => c.profile_path).slice(0, 6),
+      mediaType,
     }
   } catch {
     return null
@@ -356,8 +366,8 @@ export function DiscoveryPreviewLab() {
       const anchor = next[0]
       if (anchor) {
         const [recs, similar] = await Promise.all([
-          getShowRecommendations(anchor.id, 1),
-          getSimilarShows(anchor.id, 1),
+          getShowRecommendations(anchor.id, 1, anchor.mediaType),
+          getSimilarShows(anchor.id, 1, anchor.mediaType),
         ])
         const seen = new Set<number>([anchor.id])
         const rawPack = [...(recs.results ?? []), ...(similar.results ?? [])]

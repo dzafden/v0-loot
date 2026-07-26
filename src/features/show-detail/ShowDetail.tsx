@@ -80,6 +80,7 @@ interface Props {
 }
 
 export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisodes, onAssignRole }: Props) {
+  const mediaType = show.mediaType ?? 'tv'
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const [episodeBulkBusy, setEpisodeBulkBusy] = useState<null | 'mark' | 'unmark'>(null)
   const [logoPath, setLogoPath] = useState<string | null>(null)
@@ -106,8 +107,12 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   }, [show.id, scrollEl])
 
   useEffect(() => {
+    if (mediaType === 'movie') {
+      setProgress({ watched: 0, total: 0 })
+      return
+    }
     progressForShow(show.id).then(setProgress)
-  }, [show.id, episodeBulkBusy])
+  }, [show.id, mediaType, episodeBulkBusy])
 
   useEffect(() => {
     if (!hasTmdbKey()) {
@@ -119,7 +124,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     const cachedLogo = logoCache.get(show.id)
     if (cachedLogo !== undefined) setLogoPath(cachedLogo)
 
-    getShowImages(show.id)
+    getShowImages(show.id, mediaType)
       .then((images) => {
         const logo = bestLogo(images.logos)
         logoCache.set(show.id, logo)
@@ -130,10 +135,14 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         if (!cancelled) setLogoPath(null)
       })
 
-    getShowDetail(show.id)
+    getShowDetail(show.id, mediaType)
       .then((detail) => {
         if (cancelled) return
-        const seasons = detail.seasons.filter((season) => season.season_number !== 0)
+        if (mediaType === 'movie') {
+          setSeasonInfo(null)
+          return
+        }
+        const seasons = (detail.seasons ?? []).filter((season) => season.season_number !== 0)
         const episodes = seasons.reduce((sum, season) => sum + (season.episode_count ?? 0), 0)
         setSeasonInfo({ seasons: detail.number_of_seasons || seasons.length, episodes })
         void updateShowMetadata(show.id, {
@@ -149,7 +158,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     return () => {
       cancelled = true
     }
-  }, [show.id])
+  }, [show.id, mediaType])
 
   useEffect(() => {
     if (!hasTmdbKey()) {
@@ -157,7 +166,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
       return
     }
     let cancelled = false
-    getShowWatchProviders(show.id)
+    getShowWatchProviders(show.id, getWatchRegion(), mediaType)
       .then((providers) => {
         if (!cancelled) setWatchProviders(providers)
       })
@@ -167,7 +176,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     return () => {
       cancelled = true
     }
-  }, [show.id])
+  }, [show.id, mediaType])
 
   useEffect(() => {
     if (!hasTmdbKey()) {
@@ -177,7 +186,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
 
     let cancelled = false
     setCastLoading(true)
-    getCredits(show.id)
+    getCredits(show.id, mediaType)
       .then((credits) => {
         if (cancelled) return
         const withImages = credits.cast.filter((member) => member.profile_path)
@@ -194,7 +203,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     return () => {
       cancelled = true
     }
-  }, [show.id])
+  }, [show.id, mediaType])
 
   const tier = tierAssignment?.tier ?? null
   const isTop8 = typeof liveShow.top8Position === 'number' && liveShow.top8Position >= 0
@@ -202,7 +211,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const r = RARITIES[rarity]
   const accent = tier ? TIER_DETAIL[tier].color : r.hex
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
-  const metadata = [liveShow.year, liveShow.genres?.[0], seasonLabel(seasonInfo, progress)].filter((item): item is string | number => item !== null && item !== undefined && item !== '')
+  const metadata = [
+    liveShow.year,
+    liveShow.vibeIds?.[0]?.replace(/_/g, ' ') ?? liveShow.tradition ?? liveShow.rawGenres?.find((genre) => genre !== 'Animation'),
+    mediaType === 'movie' ? 'Film' : seasonLabel(seasonInfo, progress),
+  ].filter((item): item is string | number => item !== null && item !== undefined && item !== '')
 
   const handleAddToCollection = async () => {
     await upsertShow({
@@ -238,10 +251,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   }
 
   const ensureSeasonCache = async () => {
-    const detail = await getShowDetail(show.id)
+    if (mediaType === 'movie') return
+    const detail = await getShowDetail(show.id, 'tv')
     const cached = await db.seasonCache.where({ showId: show.id }).toArray()
     const cachedSet = new Set(cached.map((s) => s.seasonNumber))
-    for (const season of detail.seasons) {
+    for (const season of detail.seasons ?? []) {
       if (season.season_number === 0) continue
       if (cachedSet.has(season.season_number)) continue
       const data = await getSeason(show.id, season.season_number)
@@ -382,14 +396,16 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           </div>
         ) : (
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <button
-              onClick={() => onTrackEpisodes(liveShow)}
-              className="flex h-12 items-center justify-center gap-2 rounded-[18px] text-[10px] font-black uppercase tracking-[0.14em] text-black active:scale-[0.98]"
-              style={{ background: accent }}
-            >
-              <Tv size={16} strokeWidth={2.8} />
-              Episodes
-            </button>
+            {mediaType === 'tv' ? (
+              <button
+                onClick={() => onTrackEpisodes(liveShow)}
+                className="flex h-12 items-center justify-center gap-2 rounded-[18px] text-[10px] font-black uppercase tracking-[0.14em] text-black active:scale-[0.98]"
+                style={{ background: accent }}
+              >
+                <Tv size={16} strokeWidth={2.8} />
+                Episodes
+              </button>
+            ) : <div className="flex h-12 items-center justify-center rounded-[18px] bg-white/[0.06] text-[10px] font-black uppercase tracking-[0.14em] text-white/44">Animated Film</div>}
             <button
               onClick={() => setWatchlistOpen(true)}
               className="flex h-12 items-center justify-center gap-2 rounded-[18px] bg-white/[0.08] text-[10px] font-black uppercase tracking-[0.14em] text-white ring-1 ring-white/[0.08] active:scale-[0.98]"
@@ -419,7 +435,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           )}
         </div>
 
-        <TrackingSection
+        {mediaType === 'tv' && <TrackingSection
           show={liveShow}
           progress={progress}
           busy={episodeBulkBusy}
@@ -429,7 +445,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           }}
           onBulk={handleEpisodeBulk}
           accent={accent}
-        />
+        />}
 
         <CastSection
           assigned={cast}
