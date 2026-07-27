@@ -49,6 +49,7 @@ const ACTIVE_ANCHOR_COUNT = 8
 const TASTE_REC_TTL_MS = 24 * 60 * 60_000
 const DISCOVER_IMPRESSIONS_KEY = 'loot:discover-impressions:v1'
 const DISCOVER_LIBRARY_SNAPSHOT_KEY = 'loot:discover-library-snapshot:v1'
+const WATCH_DROP_ENABLED = false
 // Maps genre name strings (as used in MoodDefinition.genreHints) to TMDB genre IDs
 const GENRE_NAME_TO_ID: Record<string, number> = {
   Action: 10759, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80,
@@ -930,6 +931,10 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }
 
   const onDiscoverTouchStart: React.TouchEventHandler<HTMLDivElement> = (event) => {
+    if (!WATCH_DROP_ENABLED) {
+      pullStartY.current = null
+      return
+    }
     if (window.scrollY > 8 || query.trim() || activeCategory) {
       pullStartY.current = null
       return
@@ -938,6 +943,10 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }
 
   const onDiscoverTouchEnd: React.TouchEventHandler<HTMLDivElement> = (event) => {
+    if (!WATCH_DROP_ENABLED) {
+      pullStartY.current = null
+      return
+    }
     if (pullStartY.current === null) return
     const endY = event.changedTouches[0]?.clientY ?? pullStartY.current
     if (endY - pullStartY.current > 76) setWatchDropOpen(true)
@@ -980,7 +989,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             </button>
           )}
         </div>
-        {!query && !activeCategory && (
+        {WATCH_DROP_ENABLED && !query && !activeCategory && (
           <button
             onClick={() => setWatchDropOpen(true)}
             className="group relative h-11 overflow-hidden rounded-[18px] bg-[#171018] text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),0_14px_34px_rgba(0,0,0,0.36)] active:scale-[0.985]"
@@ -1050,7 +1059,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       </div>
 
       <AnimatePresence>
-        {watchDropOpen && (
+        {WATCH_DROP_ENABLED && watchDropOpen && (
           <WatchDropPanel
             ownedShows={ownedShows}
             tierAssignments={tierAssignments}
