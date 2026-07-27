@@ -2471,19 +2471,17 @@ function DiscoveryReason({ show }: { show: LootShow }) {
   )
 }
 
-function TaxonomyChip({
+function TaxonomyLabel({
   show,
   descriptor = show.cardDescriptor,
-  landscape = false,
 }: {
   show: LootShow
   descriptor?: CardDescriptor
-  landscape?: boolean
 }) {
   const label = descriptor?.label
   if (!label) return null
   return (
-    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 inline-flex h-8 max-w-[calc(100%-112px)] items-center gap-1.5 rounded-full border border-white/20 bg-zinc-950/90 px-3 text-[10px] font-black uppercase tracking-[0.075em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.68)] ring-1 ring-black/25 backdrop-blur-xl', landscape && 'max-w-[calc(100%-112px)]')}>
+    <span className="mb-1.5 flex max-w-full items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.075em] text-white/78">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5c453] shadow-[0_0_10px_rgba(245,196,83,0.7)]" aria-hidden />
       <span className="truncate">{label}</span>
     </span>
@@ -2534,7 +2532,7 @@ function FeedSaveActions({
 
   const actionClass = size === 'lg'
     ? 'h-12 w-12 rounded-[16px]'
-    : 'h-10 w-10 rounded-[13px]'
+    : 'h-11 w-11 rounded-[14px]'
   const iconSize = size === 'lg' ? 20 : 17
   const idleClass = 'border-white/30 bg-zinc-600/90 text-white ring-1 ring-black/20'
   const selectedClass = 'border-[#ffe083] bg-[#f5c453] text-black ring-1 ring-black/20'
@@ -2748,9 +2746,9 @@ function PortraitCard({
         >
           <span />
         </CollectibleMediaCard>
-        <TaxonomyChip show={show} descriptor={descriptor} />
       </div>
-      <ColorAwareRail imageSrc={posterUrl} className="relative z-20 min-h-[80px] px-4 py-3.5">
+      <ColorAwareRail imageSrc={posterUrl} className="relative z-20 min-h-[96px] px-4 py-3">
+        <TaxonomyLabel show={show} descriptor={descriptor} />
         <h3 className="truncate text-[15px] font-black leading-tight tracking-[-0.025em] text-white">{show.title}</h3>
         <div className="mt-2 flex min-h-6 items-center gap-2.5">
           {show.year !== '—' && <span className="text-[10px] font-black tracking-[0.04em] text-white/76">{show.year}</span>}
@@ -2867,9 +2865,9 @@ function LandscapeCard({
         >
           <span />
         </CollectibleMediaCard>
-        <TaxonomyChip show={show} descriptor={descriptor} landscape />
       </div>
-      <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[92px] px-4 py-3.5">
+      <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[104px] px-4 py-3">
+        <TaxonomyLabel show={show} descriptor={descriptor} />
         <div className="flex min-w-0 items-center justify-between gap-3">
           <h3 className="min-w-0 flex-1 truncate text-[17px] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
           <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
