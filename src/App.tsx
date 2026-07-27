@@ -14,6 +14,8 @@ import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
 import type { RecommendationContext, Show } from './types'
 import { AnimatePresence } from 'framer-motion'
+import { FirstSessionOnboarding, ONBOARDING_STORAGE_KEY } from './features/onboarding/FirstSessionOnboarding'
+import { hasTmdbKey } from './lib/tmdb'
 
 type CastingTarget = {
   show: Show
@@ -32,6 +34,9 @@ export default function App() {
   const [tracking, setTracking] = useState<Show | null>(null)
   const [castingFor, setCastingFor] = useState<CastingTarget | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(() => {
+    try { return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'complete' ? false : null } catch { return null }
+  })
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const tiers = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
@@ -39,6 +44,18 @@ export default function App() {
     const sorted = new Set(tiers.map((t) => t.showId))
     return shows.filter((s) => !sorted.has(s.id)).length
   }, [shows, tiers])
+
+  useEffect(() => {
+    if (showOnboarding !== null) return
+    db.shows.count().then((count) => {
+      if (count > 0) {
+        try { localStorage.setItem(ONBOARDING_STORAGE_KEY, 'complete') } catch { /* Device storage is optional. */ }
+        setShowOnboarding(false)
+      } else {
+        setShowOnboarding(true)
+      }
+    }).catch(() => setShowOnboarding(false))
+  }, [showOnboarding])
 
   // Inject keyframes for shine animation (used by LootCard).
   useEffect(() => {
@@ -110,6 +127,10 @@ export default function App() {
         <AssignRoleSheet show={castingFor?.show ?? null} initialPersonId={castingFor?.personId} onClose={() => setCastingFor(null)} />
 
         <IOSInstallBanner />
+        {showOnboarding === null && <div className="fixed inset-0 z-[99] bg-[#050507]" aria-hidden />}
+        <AnimatePresence>
+          {showOnboarding && <FirstSessionOnboarding onComplete={() => { setTab(hasTmdbKey() ? 'discover' : 'collection'); setShowOnboarding(false) }} />}
+        </AnimatePresence>
       </div>
     </div>
   )
