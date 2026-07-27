@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, Plus, Trash2, Trophy, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, MoreHorizontal, Play, Plus, Share2, Trash2, Trophy, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, RecommendationContext, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
@@ -23,10 +23,12 @@ import {
   getSeason,
   getShowDetail,
   getShowImages,
+  getShowVideos,
   getShowWatchProviders,
   getWatchRegion,
   hasTmdbKey,
   imgUrl,
+  type TmdbVideoAsset,
   type TmdbWatchProvider,
   type WatchProviderResult,
 } from '../../lib/tmdb'
@@ -37,11 +39,14 @@ import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
 import { getVibeTitle } from '../../lib/vibe-engine'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { dominantColor } from '../../lib/dominantColor'
 
 const TIERS: Tier[] = ['S', 'A', 'B', 'C', 'D']
 const SUGGESTED_EMOJI = ['❤️', '🔥', '💀', '🥶', '😭', '🍔', '🥲', '🌹', '🥀', '👑', '🎯', '🤡', '🧠', '🎲', '🌶️', '⭐']
 type LogoAsset = { file_path: string; vote_average?: number; iso_639_1?: string | null }
 type SeasonInfo = { seasons: number; episodes: number }
+type DetailInfo = { tagline: string; runtime: number | null; network: string | null; status: string | null }
+type NextEpisodeInfo = { label: string; name: string; stillPath: string | null }
 type TierDetailStyle = { color: string; soft: string; wash: string }
 type DetailCastMember = {
   id: number
@@ -60,6 +65,16 @@ const TIER_DETAIL: Record<Tier, TierDetailStyle> = {
 
 const logoCache = new Map<number, string | null>()
 
+function readableArtworkAccent(hex: string) {
+  const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex)
+  if (!match) return '#f5c453'
+  const rgb = match.slice(1).map((value) => Number.parseInt(value, 16))
+  const luminance = rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114
+  const amount = luminance < 118 ? 0.42 : luminance < 150 ? 0.24 : 0.08
+  const adjusted = rgb.map((value) => Math.round(value + (255 - value) * amount))
+  return `#${adjusted.map((value) => value.toString(16).padStart(2, '0')).join('')}`
+}
+
 function bestLogo(items: LogoAsset[] = []) {
   return [...items]
     .filter((item) => item.iso_639_1 === 'en' || item.iso_639_1 === null)
@@ -72,6 +87,13 @@ function seasonLabel(info: SeasonInfo | null, progress: { watched: number; total
     return info.episodes ? `${seasons} / ${info.episodes} eps` : seasons
   }
   return progress.total > 0 ? `${progress.total} eps` : null
+}
+
+function runtimeLabel(minutes: number | null) {
+  if (!minutes) return null
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return hours ? `${hours}h ${remainder}m` : `${remainder}m`
 }
 
 interface Props {
@@ -87,21 +109,26 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const mediaType = show.mediaType ?? 'tv'
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const [episodeBulkBusy, setEpisodeBulkBusy] = useState<null | 'mark' | 'unmark'>(null)
-  const [logoPath, setLogoPath] = useState<string | null>(null)
+  const [logoPath, setLogoPath] = useState<string | null>(() => logoCache.get(show.id) ?? null)
   const [seasonInfo, setSeasonInfo] = useState<SeasonInfo | null>(null)
   const [showCast, setShowCast] = useState<DetailCastMember[]>([])
-  const [castLoading, setCastLoading] = useState(false)
+  const [castLoading, setCastLoading] = useState(() => hasTmdbKey())
+  const [detailInfo, setDetailInfo] = useState<DetailInfo>({ tagline: '', runtime: null, network: null, status: null })
+  const [videos, setVideos] = useState<TmdbVideoAsset[]>([])
+  const [selectedVideo, setSelectedVideo] = useState<TmdbVideoAsset | null>(null)
+  const [artworkAccent, setArtworkAccent] = useState<string | null>(null)
   const [rankEditorOpen, setRankEditorOpen] = useState(false)
   const [storyOpen, setStoryOpen] = useState(false)
   const [watchlistOpen, setWatchlistOpen] = useState(false)
   const [watchProviders, setWatchProviders] = useState<WatchProviderResult | null>(null)
+  const [openedAt] = useState(() => Date.now())
   const persistedShow = useDexieQuery<Show | undefined>(['shows'], () => db.shows.get(show.id), undefined, [show.id])
   const liveShow = persistedShow ?? show
   const owned = Boolean(persistedShow)
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
   const tierAssignment = useDexieQuery(['tierAssignments'], () => db.tierAssignments.get(show.id), undefined, [show.id])
   const cast = useDexieQuery(['castRoles'], () => db.castRoles.where({ showId: show.id }).toArray(), [], [show.id])
-  const nextEpisode = useDexieQuery(
+  const nextEpisode = useDexieQuery<NextEpisodeInfo | null>(
     ['episodeProgress', 'seasonCache'],
     async () => {
       const [cachedSeasons, watchedRows] = await Promise.all([
@@ -111,7 +138,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
       const watched = new Set(watchedRows.filter((row) => row.watched).map((row) => `${row.seasonNumber}:${row.episodeNumber}`))
       for (const season of cachedSeasons) {
         const episode = season.episodes.find((candidate) => !watched.has(`${season.seasonNumber}:${candidate.episode_number}`))
-        if (episode) return `S${season.seasonNumber}E${episode.episode_number}`
+        if (episode) return {
+          label: `S${season.seasonNumber} E${episode.episode_number}`,
+          name: episode.name,
+          stillPath: episode.still_path ?? null,
+        }
       }
       return null
     },
@@ -124,12 +155,10 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
 
   useEffect(() => {
     if (scrollEl) scrollEl.scrollTo({ top: 0, behavior: 'auto' })
-    setStoryOpen(false)
-  }, [show.id, scrollEl])
+  }, [scrollEl])
 
   useEffect(() => {
     if (mediaType === 'movie') {
-      setProgress({ watched: 0, total: 0 })
       return
     }
     progressForShow(show.id).then(setProgress)
@@ -137,14 +166,9 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
 
   useEffect(() => {
     if (!hasTmdbKey()) {
-      setLogoPath(null)
-      setSeasonInfo(null)
       return
     }
     let cancelled = false
-    const cachedLogo = logoCache.get(show.id)
-    if (cachedLogo !== undefined) setLogoPath(cachedLogo)
-
     getShowImages(show.id, mediaType)
       .then((images) => {
         const logo = bestLogo(images.logos)
@@ -159,6 +183,12 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     getShowDetail(show.id, mediaType)
       .then((detail) => {
         if (cancelled) return
+        setDetailInfo({
+          tagline: detail.tagline ?? '',
+          runtime: detail.runtime ?? null,
+          network: detail.networks?.[0]?.name ?? null,
+          status: detail.status ?? null,
+        })
         if (mediaType === 'movie') {
           setSeasonInfo(null)
           return
@@ -173,7 +203,10 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         })
       })
       .catch(() => {
-        if (!cancelled) setSeasonInfo(null)
+        if (!cancelled) {
+          setSeasonInfo(null)
+          setDetailInfo({ tagline: '', runtime: null, network: null, status: null })
+        }
       })
 
     return () => {
@@ -182,8 +215,42 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   }, [show.id, mediaType])
 
   useEffect(() => {
+    const art = liveShow.backdropPath || liveShow.posterPath
+    if (!art) {
+      return
+    }
+    let cancelled = false
+    dominantColor(imgUrl(art, liveShow.backdropPath ? 'w500' : 'w342')).then((color) => {
+      if (!cancelled) setArtworkAccent(readableArtworkAccent(color))
+    })
+    return () => { cancelled = true }
+  }, [liveShow.backdropPath, liveShow.posterPath])
+
+  useEffect(() => {
     if (!hasTmdbKey()) {
-      setWatchProviders(null)
+      return
+    }
+    let cancelled = false
+    getShowVideos(show.id, mediaType)
+      .then(({ results }) => {
+        if (cancelled) return
+        const youtube = results.filter((video) => video.site === 'YouTube')
+        const priority = (video: TmdbVideoAsset) => {
+          if (video.type === 'Trailer') return 0
+          if (video.type === 'Clip') return 1
+          if (video.type === 'Teaser') return 2
+          if (video.type === 'Opening Credits') return 3
+          if (video.type === 'Featurette') return 4
+          return 5
+        }
+        setVideos([...youtube].sort((a, b) => priority(a) - priority(b)).slice(0, 8))
+      })
+      .catch(() => { if (!cancelled) setVideos([]) })
+    return () => { cancelled = true }
+  }, [show.id, mediaType])
+
+  useEffect(() => {
+    if (!hasTmdbKey()) {
       return
     }
     let cancelled = false
@@ -201,12 +268,10 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
 
   useEffect(() => {
     if (!hasTmdbKey()) {
-      setShowCast([])
       return
     }
 
     let cancelled = false
-    setCastLoading(true)
     getCredits(show.id, mediaType)
       .then((credits) => {
         if (cancelled) return
@@ -230,7 +295,8 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const isTop8 = typeof liveShow.top8Position === 'number' && liveShow.top8Position >= 0
   const rarity = getRarity(liveShow, tier, isTop8)
   const r = RARITIES[rarity]
-  const accent = tier ? TIER_DETAIL[tier].color : r.hex
+  const fallbackAccent = tier ? TIER_DETAIL[tier].color : r.hex
+  const accent = artworkAccent ?? fallbackAccent
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
   const metadata = [
     liveShow.year,
@@ -242,14 +308,32 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     ? { label: 'Collection', icon: Plus, onClick: () => void handleAddToCollection() }
     : mediaType === 'tv' && !fullyWatched
       ? {
-          label: progress.watched > 0 ? `Continue${nextEpisode ? ` ${nextEpisode}` : ''}` : 'Start watching',
+          label: progress.watched > 0 ? `Continue${nextEpisode ? ` · ${nextEpisode.label}` : ''}` : 'Start watching',
           icon: Tv,
           onClick: () => onTrackEpisodes(liveShow),
         }
       : !tier
         ? { label: 'Rank it', icon: Trophy, onClick: () => setRankEditorOpen(true) }
         : null
-  const PrimaryIcon = primaryAction?.icon
+  const trailer = videos.find((video) => video.type === 'Trailer') ?? videos[0] ?? null
+  const resolvedPrimary = primaryAction ?? (trailer ? { label: 'Play trailer', icon: Play, onClick: () => setSelectedVideo(trailer) } : null)
+  const ResolvedPrimaryIcon = resolvedPrimary?.icon
+  const providerName = watchProviders
+    ? uniqueProviders([watchProviders.flatrate, watchProviders.free, watchProviders.ads, watchProviders.rent, watchProviders.buy])[0]?.provider_name ?? null
+    : null
+  const factItems = mediaType === 'tv'
+    ? [
+        { value: seasonInfo?.seasons ? `${seasonInfo.seasons}` : '—', label: seasonInfo?.seasons === 1 ? 'season' : 'seasons' },
+        { value: seasonInfo?.episodes ? `${seasonInfo.episodes}` : progress.total ? `${progress.total}` : '—', label: 'episodes' },
+        { value: providerName ?? detailInfo.status?.replace(' Series', '') ?? 'TV', label: providerName ? 'streaming' : 'status' },
+      ]
+    : [
+        { value: runtimeLabel(detailInfo.runtime) ?? 'Film', label: 'runtime' },
+        { value: liveShow.rawGenres?.find((genre) => genre !== 'Animation') ?? liveShow.genres[0] ?? 'Movie', label: 'genre' },
+        { value: providerName ?? detailInfo.status ?? 'Released', label: providerName ? 'streaming' : 'status' },
+      ]
+  const progressPercent = progress.total > 0 ? Math.min(100, Math.round((progress.watched / progress.total) * 100)) : 0
+  const discoverIsHidden = Boolean(discoverFeedback?.hiddenUntil && discoverFeedback.hiddenUntil > openedAt)
 
   const handleAddToCollection = async () => {
     await upsertShow({
@@ -271,6 +355,15 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     if (!confirm(`Remove "${show.name}" from your collection?`)) return
     await deleteShow(show.id)
     onBack()
+  }
+
+  const handleShare = async () => {
+    const payload = { title: liveShow.name, text: `Check out ${liveShow.name}`, url: window.location.href }
+    if (navigator.share) {
+      await navigator.share(payload).catch(() => undefined)
+      return
+    }
+    await navigator.clipboard?.writeText(window.location.href).catch(() => undefined)
   }
 
   const hideFromDiscover = async () => {
@@ -325,177 +418,191 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   return (
     <motion.div
       ref={setScrollEl}
-      initial={reducedMotion ? false : { opacity: 0, scale: 0.94, y: 22 }}
+      initial={reducedMotion ? false : { opacity: 0, scale: 0.96, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={reducedMotion ? undefined : { opacity: 0, scale: 0.975, y: 10 }}
+      exit={reducedMotion ? undefined : { opacity: 0, scale: 0.98, y: 8 }}
       transition={{ duration: reducedMotion ? 0 : 0.34, ease: [0.22, 1, 0.36, 1] }}
-      className="fixed inset-0 z-[45] origin-center overflow-y-auto overscroll-contain bg-[#060509] pb-24 text-white"
+      className="fixed inset-0 z-[45] origin-center overflow-y-auto overscroll-contain bg-[#030406] pb-24 text-white"
+      style={{ backgroundImage: `radial-gradient(circle at 50% 8%, ${accent}1f, transparent 32rem)` }}
     >
-      <div className="relative h-[clamp(330px,42svh,390px)] overflow-hidden">
-        {liveShow.backdropPath ? (
-          <img
-            src={imgUrl(liveShow.backdropPath, 'original')}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover opacity-[0.86]"
-            aria-hidden
-          />
-        ) : null}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/8 via-black/18 to-[#060509]" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/72 via-black/20 to-black/8" />
-        <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#060509] via-[#060509]/76 to-transparent" />
+      <div className="mx-auto min-h-full w-full max-w-md overflow-hidden bg-[#06080a] shadow-[0_0_80px_rgba(0,0,0,0.72)]">
+        <section className="relative flex min-h-[clamp(490px,66svh,590px)] items-end overflow-hidden px-5 pb-6">
+          {liveShow.backdropPath || liveShow.posterPath ? (
+            <img
+              src={imgUrl(liveShow.backdropPath || liveShow.posterPath, liveShow.backdropPath ? 'original' : 'w500')}
+              alt=""
+              className={cn('absolute inset-0 h-full w-full opacity-[0.9]', liveShow.backdropPath ? 'object-cover' : 'object-cover object-top')}
+              aria-hidden
+            />
+          ) : null}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/5 via-black/10 to-[#06080a]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/52 via-black/5 to-black/10" />
+          <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-[#06080a] via-[#06080a]/80 to-transparent" />
+          <div className="absolute inset-0 opacity-70" style={{ background: `radial-gradient(circle at 82% 18%, ${accent}2b, transparent 18rem)` }} />
 
-        <header className="relative z-20 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
-          <button onClick={onBack} className="grid h-11 w-11 place-items-center rounded-full bg-black/34 text-white/86 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95" aria-label="Back">
-            <ChevronLeft size={21} />
-          </button>
-          <motion.button
-            key={tier ?? 'rank'}
-            onClick={() => setRankEditorOpen((open) => !open)}
-            initial={{ opacity: 0, y: -8, scale: 0.92 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            className={cn(
-              'grid h-11 min-w-11 place-items-center rounded-[17px] border bg-black/34 px-3 font-black uppercase backdrop-blur-xl active:scale-95',
-              tier ? 'text-[16px]' : 'text-[9px] tracking-[0.14em]',
+          <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+            <button onClick={onBack} className="grid h-9 w-9 place-items-center rounded-full bg-black/38 text-white/88 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Back">
+              <ChevronLeft size={19} />
+            </button>
+            <div className="flex gap-2">
+              <button onClick={() => setWatchlistOpen(true)} className="grid h-9 w-9 place-items-center rounded-full bg-black/38 text-white/76 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Add to watchlist">
+                <Bookmark size={15} />
+              </button>
+              <motion.button
+                key={tier ?? 'rank'}
+                onClick={() => setRankEditorOpen((open) => !open)}
+                className="grid h-9 min-w-9 place-items-center rounded-full border bg-black/38 px-2 text-[10px] font-black uppercase backdrop-blur-xl active:scale-95"
+                style={{ color: tier ? TIER_DETAIL[tier].color : 'rgba(255,255,255,.72)', borderColor: tier ? `${TIER_DETAIL[tier].color}72` : 'rgba(255,255,255,.12)' }}
+                aria-label={tier ? `Change ${tier} rank` : 'Rank this title'}
+              >
+                {tier ?? <Trophy size={14} />}
+              </motion.button>
+              <button onClick={() => void handleShare()} className="grid h-9 w-9 place-items-center rounded-full bg-black/38 text-white/76 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Share">
+                <Share2 size={14} />
+              </button>
+            </div>
+          </header>
+
+          <AnimatePresence>
+            {rankEditorOpen && (
+              <motion.div
+                initial={reducedMotion ? false : { opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={reducedMotion ? undefined : { opacity: 0, y: -3, scale: 0.98 }}
+                transition={{ duration: reducedMotion ? 0 : 0.18 }}
+                className="absolute right-4 top-[calc(max(1rem,env(safe-area-inset-top))+3rem)] z-30 origin-top-right"
+              >
+                <InlineRank tier={tier} onTier={handleTier} />
+              </motion.div>
             )}
-            style={{
-              color: tier ? accent : 'rgba(255,255,255,0.66)',
-              borderColor: tier ? `${accent}66` : 'rgba(255,255,255,0.1)',
-            }}
-            aria-label={tier ? `Change ${tier} rank` : 'Rank this show'}
-          >
-            {tier ?? 'Rank'}
-          </motion.button>
-        </header>
+          </AnimatePresence>
 
-        <AnimatePresence>
-          {rankEditorOpen && (
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, transform: 'translateY(-4px) scale(0.97)' }}
-              animate={{ opacity: 1, transform: 'translateY(0) scale(1)' }}
-              exit={reducedMotion ? undefined : { opacity: 0, transform: 'translateY(-3px) scale(0.98)' }}
-              transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.23, 1, 0.32, 1] }}
-              className="absolute right-4 top-[calc(max(1rem,env(safe-area-inset-top))+3.5rem)] z-30 origin-top-right"
-            >
-              <InlineRank tier={tier} onTier={handleTier} />
-            </motion.div>
+          <div className="relative z-10 w-full">
+            <p className="mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/60">
+              {detailInfo.network ?? (mediaType === 'movie' ? 'Feature film' : 'Television series')}
+            </p>
+            {logoPath ? (
+              <img src={imgUrl(logoPath, 'w500')} alt={liveShow.name} className="max-h-[92px] max-w-[78%] object-contain object-left drop-shadow-[0_14px_30px_rgba(0,0,0,0.96)]" />
+            ) : (
+              <h1 className="max-w-[350px] text-[43px] font-black leading-[0.9] tracking-[-0.075em] text-balance drop-shadow-[0_14px_30px_rgba(0,0,0,0.95)]">{liveShow.name}</h1>
+            )}
+            {detailInfo.tagline && <p className="mt-2 max-w-[320px] text-[11px] font-semibold text-white/62">{detailInfo.tagline}</p>}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-bold text-white/58">
+              <ImdbBadge showId={show.id} compact />
+              {metadata.map((item) => <span key={item}>{item}</span>)}
+              {detailInfo.status && <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-1 text-[8px] uppercase tracking-[0.08em] text-white/48">{detailInfo.status.replace(' Series', '')}</span>}
+            </div>
+            {recommendationContext && (
+              <p className="mt-2 text-[9px] font-bold text-white/38">
+                Because you liked {recommendationContext.anchorName}{recommendationContext.sharedGenre ? ` · ${recommendationContext.sharedGenre}` : ''}
+              </p>
+            )}
+
+            <div className="mt-4 flex items-center gap-2">
+              {resolvedPrimary ? (
+                <button
+                  onClick={resolvedPrimary.onClick}
+                  className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-[12px] px-4 text-[10px] font-black uppercase tracking-[0.1em] text-black shadow-[0_14px_32px_rgba(0,0,0,0.3)] active:scale-[0.98]"
+                  style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 76%, white), ${accent})`, boxShadow: `0 14px 34px ${accent}2d` }}
+                >
+                  {ResolvedPrimaryIcon && <ResolvedPrimaryIcon size={14} strokeWidth={3} />}
+                  <span className="truncate">{resolvedPrimary.label}</span>
+                </button>
+              ) : (
+                <div className="flex h-10 flex-1 items-center justify-center rounded-[12px] border border-white/[0.1] bg-white/[0.04] text-[10px] font-black uppercase tracking-[0.1em] text-white/48">In collection</div>
+              )}
+              {trailer && resolvedPrimary?.label !== 'Play trailer' && (
+                <button onClick={() => setSelectedVideo(trailer)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white backdrop-blur-xl active:scale-95" aria-label="Play trailer">
+                  <Play size={14} fill="currentColor" />
+                </button>
+              )}
+              <button onClick={() => setStoryOpen((open) => !open)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white/72 backdrop-blur-xl active:scale-95" aria-label="More details">
+                <MoreHorizontal size={16} />
+              </button>
+            </div>
+
+            {mediaType === 'tv' && (
+              <div className="mt-4">
+                <div className="flex justify-between text-[8px] font-black uppercase tracking-[0.1em] text-white/42">
+                  <span>{progress.total > 0 ? `${progress.watched} of ${progress.total} episodes watched` : 'Track your episodes'}</span>
+                  {progress.total > 0 && <span style={{ color: accent }}>{progressPercent}%</span>}
+                </div>
+                <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-white/[0.12]">
+                  <motion.div className="h-full rounded-full" animate={{ width: `${progressPercent}%` }} style={{ background: `linear-gradient(90deg, ${accent}, white)` }} />
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <main className="relative z-20 px-4 pb-6">
+          {liveShow.overview && (
+            <section>
+              <p className={cn('text-[13px] font-semibold leading-[1.52] text-white/68', !storyOpen && 'line-clamp-3')}>{liveShow.overview}</p>
+              {liveShow.overview.length > 180 && (
+                <button onClick={() => setStoryOpen((value) => !value)} className="mt-1.5 text-[9px] font-black uppercase tracking-[0.15em] text-white/32 active:scale-95">{storyOpen ? 'Less' : 'More'}</button>
+              )}
+            </section>
           )}
-        </AnimatePresence>
 
-        <div className="absolute inset-x-0 bottom-6 z-10 px-5">
-          {logoPath ? (
-            <img src={imgUrl(logoPath, 'w500')} alt={liveShow.name} className="max-h-[88px] max-w-[72%] object-contain object-left drop-shadow-[0_14px_30px_rgba(0,0,0,0.96)]" />
-          ) : (
-            <h1 className="max-w-[330px] text-[40px] font-black leading-[0.9] tracking-[-0.08em] text-balance drop-shadow-[0_14px_30px_rgba(0,0,0,0.9)]">{liveShow.name}</h1>
-          )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[9px] font-black uppercase tracking-[0.16em] text-white/58">
-            <ImdbBadge showId={show.id} compact className="mr-1" />
-            {metadata.map((item) => <span key={item}>{item}</span>)}
+          <div className="mt-4 grid grid-cols-3 border-y border-white/[0.08]">
+            {factItems.map((fact, index) => (
+              <div key={`${fact.label}-${fact.value}`} className={cn('min-w-0 py-3', index > 0 && 'border-l border-white/[0.08] pl-3', index < 2 && 'pr-2')}>
+                <p className="truncate text-[11px] font-black text-white/82">{fact.value}</p>
+                <p className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.09em] text-white/28">{fact.label}</p>
+              </div>
+            ))}
           </div>
 
-          {recommendationContext && (
-            <p className="mt-2 max-w-[300px] text-[10px] font-black uppercase tracking-[0.14em] text-white/42">
-              Recommended from {recommendationContext.anchorName}
-              {recommendationContext.anchorTier ? ` · ${recommendationContext.anchorTier}-tier` : ''}
-              {recommendationContext.sharedGenre ? ` · ${recommendationContext.sharedGenre}` : ''}
-            </p>
-          )}
-        </div>
-      </div>
+          {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
 
-      <main className="relative z-20 px-4 pt-4">
-        {liveShow.overview && (
-          <section>
-            <p className={cn('text-[15px] font-semibold leading-[1.38] text-white/72', !storyOpen && 'line-clamp-3')}>
-              {liveShow.overview}
-            </p>
-            {liveShow.overview.length > 180 && (
-              <button onClick={() => setStoryOpen((value) => !value)} className="mt-2 text-[9px] font-black uppercase tracking-[0.18em] text-white/34 active:scale-95">
-                {storyOpen ? 'Less' : 'More'}
+          {mediaType === 'tv' && <TrackingSection
+            show={liveShow}
+            progress={progress}
+            nextEpisode={nextEpisode}
+            busy={episodeBulkBusy}
+            onOpen={async () => {
+              if (!owned) await handleAddToCollection()
+              onTrackEpisodes(liveShow)
+            }}
+            onBulk={handleEpisodeBulk}
+            accent={accent}
+          />}
+
+          <VideoSection videos={videos} onSelect={setSelectedVideo} accent={accent} />
+
+          <div className="mt-5 flex min-h-8 items-start justify-between gap-3">
+            <div className="min-w-0 flex-1"><VibeRail showId={show.id} applied={showEmojis} accent={accent} /></div>
+            {!owned && (
+              <button
+                onClick={() => discoverIsHidden ? void restoreToDiscover() : void hideFromDiscover()}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-white/26 hover:text-white/58 active:scale-95"
+              >
+                <EyeOff size={12} />
+                {discoverIsHidden ? 'Show again' : 'Not interested'}
               </button>
             )}
-          </section>
-        )}
+          </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {primaryAction ? (
-            <button
-              onClick={primaryAction.onClick}
-              className="flex h-12 items-center justify-center gap-2 rounded-[18px] bg-[#f5c453] text-[10px] font-black uppercase tracking-[0.14em] text-black shadow-[0_16px_36px_rgba(245,196,83,0.16)] active:scale-[0.98]"
-            >
-              {PrimaryIcon && <PrimaryIcon size={16} strokeWidth={3} />}
-              {primaryAction.label}
-            </button>
-          ) : (
-            <div className="flex h-12 items-center justify-center rounded-[18px] border border-white/[0.08] bg-white/[0.025] text-[10px] font-black uppercase tracking-[0.14em] text-white/38">
-              {mediaType === 'movie' ? 'Animated film' : 'Fully watched'}
+          <CastSection
+            assigned={cast}
+            members={showCast}
+            loading={castLoading}
+            onCast={async () => { if (!owned) await handleAddToCollection(); onAssignRole(liveShow) }}
+            onCastPerson={async (personId) => { if (!owned) await handleAddToCollection(); onAssignRole(liveShow, personId) }}
+            accent={accent}
+          />
+
+          {owned && (
+            <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
+              <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-white/18 hover:text-rose-300 active:scale-95"><Trash2 size={12} />Remove from collection</button>
             </div>
           )}
-          <button
-            onClick={() => setWatchlistOpen(true)}
-            className="flex h-12 items-center justify-center gap-2 rounded-[18px] border border-white/[0.1] bg-transparent text-[10px] font-black uppercase tracking-[0.14em] text-white/66 active:scale-[0.98]"
-          >
-            <Bookmark size={15} />
-            Watchlist
-          </button>
-        </div>
+        </main>
+      </div>
 
-        {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
-
-        <div className="mt-3 flex min-h-8 items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <VibeRail showId={show.id} applied={showEmojis} accent={accent} />
-          </div>
-          {!owned && (
-            <button
-              onClick={() => discoverFeedback?.hiddenUntil && discoverFeedback.hiddenUntil > Date.now()
-                ? void restoreToDiscover()
-                : void hideFromDiscover()}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.14em] text-white/26 transition-colors hover:text-white/58 active:scale-95"
-            >
-              <EyeOff size={12} />
-              {discoverFeedback?.hiddenUntil && discoverFeedback.hiddenUntil > Date.now() ? 'Show again' : 'Not interested'}
-            </button>
-          )}
-        </div>
-
-        {mediaType === 'tv' && <TrackingSection
-          show={liveShow}
-          progress={progress}
-          busy={episodeBulkBusy}
-          onOpen={async () => {
-            if (!owned) await handleAddToCollection()
-            onTrackEpisodes(liveShow)
-          }}
-          onBulk={handleEpisodeBulk}
-          accent={accent}
-        />}
-
-        <CastSection
-          assigned={cast}
-          members={showCast}
-          loading={castLoading}
-          onCast={async () => {
-            if (!owned) await handleAddToCollection()
-            onAssignRole(liveShow)
-          }}
-          onCastPerson={async (personId) => {
-            if (!owned) await handleAddToCollection()
-            onAssignRole(liveShow, personId)
-          }}
-          accent={accent}
-        />
-
-        {owned && (
-          <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
-            <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/18 transition-colors hover:text-rose-300 active:scale-95">
-              <Trash2 size={12} />
-              Remove from collection
-            </button>
-          </div>
-        )}
-      </main>
       <WatchlistShelfPicker open={watchlistOpen} show={liveShow} onClose={() => setWatchlistOpen(false)} />
+      <VideoModal video={selectedVideo} onClose={() => setSelectedVideo(null)} />
       {feedbackUndoVisible && (
         <div className="fixed inset-x-4 bottom-24 z-[70] mx-auto flex h-14 max-w-sm items-center justify-between rounded-[20px] bg-[#17141b]/96 px-4 text-[12px] font-bold text-white shadow-[0_22px_54px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
           <span>Hidden from Discover</span>
@@ -630,6 +737,80 @@ function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) 
   )
 }
 
+function VideoSection({ videos, onSelect, accent }: { videos: TmdbVideoAsset[]; onSelect: (video: TmdbVideoAsset) => void; accent: string }) {
+  if (!videos.length) return null
+  return (
+    <section className="mt-7">
+      <div className="mb-3 flex items-end justify-between">
+        <div>
+          <p className="text-[8px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>Watch before you watch</p>
+          <h2 className="mt-1 text-[15px] font-black tracking-[-0.04em] text-white/88">Trailers & clips</h2>
+        </div>
+        <span className="text-[9px] font-bold text-white/26">{videos.length} videos</span>
+      </div>
+      <div className="-mr-4 flex gap-2.5 overflow-x-auto pb-1 pr-4 no-scrollbar">
+        {videos.map((video) => (
+          <button
+            key={video.id}
+            onClick={() => onSelect(video)}
+            className="group relative aspect-[16/10] w-[178px] shrink-0 overflow-hidden rounded-[14px] bg-black text-left ring-1 ring-white/[0.1] active:scale-[0.98]"
+          >
+            <img src={`https://i.ytimg.com/vi/${video.key}/hqdefault.jpg`} alt="" className="absolute inset-0 h-full w-full object-cover opacity-75 transition duration-500 group-hover:scale-[1.04] group-hover:opacity-90" loading="lazy" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/94 via-black/10 to-black/10" />
+            <span className="absolute left-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-full text-black shadow-lg" style={{ background: accent }}><Play size={10} fill="currentColor" /></span>
+            <span className="absolute inset-x-0 bottom-0 p-2.5">
+              <span className="block text-[8px] font-black uppercase tracking-[0.1em] text-white/40">{video.type}</span>
+              <span className="mt-0.5 line-clamp-2 block text-[10px] font-black leading-[1.15] text-white/88">{video.name}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function VideoModal({ video, onClose }: { video: TmdbVideoAsset | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!video) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [video, onClose])
+
+  return (
+    <AnimatePresence>
+      {video && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[90] grid place-items-center bg-black/88 p-4 backdrop-blur-xl"
+          role="dialog"
+          aria-modal="true"
+          aria-label={video.name}
+          onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+        >
+          <motion.div initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-3xl overflow-hidden rounded-[22px] bg-[#090b0d] shadow-[0_28px_100px_rgba(0,0,0,.72)] ring-1 ring-white/[0.12]">
+            <div className="aspect-video bg-black">
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${video.key}?autoplay=1&rel=0`}
+                title={video.name}
+                className="h-full w-full border-0"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-[0.13em] text-white/32">{video.type}</p><p className="truncate text-[12px] font-black text-white/82">{video.name}</p></div>
+              <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/72 ring-1 ring-white/[0.1] active:scale-95" aria-label="Close video"><X size={15} /></button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 function CastSection({
   assigned,
   members,
@@ -741,6 +922,7 @@ function CastSection({
 function TrackingSection({
   show,
   progress,
+  nextEpisode,
   busy,
   onOpen,
   onBulk,
@@ -748,60 +930,35 @@ function TrackingSection({
 }: {
   show: Show
   progress: { watched: number; total: number }
+  nextEpisode: NextEpisodeInfo | null
   busy: null | 'mark' | 'unmark'
   onOpen: () => void
   onBulk: (watchAll: boolean) => void
   accent: string
 }) {
-  const reducedMotion = useReducedMotion()
   const complete = progress.total > 0 && progress.watched >= progress.total
   const percent = progress.total > 0 ? Math.min(100, (progress.watched / progress.total) * 100) : 0
-  const percentLabel = progress.total > 0 ? `${Math.round(percent)}% watched` : 'Choose seasons and episodes'
-  const statusLabel = progress.total > 0 ? (complete ? 'All watched' : `${progress.watched}/${progress.total}`) : 'Start'
   return (
-    <section className="mt-8 -mx-4">
-      <div className="relative overflow-hidden border-y border-white/[0.07] bg-[#101014] shadow-[0_22px_58px_rgba(0,0,0,0.46)]">
-        {show.backdropPath ? (
-          <img src={imgUrl(show.backdropPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-[0.42]" loading="lazy" />
-        ) : null}
-        <div className="absolute inset-0 bg-gradient-to-r from-black/92 via-black/62 to-black/26" />
-        <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 88% 16%, ${accent}33, transparent 17rem)` }} />
-
-        <div className="relative z-10 p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: accent }}>
-                <Tv size={14} /> Watch tracking
-              </div>
-              <p className="mt-3 text-[34px] font-black leading-none tracking-[-0.09em] text-white">
-                {statusLabel}
-              </p>
-              <p className="mt-1 text-[12px] font-bold text-white/50">{percentLabel}</p>
-            </div>
-            <button onClick={onOpen} className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full border border-white/[0.12] bg-black/24 text-white/72 backdrop-blur-md active:scale-95" aria-label="Open episode tracker">
-              <Tv size={20} strokeWidth={2.8} />
-            </button>
+    <section className="mt-7">
+      <div className="mb-3 flex items-end justify-between">
+        <div><p className="text-[8px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>Episode tracking</p><h2 className="mt-1 text-[15px] font-black tracking-[-0.04em] text-white/88">{complete ? 'All watched' : nextEpisode ? 'Up next' : 'Your progress'}</h2></div>
+        <button onClick={onOpen} className="text-[9px] font-black uppercase tracking-[0.1em]" style={{ color: accent }}>Episode guide</button>
+      </div>
+      <button onClick={onOpen} className="group relative w-full overflow-hidden rounded-[16px] bg-[#101418] text-left ring-1 ring-white/[0.09] active:scale-[0.99]">
+        {nextEpisode?.stillPath ? <img src={imgUrl(nextEpisode.stillPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-45 transition duration-500 group-hover:scale-[1.02]" loading="lazy" /> : show.backdropPath ? <img src={imgUrl(show.backdropPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" loading="lazy" /> : null}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/72 to-black/28" />
+        <div className="relative flex min-h-[112px] items-center justify-between gap-4 p-4">
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.12em]" style={{ color: accent }}>{nextEpisode?.label ?? (complete ? 'Complete' : 'Ready when you are')}</p>
+            <p className="mt-1 truncate text-[16px] font-black tracking-[-0.04em] text-white">{nextEpisode?.name ?? (complete ? 'You finished this series' : 'Choose your first episode')}</p>
+            <p className="mt-1 text-[9px] font-bold text-white/40">{progress.total > 0 ? `${progress.watched} of ${progress.total} watched · ${Math.round(percent)}%` : 'Open the episode guide to begin'}</p>
           </div>
-
-          <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/[0.1]">
-            <motion.div
-              initial={false}
-              animate={{ width: `${percent}%` }}
-              transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 190, damping: 24 }}
-              className="h-full rounded-full"
-              style={{ background: `linear-gradient(90deg, ${accent}, rgba(255,255,255,0.86))` }}
-            />
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button onClick={onOpen} className="h-12 rounded-[20px] border border-white/[0.1] bg-transparent px-4 text-[11px] font-black uppercase tracking-[0.16em] text-white/68 active:scale-[0.98]">
-              Episodes
-            </button>
-            <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-12 rounded-[20px] border bg-transparent px-4 text-[11px] font-black uppercase tracking-[0.16em] disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}55` }}>
-              {busy ? 'Saving' : complete ? 'Unmark all' : 'Mark watched'}
-            </button>
-          </div>
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-black shadow-lg" style={{ background: accent }}>{complete ? <Check size={16} strokeWidth={3} /> : <Play size={13} fill="currentColor" />}</span>
         </div>
+      </button>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button onClick={onOpen} className="h-10 rounded-[12px] border border-white/[0.1] bg-white/[0.025] text-[9px] font-black uppercase tracking-[0.12em] text-white/62 active:scale-[0.98]">Episodes</button>
+        <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-10 rounded-[12px] border bg-transparent text-[9px] font-black uppercase tracking-[0.12em] disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}4d` }}>{busy ? 'Saving' : complete ? 'Unmark all' : 'Mark watched'}</button>
       </div>
     </section>
   )
