@@ -27,6 +27,20 @@ describe('animation pivot taxonomy', () => {
     expect(show.rawGenres).toEqual(['Animation', 'Comedy'])
     expect(show.genre).toBe('Comedy')
     expect(show.vibeIds).toContain('adult_animation_cynical')
+    expect(show.cardDescriptor?.label).toBe('Satire')
+  })
+
+  it('preserves TMDB’s combined TV fantasy and science-fiction genre', () => {
+    const show = tmdbToLoot({
+      id: 2,
+      name: 'Combined Genre Test',
+      genre_ids: [16, 35, 10765],
+      origin_country: ['US'],
+      original_language: 'en',
+      overview: 'A druid must recover a stolen magic potion.',
+    })
+    expect(show.rawGenres).toContain('Sci-Fi & Fantasy')
+    expect(show.cardDescriptor?.label).toBe('Magic Comedy')
   })
 
   it('exposes only the animation-native vibe set', () => {

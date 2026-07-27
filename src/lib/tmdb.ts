@@ -1,8 +1,9 @@
 // TMDB API client — user provides their own key in app settings.
 
-import type { AnimationTradition, MediaType } from '../types'
+import type { AnimationTradition, CardDescriptor, MediaType } from '../types'
 import { scoreShowVibes } from './vibe-engine'
 import { isSafeGrownUpAnimation } from './animation-taxonomy'
+import { selectCardDescriptor } from './card-descriptors'
 
 const TMDB_BASE = 'https://api.themoviedb.org/3'
 export const TMDB_IMG = 'https://image.tmdb.org/t/p'
@@ -89,6 +90,7 @@ export interface LootShow {
   mediaType: MediaType
   vibeIds: string[]
   vibeEvidence: Record<string, string[]>
+  cardDescriptor?: CardDescriptor
 }
 
 const GENRES: Record<number, string> = {
@@ -103,7 +105,7 @@ const GENRES: Record<number, string> = {
   9648: 'Mystery',
   10763: 'News',
   10764: 'Reality',
-  10765: 'Sci-Fi',
+  10765: 'Sci-Fi & Fantasy',
   10766: 'Soap',
   10767: 'Talk',
   10768: 'War',
@@ -161,6 +163,11 @@ function normalizeListItem(raw: RawTmdbListItem, mediaType: MediaType): TmdbSear
 export function tmdbToLoot(raw: TmdbSearchResult): LootShow {
   const rawGenres = (raw.genre_ids ?? []).map(getGenreName)
   const tradition = deriveTradition(raw.origin_country, raw.original_language)
+  const cardDescriptor = selectCardDescriptor({
+    overview: raw.overview,
+    genreNames: rawGenres,
+    tradition,
+  })
   const profile = scoreShowVibes({
     id: raw.id,
     title: raw.name,
@@ -187,6 +194,7 @@ export function tmdbToLoot(raw: TmdbSearchResult): LootShow {
     mediaType: raw.mediaType ?? 'tv',
     vibeIds: topVibes.map((vibe) => vibe.vibeId),
     vibeEvidence: Object.fromEntries(topVibes.map((vibe) => [vibe.vibeId, vibe.evidence])),
+    cardDescriptor,
   }
 }
 

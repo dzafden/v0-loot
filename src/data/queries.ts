@@ -13,6 +13,7 @@ import type {
 } from '../types'
 import { deriveTradition, getShowDetail, getShowKeywords, hasTmdbKey } from '../lib/tmdb'
 import { buildVibeCandidate, scoreShowVibes } from '../lib/vibe-engine'
+import { selectCardDescriptor } from '../lib/card-descriptors'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
@@ -57,6 +58,12 @@ async function classifyPersistedShow(show: Show, target: 'shows' | 'watchlistSho
       genres: detail.genres.map((genre) => genre.name) as Show['genres'],
       vibeIds: top.map((vibe) => vibe.vibeId),
       vibeEvidence: Object.fromEntries(top.map((vibe) => [vibe.vibeId, vibe.evidence])),
+      cardDescriptor: selectCardDescriptor({
+        overview: detail.overview ?? show.overview,
+        keywords: keywords.results.map((keyword) => keyword.name),
+        genreNames: detail.genres.map((genre) => genre.name),
+        tradition: show.tradition ?? deriveTradition(detail.origin_country, detail.original_language),
+      }),
       updatedAt: Date.now(),
     }
     await db[target].update(show.id, patch)

@@ -114,6 +114,7 @@ function starterFromLoot(show: LootShow): StarterTitle {
     tradition: show.tradition,
     vibeIds: show.vibeIds,
     vibeEvidence: show.vibeEvidence,
+    cardDescriptor: show.cardDescriptor,
     accent: ONBOARDING_ACCENTS[Math.abs(show.id) % ONBOARDING_ACCENTS.length],
   }
 }
@@ -203,7 +204,7 @@ export function FirstSessionOnboarding({ onComplete }: { onComplete: () => void 
     const now = startedAt
     const shows: Show[] = selected.map((title, index) => ({
       id: title.id, name: title.name, year: title.year, mediaType: title.mediaType, posterPath: title.posterPath, backdropPath: title.backdropPath,
-      overview: title.overview, genres: title.genres, rawGenres: title.rawGenres, tradition: title.tradition, vibeIds: title.vibeIds, vibeEvidence: title.vibeEvidence,
+      overview: title.overview, genres: title.genres, rawGenres: title.rawGenres, tradition: title.tradition, vibeIds: title.vibeIds, vibeEvidence: title.vibeEvidence, cardDescriptor: title.cardDescriptor,
       addedAt: now + index, updatedAt: now + index,
     }))
     try {

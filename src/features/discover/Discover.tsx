@@ -8,6 +8,7 @@ import {
   getDiscoverCategoryPage,
   getSeason,
   getShowDetail,
+  getShowKeywords,
   getShowWatchProviders,
   getWatchRegion,
   getTmdbKey,
@@ -25,17 +26,18 @@ import {
 import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import type { Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
+import type { CardDescriptor, Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
-import { getVibeChipTitle, getVibeTitle } from '../../lib/vibe-engine'
+import { getVibeTitle } from '../../lib/vibe-engine'
 import { pickAnimationKey } from '../../engine/genre-animations'
 import { getSecondaryAnimationGenre, getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
 import { dominantColor } from '../../lib/dominantColor'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { selectCardDescriptor } from '../../lib/card-descriptors'
 
 interface Props {
   onOpenSettings: () => void
@@ -50,6 +52,41 @@ const TASTE_REC_TTL_MS = 24 * 60 * 60_000
 const DISCOVER_IMPRESSIONS_KEY = 'loot:discover-impressions:v1'
 const DISCOVER_LIBRARY_SNAPSHOT_KEY = 'loot:discover-library-snapshot:v1'
 const WATCH_DROP_ENABLED = false
+const cardDescriptorEnrichmentCache = new Map<string, Promise<CardDescriptor | undefined>>()
+
+function enrichCardDescriptor(show: LootShow): Promise<CardDescriptor | undefined> {
+  const key = `${show.mediaType}:${show.id}`
+  const cached = cardDescriptorEnrichmentCache.get(key)
+  if (cached) return cached
+
+  const request = getShowKeywords(show.id, show.mediaType)
+    .then((keywords) => selectCardDescriptor({
+      overview: show.overview,
+      keywords: keywords.results.map((keyword) => keyword.name),
+      genreNames: show.rawGenres,
+      tradition: show.tradition,
+    }))
+    .catch(() => show.cardDescriptor)
+  cardDescriptorEnrichmentCache.set(key, request)
+  return request
+}
+
+function useEnrichedCardDescriptor(show: LootShow, isVisible: boolean) {
+  const [descriptor, setDescriptor] = useState<CardDescriptor | undefined>(() => show.cardDescriptor)
+
+  useEffect(() => {
+    if (!isVisible || !hasTmdbKey() || descriptor?.confidence === 1) return
+    let cancelled = false
+    void enrichCardDescriptor(show).then((next) => {
+      if (!cancelled && next && (next.id !== descriptor?.id || next.label !== descriptor.label)) {
+        setDescriptor(next)
+      }
+    })
+    return () => { cancelled = true }
+  }, [descriptor, isVisible, show])
+
+  return descriptor
+}
 // Maps genre name strings (as used in MoodDefinition.genreHints) to TMDB genre IDs
 const GENRE_NAME_TO_ID: Record<string, number> = {
   Action: 10759, Adventure: 12, Animation: 16, Comedy: 35, Crime: 80,
@@ -1672,6 +1709,7 @@ function DiscoverResultCard({
         tradition: show.tradition,
         vibeIds: show.vibeIds,
         vibeEvidence: show.vibeEvidence,
+        cardDescriptor: show.cardDescriptor,
         addedAt: now, updatedAt: now,
       })
       setDone('watchlist')
@@ -1697,6 +1735,7 @@ function DiscoverResultCard({
         tradition: show.tradition,
         vibeIds: show.vibeIds,
         vibeEvidence: show.vibeEvidence,
+        cardDescriptor: show.cardDescriptor,
         addedAt: now,
         updatedAt: now,
       })
@@ -2362,6 +2401,7 @@ function lootToShow(show: LootShow): Show {
     tradition: show.tradition,
     vibeIds: show.vibeIds,
     vibeEvidence: show.vibeEvidence,
+    cardDescriptor: show.cardDescriptor,
     addedAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -2378,11 +2418,19 @@ function DiscoveryReason({ show }: { show: LootShow }) {
   )
 }
 
-function TaxonomyChip({ show, landscape = false }: { show: LootShow; landscape?: boolean }) {
-  const label = getVibeChipTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)
+function TaxonomyChip({
+  show,
+  descriptor = show.cardDescriptor,
+  landscape = false,
+}: {
+  show: LootShow
+  descriptor?: CardDescriptor
+  landscape?: boolean
+}) {
+  const label = descriptor?.label
   if (!label) return null
   return (
-    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[0.14] bg-[#08080c]/94 px-3 text-[10px] font-black uppercase tracking-[0.075em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.52)] backdrop-blur-xl', landscape ? 'max-w-[calc(100%-76px)]' : 'max-w-[108px]')}>
+    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 inline-flex h-8 max-w-[calc(100%-76px)] items-center gap-1.5 rounded-full border border-white/[0.14] bg-[#08080c]/94 px-3 text-[10px] font-black uppercase tracking-[0.075em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.52)] backdrop-blur-xl', landscape && 'max-w-[calc(100%-76px)]')}>
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5c453] shadow-[0_0_10px_rgba(245,196,83,0.7)]" aria-hidden />
       <span className="truncate">{label}</span>
     </span>
@@ -2528,8 +2576,23 @@ function PortraitCard({
 }) {
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
+  const [isVisible, setIsVisible] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const cardControls = useAnimation()
   const posterUrl = show.posterPath ? imgUrl(show.posterPath, 'w342') : ''
+  const descriptor = useEnrichedCardDescriptor(show, isVisible)
+
+  useEffect(() => {
+    const node = cardRef.current
+    if (!node) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return
+      setIsVisible(true)
+      observer.disconnect()
+    }, { rootMargin: '200px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   const handleAdd = async () => {
     if (isOwned || adding) return
@@ -2552,6 +2615,7 @@ function PortraitCard({
 
   return (
     <motion.div
+      ref={cardRef}
       animate={cardControls}
       onClick={() => onOpenShow(lootToShow(show))}
       role="button"
@@ -2577,7 +2641,7 @@ function PortraitCard({
         >
           <span />
         </CollectibleMediaCard>
-        <TaxonomyChip show={show} />
+        <TaxonomyChip show={show} descriptor={descriptor} />
       </div>
       <ColorAwareRail imageSrc={posterUrl} className="relative z-20 min-h-[80px] px-4 py-3.5">
         <h3 className="truncate text-[15px] font-black leading-tight tracking-[-0.025em] text-white">{show.title}</h3>
@@ -2598,6 +2662,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
   const [isVisible, setIsVisible] = useState(false)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const cardControls = useAnimation()
+  const descriptor = useEnrichedCardDescriptor(show, isVisible)
 
   const handleAdd = async () => {
     if (isOwned || adding) return
@@ -2679,7 +2744,7 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
         >
           <span />
         </CollectibleMediaCard>
-        <TaxonomyChip show={show} landscape />
+        <TaxonomyChip show={show} descriptor={descriptor} landscape />
       </div>
       <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[92px] px-4 py-3.5">
         <div className="flex min-w-0 items-center justify-between gap-3">

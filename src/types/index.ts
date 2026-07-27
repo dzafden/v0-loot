@@ -17,6 +17,13 @@ export type Tier = 'S' | 'A' | 'B' | 'C' | 'D'
 export type MediaType = 'tv' | 'movie'
 export type AnimationTradition = 'anime' | 'western' | 'euro' | 'other'
 
+export interface CardDescriptor {
+  id: string
+  label: string
+  confidence: number
+  evidence: string[]
+}
+
 export type OverlayKind =
   | 'none'
   | 'vignette'
@@ -38,6 +45,8 @@ export interface Show {
   tradition?: AnimationTradition
   vibeIds?: string[]
   vibeEvidence?: Record<string, string[]>
+  /** A high-confidence, factual hook for compact card surfaces. */
+  cardDescriptor?: CardDescriptor
   seasonCount?: number
   episodeCount?: number
   status?: string

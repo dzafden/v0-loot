@@ -4,8 +4,6 @@ import type { EmojiCategory, Show, Tier } from '../../types'
 import { rarityStyle, type Rarity } from '../../lib/rarity'
 import { TIER_STYLE } from '../../lib/rarity'
 import { imgUrl } from '../../lib/tmdb'
-import { getVibeTitle } from '../../lib/vibe-engine'
-import { getSecondaryAnimationGenre } from '../../lib/animation-taxonomy'
 
 export type CardActionType = 'none' | 'add' | 'remove'
 
@@ -42,7 +40,7 @@ function LootCardInner({
   disableTilt = false,
 }: Props) {
   const r = rarityStyle(rarity)
-  const taxonomyLabel = getVibeTitle(show.vibeIds?.[0]) ?? getSecondaryAnimationGenre(show.rawGenres)
+  const taxonomyLabel = show.cardDescriptor?.label
   const [tilt, setTilt] = useState({ x: 0, y: 0 })
   const [isAdding, setIsAdding] = useState(false)
 
