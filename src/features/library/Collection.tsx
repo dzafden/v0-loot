@@ -10,6 +10,8 @@ import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { WatchlistShelves } from '../watchlist/WatchlistShelves'
 import { WatchlistSearchSheet } from '../watchlist/WatchlistSearchSheet'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
+import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
+import { ImdbBadge } from '../../components/ui/ImdbBadge'
 
 type TierFilter = 'All' | Tier | 'Unsorted'
 
@@ -342,22 +344,16 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
             <Search size={40} className="mb-4 text-zinc-500" />
           </div>
         ) : (
-          <div className="grid grid-cols-4 grid-flow-row-dense auto-rows-[132px] gap-3 pb-8">
-            {filtered.map((show, index) => {
-              const large = index % 7 === 0
-              const wide = index % 7 === 3
-              return (
-                <CollectionGridCard
-                  key={show.id}
-                  show={show}
-                  large={large}
-                  wide={wide}
-                  tier={tierByShowId.get(show.id)}
-                  vibes={vibesByShowId.get(show.id) ?? []}
-                  onOpenShow={onOpenShow}
-                />
-              )
-            })}
+          <div className="grid grid-cols-2 gap-x-3.5 gap-y-5 pb-8">
+            {filtered.map((show) => (
+              <CollectionGridCard
+                key={show.id}
+                show={show}
+                tier={tierByShowId.get(show.id)}
+                vibes={vibesByShowId.get(show.id) ?? []}
+                onOpenShow={onOpenShow}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -373,64 +369,53 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
 
 function CollectionGridCard({
   show,
-  large,
-  wide,
   tier,
   vibes,
   onOpenShow,
 }: {
   show: Show
-  large: boolean
-  wide: boolean
   tier?: Tier
   vibes: string[]
   onOpenShow: (show: Show) => void
 }) {
-  const [cardLogo, setCardLogo] = useState<string | null>(() => logoCache.get(show.id) ?? null)
-
-  useEffect(() => {
-    if (!wide || !hasTmdbKey()) return
-    const cached = logoCache.get(show.id)
-    if (cached !== undefined) {
-      setCardLogo(cached)
-      return
-    }
-    let cancelled = false
-    getShowImages(show.id, show.mediaType ?? 'tv')
-      .then((images) => {
-        const logo = bestLogo(images.logos)
-        logoCache.set(show.id, logo)
-        if (!cancelled) setCardLogo(logo)
-      })
-      .catch(() => {
-        logoCache.set(show.id, null)
-        if (!cancelled) setCardLogo(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [show.id, wide])
+  const artPath = show.posterPath ?? show.backdropPath
+  const artSize = show.posterPath ? 'w342' : 'w500'
+  const artSrc = artPath ? imgUrl(artPath, artSize) : ''
 
   return (
     <button
       onClick={() => onOpenShow(show)}
-      className={cn(
-        'group relative overflow-hidden rounded-[26px] text-left transition-transform duration-300 active:scale-[0.97]',
-        large ? 'col-span-2 row-span-2' : wide ? 'col-span-2' : 'col-span-1',
-      )}
+      className="group relative min-w-0 overflow-hidden rounded-[27px] bg-[#111416] text-left shadow-[0_18px_42px_rgba(0,0,0,0.42)] ring-1 ring-white/[0.1] transition-transform duration-300 active:scale-[0.97]"
     >
-      <CollectibleMediaCard
-        id={show.id}
-        title={show.name}
-        imagePath={wide && show.backdropPath ? show.backdropPath : show.posterPath ?? show.backdropPath}
-        imageSize={wide && show.backdropPath ? 'w500' : 'w342'}
-        logoPath={wide ? cardLogo : null}
-        landscape={wide}
-        featured={large}
-        tier={tier}
-        vibes={vibes}
-        meta={show.year ? <span className="text-[10px] font-bold tracking-[0.04em] text-white/78">{show.year}</span> : undefined}
-      />
+      <div className="relative aspect-[2/3] overflow-hidden bg-[#151117]">
+        <CollectibleMediaCard
+          id={show.id}
+          title={show.name}
+          imagePath={artPath}
+          imageSize={artSize}
+          artScrim={false}
+          tier={tier}
+          className="rounded-none shadow-none"
+        >
+          <span />
+        </CollectibleMediaCard>
+      </div>
+      <ColorAwareRail imageSrc={artSrc} className="min-h-[94px] px-3.5 py-3">
+        <h3 className="line-clamp-2 min-h-[34px] text-[15px] font-black leading-[1.08] tracking-[-0.025em] text-white">
+          {show.name}
+        </h3>
+        <div className="mt-2 flex min-h-6 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {show.year && <span className="text-[10px] font-black tracking-[0.04em] text-white/78">{show.year}</span>}
+            <ImdbBadge showId={show.id} compact className="shadow-none" />
+          </div>
+          {vibes.length > 0 && (
+            <span className="shrink-0 text-[12px] leading-none" aria-label={`${vibes.length} collection vibes`}>
+              {vibes.slice(0, 2).join(' ')}
+            </span>
+          )}
+        </div>
+      </ColorAwareRail>
     </button>
   )
 }

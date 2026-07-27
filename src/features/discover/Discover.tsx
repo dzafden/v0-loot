@@ -1,5 +1,5 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
@@ -30,6 +30,7 @@ import { cn } from '../../lib/utils'
 import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
+import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
 import { getVibeChipTitle, getVibeTitle } from '../../lib/vibe-engine'
 import { pickAnimationKey } from '../../engine/genre-animations'
 import { getSecondaryAnimationGenre, getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
@@ -2496,25 +2497,6 @@ async function getLandscapeArt(showId: number, mediaType: 'tv' | 'movie' = 'tv')
   } finally {
     landscapeArtInflight.delete(cacheId)
   }
-}
-
-function ColorAwareRail({ imageSrc, className, children }: { imageSrc: string; className?: string; children: ReactNode }) {
-  return (
-    <div className={cn('relative overflow-hidden border-t border-white/[0.14] bg-[#111416]', className)}>
-      {imageSrc && (
-        <img
-          src={imageSrc}
-          alt=""
-          aria-hidden
-          loading="lazy"
-          decoding="async"
-          className="pointer-events-none absolute inset-[-24px] h-[calc(100%+48px)] w-[calc(100%+48px)] max-w-none scale-110 object-cover opacity-100 blur-xl saturate-[2] brightness-[0.68] contrast-[1.08]"
-        />
-      )}
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(5,7,8,0.18),rgba(5,7,8,0.46))]" />
-      <div className="relative z-10" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.92)' }}>{children}</div>
-    </div>
-  )
 }
 
 function landscapeDescription(show: LootShow, tagline?: string) {
