@@ -1,6 +1,6 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
+import { Bookmark, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
@@ -23,12 +23,11 @@ import {
   type DiscoverFeed,
   type LootShow,
 } from '../../lib/tmdb'
-import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf } from '../../data/queries'
+import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf, ensureDefaultWatchlistShelves } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import type { CardDescriptor, Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
-import { SaveStateButton } from '../../components/ui/SaveStateButton'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
@@ -769,6 +768,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const hiddenIds = useMemo(() => new Set(hiddenFeedback.map((feedback) => feedback.showId)), [hiddenFeedback])
   const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
+  const liveWatchlistSet = useMemo(() => new Set(watchlistShows.map((show) => show.id)), [watchlistShows])
   const profileShows = librarySnapshot?.ownedShows ?? []
   const profileTierAssignments = librarySnapshot?.tierAssignments ?? []
   const profileOwnedIds = useMemo(() => profileShows.map((s) => s.id), [profileShows])
@@ -1051,13 +1051,14 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             loading={categoryLoading}
             sentinelRef={sentinelRef}
             ownedIds={liveOwnedSet}
+            watchlistIds={liveWatchlistSet}
             onOpenShow={onOpenShow}
             onBack={() => setActiveCategory(null)}
           />
         ) : !keyOk ? (
           <NoKey onOpenSettings={onOpenSettings} />
         ) : query.trim() ? (
-          <SearchResults loading={searchLoading} results={results} ownedIds={liveOwnedIds} onOpenShow={onOpenShow} />
+          <SearchResults loading={searchLoading} results={results} ownedIds={liveOwnedIds} watchlistIds={liveWatchlistSet} onOpenShow={onOpenShow} />
         ) : feedError ? (
           <p className="px-5 py-10 text-center text-rose-300 text-sm">{feedError}</p>
         ) : feedLoading || !visibleFeed || !librarySnapshot ? (
@@ -1070,14 +1071,16 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
                 reason={heroRecommendation.reason}
                 recommendationContext={heroRecommendation.context}
                 isOwned={liveOwnedSet.has(heroShow.id)}
+                isWatchlisted={liveWatchlistSet.has(heroShow.id)}
                 onOpenShow={onOpenShow}
               />
             ) : (
-              <TodayPicks shows={todayPicks} ownedIds={liveOwnedSet} onOpenShow={onOpenShow} />
+              <TodayPicks shows={todayPicks} ownedIds={liveOwnedSet} watchlistIds={liveWatchlistSet} onOpenShow={onOpenShow} />
             )}
             <FeedRows
               feed={visibleFeed}
               ownedIds={liveOwnedIds}
+              watchlistIds={liveWatchlistSet}
               profileOwnedIds={profileOwnedIds}
               profileShows={profileShows}
               profileTierAssignments={profileTierAssignments}
@@ -1853,15 +1856,16 @@ function PortalHero({
   reason,
   recommendationContext,
   isOwned,
+  isWatchlisted,
   onOpenShow,
 }: {
   show: LootShow
   reason: string
   recommendationContext: RecommendationContext
   isOwned: boolean
+  isWatchlisted: boolean
   onOpenShow: (show: Show, context?: RecommendationContext) => void
 }) {
-  const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
   const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null)
   const [portalAccent, setPortalAccent] = useState('#f5c453')
@@ -1919,19 +1923,20 @@ function PortalHero({
   }, [bg, show.id, show.mediaType])
 
   const handleAdd = async () => {
-    if (isOwned || adding) return
-    setAdding(true)
-    try {
-      await persistShow(show)
-      setShine(true)
-      void controls.start({
-        scale: [1, 1.018, 0.995, 1],
-        transition: { duration: 0.48, times: [0, 0.35, 0.72, 1] },
-      })
-      setTimeout(() => setShine(false), 760)
-    } finally {
-      setAdding(false)
-    }
+    await persistShow(show)
+  }
+
+  const handleWatchlist = async () => {
+    await persistToDefaultWatchlist(show)
+  }
+
+  const handleSaveSuccess = () => {
+    setShine(true)
+    void controls.start({
+      scale: [1, 1.018, 0.995, 1],
+      transition: { duration: 0.48, times: [0, 0.35, 0.72, 1] },
+    })
+    setTimeout(() => setShine(false), 760)
   }
 
   return (
@@ -1962,7 +1967,7 @@ function PortalHero({
       />
       <AnimatePresence>{shine && <ShineOverlay key="hero-shine" />}</AnimatePresence>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-20">
+      <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-32">
         <p className="mb-4 inline-flex max-w-[278px] items-center rounded-full bg-black/42 px-3 py-2 text-[9px] font-black uppercase tracking-[0.15em] text-white/76 ring-1 ring-white/[0.1] backdrop-blur-xl">
           {reason}
         </p>
@@ -1993,13 +1998,30 @@ function PortalHero({
       </div>
 
       <div className="absolute bottom-6 right-5 z-20">
-        <AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} size="lg" />
+        <FeedSaveActions
+          isSeen={isOwned}
+          isWatchlisted={isWatchlisted}
+          onSeen={handleAdd}
+          onWatchlist={handleWatchlist}
+          onSuccess={handleSaveSuccess}
+          size="lg"
+        />
       </div>
     </motion.section>
   )
 }
 
-function TodayPicks({ shows, ownedIds, onOpenShow }: { shows: LootShow[]; ownedIds: Set<number>; onOpenShow: (show: Show) => void }) {
+function TodayPicks({
+  shows,
+  ownedIds,
+  watchlistIds,
+  onOpenShow,
+}: {
+  shows: LootShow[]
+  ownedIds: Set<number>
+  watchlistIds: Set<number>
+  onOpenShow: (show: Show) => void
+}) {
   if (!shows.length) return null
   return (
     <section className="mb-11">
@@ -2012,6 +2034,7 @@ function TodayPicks({ shows, ownedIds, onOpenShow }: { shows: LootShow[]; ownedI
             key={show.id}
             show={show}
             isOwned={ownedIds.has(show.id)}
+            isWatchlisted={watchlistIds.has(show.id)}
             onOpenShow={onOpenShow}
           />
         ))}
@@ -2026,6 +2049,7 @@ function CategoryGrid({
   loading,
   sentinelRef,
   ownedIds,
+  watchlistIds,
   onOpenShow,
   onBack,
 }: {
@@ -2034,6 +2058,7 @@ function CategoryGrid({
   loading: boolean
   sentinelRef: React.RefObject<HTMLDivElement | null>
   ownedIds: Set<number>
+  watchlistIds: Set<number>
   onOpenShow: (show: Show) => void
   onBack: () => void
 }) {
@@ -2077,7 +2102,13 @@ function CategoryGrid({
 
       <div className="grid grid-cols-2 gap-4">
         {items.map((show) => (
-          <PortraitCard key={`${title}-${show.id}`} show={show} isOwned={ownedIds.has(show.id)} onOpenShow={onOpenShow} />
+          <PortraitCard
+            key={`${title}-${show.id}`}
+            show={show}
+            isOwned={ownedIds.has(show.id)}
+            isWatchlisted={watchlistIds.has(show.id)}
+            onOpenShow={onOpenShow}
+          />
         ))}
       </div>
       <div ref={sentinelRef} className="h-8" />
@@ -2108,11 +2139,13 @@ function SearchResults({
   loading,
   results,
   ownedIds,
+  watchlistIds,
   onOpenShow,
 }: {
   loading: boolean
   results: LootShow[]
   ownedIds: number[]
+  watchlistIds: Set<number>
   onOpenShow: (show: Show) => void
 }) {
   if (loading) {
@@ -2134,7 +2167,13 @@ function SearchResults({
     <div className="px-4 pb-8">
       <div className="grid grid-cols-2 gap-4">
         {results.map((show) => (
-          <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onOpenShow={onOpenShow} />
+          <PortraitCard
+            key={show.id}
+            show={show}
+            isOwned={ownedIds.includes(show.id)}
+            isWatchlisted={watchlistIds.has(show.id)}
+            onOpenShow={onOpenShow}
+          />
         ))}
       </div>
     </div>
@@ -2185,6 +2224,7 @@ function buildTastePackets(
 function FeedRows({
   feed,
   ownedIds,
+  watchlistIds,
   profileOwnedIds,
   profileShows,
   profileTierAssignments,
@@ -2200,6 +2240,7 @@ function FeedRows({
 }: {
   feed: DiscoverFeed
   ownedIds: number[]
+  watchlistIds: Set<number>
   profileOwnedIds: number[]
   profileShows: Show[]
   profileTierAssignments: TierAssignment[]
@@ -2249,18 +2290,18 @@ function FeedRows({
     <>
       {packets.length
         ? packets.map((packet) => (
-            <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} onOpenShow={onOpenShow} />
+            <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenShow={onOpenShow} />
           ))
-        : <CarouselRow title="For Your Taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
-      <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRow('freshStudios', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRow('newAnime', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRow('newWestern', { preserveOrder: true })} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRow('adultAnimation')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRow('allAges')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRow('handmade')} ownedIds={ownedIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRow('vibeCrate')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Animated Films" categoryKey="animatedFilms" shows={sourceRow('animatedFilms')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRow('topRated')} ownedIds={ownedIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        : <CarouselRow title="For Your Taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
+      <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRow('freshStudios', { preserveOrder: true })} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRow('newAnime', { preserveOrder: true })} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRow('newWestern', { preserveOrder: true })} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRow('adultAnimation')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRow('allAges')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRow('handmade')} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRow('vibeCrate')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Animated Films" categoryKey="animatedFilms" shows={sourceRow('animatedFilms')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRow('topRated')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
     </>
   )
 }
@@ -2268,10 +2309,12 @@ function FeedRows({
 function TastePacketRow({
   packet,
   ownedIds,
+  watchlistIds,
   onOpenShow,
 }: {
   packet: TastePacket
   ownedIds: number[]
+  watchlistIds: Set<number>
   onOpenShow: (show: Show, context?: RecommendationContext) => void
 }) {
   const anchorGenres = new Set([...(packet.anchor.genres ?? []), ...(packet.anchor.rawGenres ?? [])])
@@ -2293,6 +2336,7 @@ function TastePacketRow({
             key={show.id}
             show={show}
             isOwned={ownedIds.includes(show.id)}
+            isWatchlisted={watchlistIds.has(show.id)}
             onOpenShow={(selected) => onOpenShow(selected, {
               anchorName: packet.anchor.name,
               anchorTier: packet.tier,
@@ -2333,6 +2377,7 @@ function CarouselRow({
   categoryKey,
   shows,
   ownedIds,
+  watchlistIds,
   landscape = false,
   onOpenCategory,
   onOpenShow,
@@ -2341,6 +2386,7 @@ function CarouselRow({
   categoryKey: DiscoverCategoryKey
   shows: LootShow[]
   ownedIds: number[]
+  watchlistIds: Set<number>
   landscape?: boolean
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
   onOpenShow: (show: Show) => void
@@ -2361,9 +2407,9 @@ function CarouselRow({
       <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 pb-3 px-4">
         {shows.map((show) =>
           landscape ? (
-            <LandscapeCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} onOpenShow={onOpenShow} />
+            <LandscapeCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} isWatchlisted={watchlistIds.has(show.id)} onOpenShow={onOpenShow} />
           ) : (
-            <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} variant="carousel" onOpenShow={onOpenShow} />
+            <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} isWatchlisted={watchlistIds.has(show.id)} variant="carousel" onOpenShow={onOpenShow} />
           ),
         )}
         <button
@@ -2384,6 +2430,13 @@ function CarouselRow({
 
 async function persistShow(show: LootShow) {
   await upsertShow(lootToShow(show))
+}
+
+async function persistToDefaultWatchlist(show: LootShow) {
+  const shelves = await ensureDefaultWatchlistShelves()
+  const defaultShelf = shelves.find((shelf) => shelf.name === 'Watch next') ?? shelves[0]
+  if (!defaultShelf) throw new Error('No watchlist shelf is available')
+  await addToWatchlistShelf(defaultShelf.id, lootToShow(show))
 }
 
 function lootToShow(show: LootShow): Show {
@@ -2430,47 +2483,93 @@ function TaxonomyChip({
   const label = descriptor?.label
   if (!label) return null
   return (
-    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 inline-flex h-8 max-w-[calc(100%-76px)] items-center gap-1.5 rounded-full border border-white/[0.14] bg-[#08080c]/94 px-3 text-[10px] font-black uppercase tracking-[0.075em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.52)] backdrop-blur-xl', landscape && 'max-w-[calc(100%-76px)]')}>
+    <span className={cn('pointer-events-none absolute left-3 top-3 z-30 inline-flex h-8 max-w-[calc(100%-112px)] items-center gap-1.5 rounded-full border border-white/20 bg-zinc-950/90 px-3 text-[10px] font-black uppercase tracking-[0.075em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.68)] ring-1 ring-black/25 backdrop-blur-xl', landscape && 'max-w-[calc(100%-112px)]')}>
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5c453] shadow-[0_0_10px_rgba(245,196,83,0.7)]" aria-hidden />
       <span className="truncate">{label}</span>
     </span>
   )
 }
 
-// ── Shared "collect" button — iOS App Store / Spotify pattern ────────────────
-//
-// Three-part interaction:
-//   1. whileTap scale squish   — immediate physical feedback, no delay
-//   2. AnimatePresence icon morph — + → spinner → ✓ via spring, not CSS transition
-//   3. Burst ring               — border div that scale+fades outward on success
-//   4. Haptic                   — navigator.vibrate success rhythm
-
-function AddButton({
-  isOwned,
-  adding,
-  onAdd,
+function FeedSaveActions({
+  isSeen,
+  isWatchlisted,
+  onSeen,
+  onWatchlist,
   onSuccess,
-  onError,
   size = 'sm',
 }: {
-  isOwned: boolean
-  adding: boolean
-  onAdd: (e: React.MouseEvent) => Promise<void>
-  onSuccess?: () => void
-  onError?: () => void
+  isSeen: boolean
+  isWatchlisted: boolean
+  onSeen: () => Promise<void>
+  onWatchlist: () => Promise<void>
+  onSuccess?: (action: 'seen' | 'watchlist') => void
   size?: 'sm' | 'lg'
 }) {
+  const [saving, setSaving] = useState<'seen' | 'watchlist' | null>(null)
+  const [optimisticSeen, setOptimisticSeen] = useState(false)
+  const [optimisticWatchlist, setOptimisticWatchlist] = useState(false)
+  const [errorAction, setErrorAction] = useState<'seen' | 'watchlist' | null>(null)
+  const seen = isSeen || optimisticSeen
+  const watchlisted = isWatchlisted || optimisticWatchlist
+
+  const save = async (action: 'seen' | 'watchlist', event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    if (saving || (action === 'seen' ? seen : watchlisted)) return
+    setSaving(action)
+    setErrorAction(null)
+    try {
+      await (action === 'seen' ? onSeen() : onWatchlist())
+      if (action === 'seen') setOptimisticSeen(true)
+      else setOptimisticWatchlist(true)
+      navigator.vibrate?.([6, 20, 10])
+      onSuccess?.(action)
+    } catch {
+      setErrorAction(action)
+      navigator.vibrate?.([80])
+      window.setTimeout(() => setErrorAction(null), 1800)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const actionClass = size === 'lg'
+    ? 'h-12 w-12 rounded-[16px]'
+    : 'h-10 w-10 rounded-[13px]'
+  const iconSize = size === 'lg' ? 20 : 17
+  const idleClass = 'border-white/30 bg-zinc-600/90 text-white ring-1 ring-black/20'
+  const selectedClass = 'border-[#ffe083] bg-[#f5c453] text-black ring-1 ring-black/20'
+
   return (
-    <SaveStateButton
-      saved={isOwned}
-      saving={adding}
-      onSave={onAdd}
-      onSuccess={onSuccess}
-      onError={onError}
-      size={size === 'lg' ? 'lg' : 'sm'}
-      shape={size === 'lg' ? 'round' : 'soft'}
-      ariaLabel={isOwned ? 'In collection' : 'Add to collection'}
-    />
+    <div className="flex items-center gap-1.5">
+      <motion.button
+        whileTap={!seen ? { scale: 0.92 } : undefined}
+        onClick={(event) => void save('seen', event)}
+        disabled={seen || saving !== null}
+        aria-label={seen ? 'Seen and in collection' : 'Mark as seen and add to collection'}
+        aria-pressed={seen}
+        className={cn(
+          'relative grid place-items-center border shadow-[0_10px_26px_rgba(0,0,0,0.58)] backdrop-blur-xl transition-colors',
+          actionClass,
+          errorAction === 'seen' ? 'border-rose-400 bg-rose-500 text-white' : seen ? selectedClass : idleClass,
+        )}
+      >
+        {saving === 'seen' ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Eye size={iconSize} strokeWidth={3} />}
+      </motion.button>
+      <motion.button
+        whileTap={!watchlisted ? { scale: 0.92 } : undefined}
+        onClick={(event) => void save('watchlist', event)}
+        disabled={watchlisted || saving !== null}
+        aria-label={watchlisted ? 'In watchlist' : 'Add directly to watchlist'}
+        aria-pressed={watchlisted}
+        className={cn(
+          'relative grid place-items-center border shadow-[0_10px_26px_rgba(0,0,0,0.64)] backdrop-blur-xl transition-colors',
+          actionClass,
+          errorAction === 'watchlist' ? 'border-rose-400 bg-rose-500 text-white' : watchlisted ? selectedClass : idleClass,
+        )}
+      >
+        {saving === 'watchlist' ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Bookmark size={iconSize} strokeWidth={2.8} fill={watchlisted ? 'currentColor' : 'none'} />}
+      </motion.button>
+    </div>
   )
 }
 
@@ -2566,15 +2665,16 @@ function landscapeDescription(show: LootShow, tagline?: string) {
 function PortraitCard({
   show,
   isOwned,
+  isWatchlisted,
   onOpenShow,
   variant = 'grid',
 }: {
   show: LootShow
   isOwned: boolean
+  isWatchlisted: boolean
   onOpenShow: (show: Show) => void
   variant?: 'grid' | 'carousel'
 }) {
-  const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -2595,13 +2695,11 @@ function PortraitCard({
   }, [])
 
   const handleAdd = async () => {
-    if (isOwned || adding) return
-    setAdding(true)
-    try {
-      await persistShow(show)
-    } finally {
-      setAdding(false)
-    }
+    await persistShow(show)
+  }
+
+  const handleWatchlist = async () => {
+    await persistToDefaultWatchlist(show)
   }
 
   const handleSuccess = () => {
@@ -2635,7 +2733,16 @@ function PortraitCard({
           imagePath={show.posterPath}
           motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
           artScrim={false}
-          addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
+          addSlot={(
+            <FeedSaveActions
+              isSeen={isOwned}
+              isWatchlisted={isWatchlisted}
+              onSeen={handleAdd}
+              onWatchlist={handleWatchlist}
+              onSuccess={handleSuccess}
+              size="sm"
+            />
+          )}
           shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
           className="rounded-none shadow-none"
         >
@@ -2655,8 +2762,17 @@ function PortraitCard({
   )
 }
 
-function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned: boolean; onOpenShow: (show: Show) => void }) {
-  const [adding, setAdding] = useState(false)
+function LandscapeCard({
+  show,
+  isOwned,
+  isWatchlisted,
+  onOpenShow,
+}: {
+  show: LootShow
+  isOwned: boolean
+  isWatchlisted: boolean
+  onOpenShow: (show: Show) => void
+}) {
   const [shine, setShine] = useState(false)
   const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null)
   const [isVisible, setIsVisible] = useState(false)
@@ -2665,13 +2781,11 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
   const descriptor = useEnrichedCardDescriptor(show, isVisible)
 
   const handleAdd = async () => {
-    if (isOwned || adding) return
-    setAdding(true)
-    try {
-      await persistShow(show)
-    } finally {
-      setAdding(false)
-    }
+    await persistShow(show)
+  }
+
+  const handleWatchlist = async () => {
+    await persistToDefaultWatchlist(show)
   }
 
   const handleSuccess = () => {
@@ -2738,7 +2852,16 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
           motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
           landscape
           artScrim={false}
-          addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
+          addSlot={(
+            <FeedSaveActions
+              isSeen={isOwned}
+              isWatchlisted={isWatchlisted}
+              onSeen={handleAdd}
+              onWatchlist={handleWatchlist}
+              onSuccess={handleSuccess}
+              size="sm"
+            />
+          )}
           shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
           className="rounded-none shadow-none"
         >
