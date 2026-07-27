@@ -136,6 +136,7 @@ export function CollectibleMediaCard({
   logoSize = 'w500',
   fallback,
   landscape = false,
+  artScrim = true,
   featured = false,
   showImdb = false,
   tier,
@@ -156,6 +157,7 @@ export function CollectibleMediaCard({
   logoSize?: 'w500' | 'original'
   fallback?: ReactNode
   landscape?: boolean
+  artScrim?: boolean
   featured?: boolean
   showImdb?: boolean
   tier?: Tier
@@ -191,14 +193,14 @@ export function CollectibleMediaCard({
       ) : (
         fallback ?? <div className="absolute inset-0 grid place-items-center bg-white/[0.04] text-xl font-black text-white/26">{title.slice(0, 2).toUpperCase()}</div>
       )}
-      {landscape ? (
+      {artScrim && (landscape ? (
         <>
           <div className="absolute inset-0 bg-gradient-to-r from-black/82 via-black/22 to-black/5" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/18 to-black/8" />
         </>
       ) : (
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/58 to-transparent" />
-      )}
+      ))}
       <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_50%_100%,rgba(245,196,83,0.18),transparent_62%)]" />
       {tier && <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 92% 10%, ${tierColor}36, transparent 9rem)` }} />}
       {shineSlot}

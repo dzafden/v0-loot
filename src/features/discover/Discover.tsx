@@ -1,5 +1,5 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X, RefreshCw } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
@@ -1953,23 +1953,18 @@ function PortalHero({
 function TodayPicks({ shows, ownedIds, onOpenShow }: { shows: LootShow[]; ownedIds: Set<number>; onOpenShow: (show: Show) => void }) {
   if (!shows.length) return null
   return (
-    <section className="mx-3 mb-9 rounded-[32px] bg-white/[0.025] p-3 ring-1 ring-white/[0.06]">
-      <div className="mb-3 px-1">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#f5c453]">Today&apos;s picks</p>
-        <h2 className="mt-1 text-[21px] font-black tracking-[-0.05em] text-white">Three ways into animation</h2>
+    <section className="mb-11">
+      <div className="mb-4 flex items-center justify-between px-4">
+        <h2 className="text-[12px] font-black uppercase tracking-[0.18em] text-[#f5c453]">Today&apos;s picks</h2>
       </div>
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 px-4 pb-3">
         {shows.slice(0, 3).map((show) => (
-          <button key={show.id} onClick={() => onOpenShow(lootToShow(show))} className="relative aspect-[2/3] min-w-0 text-left active:scale-[0.98]">
-            <CollectibleMediaCard
-              id={show.id}
-              title={show.title}
-              imagePath={show.posterPath}
-              motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
-              meta={show.year !== '—' ? <span className="block text-[9px] font-bold text-white/70">{show.year}</span> : undefined}
-            />
-            {ownedIds.has(show.id) && <span className="absolute right-2 top-2 z-30 grid h-7 w-7 place-items-center rounded-full bg-[#f5c453] text-[12px] font-black text-black">✓</span>}
-          </button>
+          <LandscapeCard
+            key={show.id}
+            show={show}
+            isOwned={ownedIds.has(show.id)}
+            onOpenShow={onOpenShow}
+          />
         ))}
       </div>
     </section>
@@ -2273,7 +2268,7 @@ function SkeletonRows() {
                 key={j}
                 className={cn(
                   'flex-shrink-0 rounded-[20px] bg-white/5 animate-pulse',
-                  isLandscape ? 'w-[350px] aspect-[16/9]' : 'w-[168px] aspect-[2/3]',
+                  isLandscape ? 'h-[286px] w-[88vw] min-w-[336px] max-w-[380px]' : 'h-[458px] w-[64vw] min-w-[226px] max-w-[252px]',
                 )}
               />
             ))}
@@ -2326,7 +2321,7 @@ function CarouselRow({
           onClick={() => onOpenCategory(categoryKey, title)}
           className={cn(
             'flex-shrink-0 snap-start rounded-[28px] bg-white/[0.035] text-white/62 hover:bg-white/[0.07] transition-colors',
-            landscape ? 'w-[90vw] min-w-[340px] max-w-[380px] aspect-[16/9]' : 'w-[168px] aspect-[2/3]',
+            landscape ? 'h-[286px] w-[88vw] min-w-[336px] max-w-[380px]' : 'h-[458px] w-[64vw] min-w-[226px] max-w-[252px]',
           )}
         >
           <div className="w-full h-full grid place-items-center">
@@ -2503,6 +2498,32 @@ async function getLandscapeArt(showId: number, mediaType: 'tv' | 'movie' = 'tv')
   }
 }
 
+function ColorAwareRail({ imageSrc, className, children }: { imageSrc: string; className?: string; children: ReactNode }) {
+  return (
+    <div className={cn('relative overflow-hidden border-t border-white/[0.14] bg-[#111416]', className)}>
+      {imageSrc && (
+        <img
+          src={imageSrc}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          className="pointer-events-none absolute inset-[-24px] h-[calc(100%+48px)] w-[calc(100%+48px)] max-w-none scale-110 object-cover opacity-90 blur-2xl saturate-[1.45] brightness-[0.42]"
+        />
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(6,9,10,0.28),rgba(5,7,8,0.76))]" />
+      <div className="relative z-10">{children}</div>
+    </div>
+  )
+}
+
+function landscapeDescription(show: LootShow, tagline?: string) {
+  const copy = tagline?.trim() || show.overview.trim()
+  if (copy) return copy
+  const genre = show.genre && show.genre !== 'Animation' ? show.genre.toLowerCase() : 'animated'
+  return `A ${genre} story picked for your animation feed.`
+}
+
 function PortraitCard({
   show,
   isOwned,
@@ -2517,6 +2538,7 @@ function PortraitCard({
   const [adding, setAdding] = useState(false)
   const [shine, setShine] = useState(false)
   const cardControls = useAnimation()
+  const posterUrl = show.posterPath ? imgUrl(show.posterPath, 'w342') : ''
 
   const handleAdd = async () => {
     if (isOwned || adding) return
@@ -2547,20 +2569,32 @@ function PortraitCard({
         if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
       }}
       className={cn(
-        'relative cursor-pointer transition-transform duration-300 active:scale-[0.98]',
-        variant === 'carousel' ? 'flex-shrink-0 snap-start w-[168px] aspect-[2/3]' : 'aspect-[2/3]',
+        'relative min-w-0 cursor-pointer overflow-hidden rounded-[28px] bg-[#111416] shadow-[0_18px_44px_rgba(0,0,0,0.42)] ring-1 ring-white/[0.1] transition-transform duration-300 active:scale-[0.98]',
+        variant === 'carousel' ? 'w-[64vw] min-w-[226px] max-w-[252px] flex-shrink-0 snap-start' : 'w-full',
       )}
     >
-      <CollectibleMediaCard
-        id={show.id}
-        title={show.title}
-        imagePath={show.posterPath}
-        motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
-        addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
-        shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
-        meta={show.year !== '—' ? <span className="block text-[10px] font-bold tracking-[0.04em] text-white/78">{show.year}</span> : undefined}
-      />
-      <TaxonomyChip show={show} />
+      <div className="relative aspect-[2/3] overflow-hidden bg-[#151117]">
+        <CollectibleMediaCard
+          id={show.id}
+          title={show.title}
+          imagePath={show.posterPath}
+          motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
+          artScrim={false}
+          addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
+          shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
+          className="rounded-none shadow-none"
+        >
+          <span />
+        </CollectibleMediaCard>
+        <TaxonomyChip show={show} />
+      </div>
+      <ColorAwareRail imageSrc={posterUrl} className="relative z-20 min-h-[80px] px-4 py-3.5">
+        <h3 className="truncate text-[15px] font-black leading-tight tracking-[-0.025em] text-white">{show.title}</h3>
+        <div className="mt-2 flex min-h-6 items-center gap-2.5">
+          {show.year !== '—' && <span className="text-[10px] font-black tracking-[0.04em] text-white/76">{show.year}</span>}
+          <ImdbBadge showId={show.id} compact className="shadow-none" />
+        </div>
+      </ColorAwareRail>
       <DiscoveryReason show={show} />
     </motion.div>
   )
@@ -2638,28 +2672,30 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
       }}
-      className="relative group cursor-pointer flex-shrink-0 snap-start overflow-hidden rounded-[30px] bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] w-[90vw] min-w-[340px] max-w-[380px] aspect-[16/9] transition-transform duration-300 active:scale-[0.98]"
+      className="relative group w-[88vw] min-w-[336px] max-w-[380px] flex-shrink-0 snap-start cursor-pointer overflow-hidden rounded-[30px] bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] ring-1 ring-white/[0.1] transition-transform duration-300 active:scale-[0.98]"
     >
-      <CollectibleMediaCard
-        id={show.id}
-        title={show.title}
-        imageUrl={bg}
-        motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
-        logoPath={art?.logoPath}
-        landscape
-        addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
-        shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
-        meta={art?.tagline ? (
-          <p className="max-w-[250px] text-[14px] font-semibold leading-[1.25] text-white/92 line-clamp-2">
-            {art.tagline}
-          </p>
-        ) : (
-          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-white/78">
-            {show.year !== '—' ? show.year : show.genre}
-          </p>
-        )}
-      />
-      <TaxonomyChip show={show} landscape />
+      <div className="relative aspect-[16/9] overflow-hidden bg-[#151117]">
+        <CollectibleMediaCard
+          id={show.id}
+          title={show.title}
+          imageUrl={bg}
+          motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
+          landscape
+          artScrim={false}
+          addSlot={<AddButton isOwned={isOwned} adding={adding} onAdd={handleAdd} onSuccess={handleSuccess} size="sm" />}
+          shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
+          className="rounded-none shadow-none"
+        >
+          <span />
+        </CollectibleMediaCard>
+        <TaxonomyChip show={show} landscape />
+      </div>
+      <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[92px] px-4 py-3.5">
+        <h3 className="truncate text-[17px] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
+        <p className="mt-1.5 line-clamp-2 max-w-[310px] text-[12px] font-semibold leading-[1.3] text-white/76">
+          {landscapeDescription(show, art?.tagline)}
+        </p>
+      </ColorAwareRail>
       <DiscoveryReason show={show} />
     </motion.div>
   )
