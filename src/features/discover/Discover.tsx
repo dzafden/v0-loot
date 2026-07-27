@@ -2508,11 +2508,11 @@ function ColorAwareRail({ imageSrc, className, children }: { imageSrc: string; c
           aria-hidden
           loading="lazy"
           decoding="async"
-          className="pointer-events-none absolute inset-[-24px] h-[calc(100%+48px)] w-[calc(100%+48px)] max-w-none scale-110 object-cover opacity-90 blur-2xl saturate-[1.45] brightness-[0.42]"
+          className="pointer-events-none absolute inset-[-24px] h-[calc(100%+48px)] w-[calc(100%+48px)] max-w-none scale-110 object-cover opacity-100 blur-xl saturate-[2] brightness-[0.68] contrast-[1.08]"
         />
       )}
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(6,9,10,0.28),rgba(5,7,8,0.76))]" />
-      <div className="relative z-10">{children}</div>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(5,7,8,0.18),rgba(5,7,8,0.46))]" />
+      <div className="relative z-10" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.92)' }}>{children}</div>
     </div>
   )
 }
