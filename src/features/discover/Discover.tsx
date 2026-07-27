@@ -2673,7 +2673,10 @@ function LandscapeCard({ show, isOwned, onOpenShow }: { show: LootShow; isOwned:
         <TaxonomyChip show={show} landscape />
       </div>
       <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[92px] px-4 py-3.5">
-        <h3 className="truncate text-[17px] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <h3 className="min-w-0 flex-1 truncate text-[17px] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
+          <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
+        </div>
         <p className="mt-1.5 line-clamp-2 max-w-[310px] text-[12px] font-semibold leading-[1.3] text-white/76">
           {landscapeDescription(show, art?.tagline)}
         </p>
