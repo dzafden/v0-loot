@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, MoreHorizontal, Play, Plus, Share2, Trash2, Trophy, Tv, X } from 'lucide-react'
+import { Bookmark, Check, ChevronDown, ChevronLeft, Drama, EyeOff, ExternalLink, Play, Plus, Trash2, Trophy, Tv, X } from 'lucide-react'
 import type { CastRole, EmojiCategory, RecommendationContext, Show, Tier } from '../../types'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
@@ -312,9 +312,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           icon: Tv,
           onClick: () => onTrackEpisodes(liveShow),
         }
-      : !tier
-        ? { label: 'Rank it', icon: Trophy, onClick: () => setRankEditorOpen(true) }
-        : null
+      : null
   const trailer = videos.find((video) => video.type === 'Trailer') ?? videos[0] ?? null
   const resolvedPrimary = primaryAction ?? (trailer ? { label: 'Play trailer', icon: Play, onClick: () => setSelectedVideo(trailer) } : null)
   const ResolvedPrimaryIcon = resolvedPrimary?.icon
@@ -355,15 +353,6 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
     if (!confirm(`Remove "${show.name}" from your collection?`)) return
     await deleteShow(show.id)
     onBack()
-  }
-
-  const handleShare = async () => {
-    const payload = { title: liveShow.name, text: `Check out ${liveShow.name}`, url: window.location.href }
-    if (navigator.share) {
-      await navigator.share(payload).catch(() => undefined)
-      return
-    }
-    await navigator.clipboard?.writeText(window.location.href).catch(() => undefined)
   }
 
   const hideFromDiscover = async () => {
@@ -426,7 +415,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
       style={{ backgroundImage: `radial-gradient(circle at 50% 8%, ${accent}1f, transparent 32rem)` }}
     >
       <div className="mx-auto min-h-full w-full max-w-md overflow-hidden bg-[#06080a] shadow-[0_0_80px_rgba(0,0,0,0.72)]">
-        <section className="relative flex min-h-[clamp(490px,66svh,590px)] items-end overflow-hidden px-5 pb-6">
+        <section className="relative flex min-h-[clamp(520px,70svh,620px)] items-end overflow-hidden px-5 pb-7">
           {liveShow.backdropPath || liveShow.posterPath ? (
             <img
               src={imgUrl(liveShow.backdropPath || liveShow.posterPath, liveShow.backdropPath ? 'original' : 'w500')}
@@ -440,45 +429,14 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-[#06080a] via-[#06080a]/80 to-transparent" />
           <div className="absolute inset-0 opacity-70" style={{ background: `radial-gradient(circle at 82% 18%, ${accent}2b, transparent 18rem)` }} />
 
-          <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
-            <button onClick={onBack} className="grid h-9 w-9 place-items-center rounded-full bg-black/38 text-white/88 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Back">
-              <ChevronLeft size={19} />
+          <header className="absolute inset-x-0 top-0 z-20 flex items-center px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+            <button onClick={onBack} className="grid h-11 w-11 place-items-center rounded-full bg-black/38 text-white/88 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Back">
+              <ChevronLeft size={22} />
             </button>
-            <div className="flex gap-2">
-              <button onClick={() => setWatchlistOpen(true)} className="grid h-9 w-9 place-items-center rounded-full bg-black/38 text-white/76 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Add to watchlist">
-                <Bookmark size={15} />
-              </button>
-              <motion.button
-                key={tier ?? 'rank'}
-                onClick={() => setRankEditorOpen((open) => !open)}
-                className="grid h-9 min-w-9 place-items-center rounded-full border bg-black/38 px-2 text-[10px] font-black uppercase backdrop-blur-xl active:scale-95"
-                style={{ color: tier ? TIER_DETAIL[tier].color : 'rgba(255,255,255,.72)', borderColor: tier ? `${TIER_DETAIL[tier].color}72` : 'rgba(255,255,255,.12)' }}
-                aria-label={tier ? `Change ${tier} rank` : 'Rank this title'}
-              >
-                {tier ?? <Trophy size={14} />}
-              </motion.button>
-              <button onClick={() => void handleShare()} className="grid h-9 w-9 place-items-center rounded-full bg-black/38 text-white/76 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Share">
-                <Share2 size={14} />
-              </button>
-            </div>
           </header>
 
-          <AnimatePresence>
-            {rankEditorOpen && (
-              <motion.div
-                initial={reducedMotion ? false : { opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={reducedMotion ? undefined : { opacity: 0, y: -3, scale: 0.98 }}
-                transition={{ duration: reducedMotion ? 0 : 0.18 }}
-                className="absolute right-4 top-[calc(max(1rem,env(safe-area-inset-top))+3rem)] z-30 origin-top-right"
-              >
-                <InlineRank tier={tier} onTier={handleTier} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           <div className="relative z-10 w-full">
-            <p className="mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-white/60">
+            <p className="mb-2 text-[12px] font-black uppercase tracking-[0.16em] text-white/68">
               {detailInfo.network ?? (mediaType === 'movie' ? 'Feature film' : 'Television series')}
             </p>
             {logoPath ? (
@@ -486,44 +444,67 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             ) : (
               <h1 className="max-w-[350px] text-[43px] font-black leading-[0.9] tracking-[-0.075em] text-balance drop-shadow-[0_14px_30px_rgba(0,0,0,0.95)]">{liveShow.name}</h1>
             )}
-            {detailInfo.tagline && <p className="mt-2 max-w-[320px] text-[11px] font-semibold text-white/62">{detailInfo.tagline}</p>}
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-bold text-white/58">
+            {detailInfo.tagline && <p className="mt-2 max-w-[340px] text-[14px] font-semibold leading-[1.45] text-white/68">{detailInfo.tagline}</p>}
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] font-bold text-white/68">
               <ImdbBadge showId={show.id} compact />
               {metadata.map((item) => <span key={item}>{item}</span>)}
-              {detailInfo.status && <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-1 text-[8px] uppercase tracking-[0.08em] text-white/48">{detailInfo.status.replace(' Series', '')}</span>}
+              {detailInfo.status && <span className="rounded-full border border-white/[0.12] bg-black/20 px-2.5 py-1 text-[11px] uppercase tracking-[0.06em] text-white/58">{detailInfo.status.replace(' Series', '')}</span>}
             </div>
             {recommendationContext && (
-              <p className="mt-2 text-[9px] font-bold text-white/38">
+              <p className="mt-2 text-[12px] font-bold leading-[1.4] text-white/48">
                 Because you liked {recommendationContext.anchorName}{recommendationContext.sharedGenre ? ` · ${recommendationContext.sharedGenre}` : ''}
               </p>
             )}
 
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-5 flex items-center gap-2">
               {resolvedPrimary ? (
                 <button
                   onClick={resolvedPrimary.onClick}
-                  className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-[12px] px-4 text-[10px] font-black uppercase tracking-[0.1em] text-black shadow-[0_14px_32px_rgba(0,0,0,0.3)] active:scale-[0.98]"
+                  className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[14px] px-4 text-[13px] font-black uppercase tracking-[0.08em] text-black shadow-[0_14px_32px_rgba(0,0,0,0.3)] active:scale-[0.98]"
                   style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 76%, white), ${accent})`, boxShadow: `0 14px 34px ${accent}2d` }}
                 >
-                  {ResolvedPrimaryIcon && <ResolvedPrimaryIcon size={14} strokeWidth={3} />}
+                  {ResolvedPrimaryIcon && <ResolvedPrimaryIcon size={18} strokeWidth={3} />}
                   <span className="truncate">{resolvedPrimary.label}</span>
                 </button>
               ) : (
-                <div className="flex h-10 flex-1 items-center justify-center rounded-[12px] border border-white/[0.1] bg-white/[0.04] text-[10px] font-black uppercase tracking-[0.1em] text-white/48">In collection</div>
+                <div className="flex h-12 flex-1 items-center justify-center rounded-[14px] border border-white/[0.1] bg-white/[0.04] text-[13px] font-black uppercase tracking-[0.08em] text-white/58">In collection</div>
               )}
               {trailer && resolvedPrimary?.label !== 'Play trailer' && (
-                <button onClick={() => setSelectedVideo(trailer)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white backdrop-blur-xl active:scale-95" aria-label="Play trailer">
-                  <Play size={14} fill="currentColor" />
+                <button onClick={() => setSelectedVideo(trailer)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white backdrop-blur-xl active:scale-95" aria-label="Play trailer">
+                  <Play size={17} fill="currentColor" />
                 </button>
               )}
-              <button onClick={() => setStoryOpen((open) => !open)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white/72 backdrop-blur-xl active:scale-95" aria-label="More details">
-                <MoreHorizontal size={16} />
+              <button onClick={() => setWatchlistOpen(true)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white/82 backdrop-blur-xl active:scale-95" aria-label="Add to watchlist">
+                <Bookmark size={18} />
               </button>
+              <motion.button
+                key={tier ?? 'rank'}
+                onClick={() => setRankEditorOpen((open) => !open)}
+                className="grid h-12 min-w-12 shrink-0 place-items-center rounded-full border bg-black/34 px-2 text-[14px] font-black uppercase backdrop-blur-xl active:scale-95"
+                style={{ color: tier ? TIER_DETAIL[tier].color : 'rgba(255,255,255,.82)', borderColor: tier ? `${TIER_DETAIL[tier].color}72` : 'rgba(255,255,255,.14)' }}
+                aria-label={tier ? `Change ${tier} rank` : 'Rank this title'}
+              >
+                {tier ?? <Trophy size={18} />}
+              </motion.button>
             </div>
+
+            <AnimatePresence>
+              {rankEditorOpen && (
+                <motion.div
+                  initial={reducedMotion ? false : { opacity: 0, y: -4, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={reducedMotion ? undefined : { opacity: 0, y: -3, scale: 0.98 }}
+                  transition={{ duration: reducedMotion ? 0 : 0.18 }}
+                  className="mt-2 flex origin-top-right justify-end"
+                >
+                  <InlineRank tier={tier} onTier={handleTier} />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {mediaType === 'tv' && (
               <div className="mt-4">
-                <div className="flex justify-between text-[8px] font-black uppercase tracking-[0.1em] text-white/42">
+                <div className="flex justify-between text-[11px] font-black uppercase tracking-[0.08em] text-white/52">
                   <span>{progress.total > 0 ? `${progress.watched} of ${progress.total} episodes watched` : 'Track your episodes'}</span>
                   {progress.total > 0 && <span style={{ color: accent }}>{progressPercent}%</span>}
                 </div>
@@ -535,21 +516,21 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           </div>
         </section>
 
-        <main className="relative z-20 px-4 pb-6">
+        <main className="relative z-20 px-5 pb-7">
           {liveShow.overview && (
             <section>
-              <p className={cn('text-[13px] font-semibold leading-[1.52] text-white/68', !storyOpen && 'line-clamp-3')}>{liveShow.overview}</p>
+              <p className={cn('text-[17px] font-semibold leading-[1.55] text-white/78', !storyOpen && 'line-clamp-4')}>{liveShow.overview}</p>
               {liveShow.overview.length > 180 && (
-                <button onClick={() => setStoryOpen((value) => !value)} className="mt-1.5 text-[9px] font-black uppercase tracking-[0.15em] text-white/32 active:scale-95">{storyOpen ? 'Less' : 'More'}</button>
+                <button onClick={() => setStoryOpen((value) => !value)} className="mt-2 min-h-8 text-[12px] font-black uppercase tracking-[0.12em] text-white/48 active:scale-95">{storyOpen ? 'Less' : 'More'}</button>
               )}
             </section>
           )}
 
           <div className="mt-4 grid grid-cols-3 border-y border-white/[0.08]">
             {factItems.map((fact, index) => (
-              <div key={`${fact.label}-${fact.value}`} className={cn('min-w-0 py-3', index > 0 && 'border-l border-white/[0.08] pl-3', index < 2 && 'pr-2')}>
-                <p className="truncate text-[11px] font-black text-white/82">{fact.value}</p>
-                <p className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.09em] text-white/28">{fact.label}</p>
+              <div key={`${fact.label}-${fact.value}`} className={cn('min-w-0 py-4', index > 0 && 'border-l border-white/[0.08] pl-3', index < 2 && 'pr-2')}>
+                <p className="line-clamp-2 text-[15px] font-black leading-[1.2] text-white/88">{fact.value}</p>
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.07em] text-white/42">{fact.label}</p>
               </div>
             ))}
           </div>
@@ -576,7 +557,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             {!owned && (
               <button
                 onClick={() => discoverIsHidden ? void restoreToDiscover() : void hideFromDiscover()}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-white/26 hover:text-white/58 active:scale-95"
+                className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[12px] font-black uppercase tracking-[0.1em] text-white/38 hover:text-white/68 active:scale-95"
               >
                 <EyeOff size={12} />
                 {discoverIsHidden ? 'Show again' : 'Not interested'}
@@ -595,7 +576,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
 
           {owned && (
             <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
-              <button onClick={handleDelete} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-white/18 hover:text-rose-300 active:scale-95"><Trash2 size={12} />Remove from collection</button>
+              <button onClick={handleDelete} className="inline-flex min-h-10 items-center gap-1.5 text-[12px] font-black uppercase tracking-[0.14em] text-white/28 hover:text-rose-300 active:scale-95"><Trash2 size={14} />Remove from collection</button>
             </div>
           )}
         </main>
@@ -604,9 +585,9 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
       <WatchlistShelfPicker open={watchlistOpen} show={liveShow} onClose={() => setWatchlistOpen(false)} />
       <VideoModal video={selectedVideo} onClose={() => setSelectedVideo(null)} />
       {feedbackUndoVisible && (
-        <div className="fixed inset-x-4 bottom-24 z-[70] mx-auto flex h-14 max-w-sm items-center justify-between rounded-[20px] bg-[#17141b]/96 px-4 text-[12px] font-bold text-white shadow-[0_22px_54px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
+        <div className="fixed inset-x-4 bottom-24 z-[70] mx-auto flex h-14 max-w-sm items-center justify-between rounded-[20px] bg-[#17141b]/96 px-4 text-[14px] font-bold text-white shadow-[0_22px_54px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
           <span>Hidden from Discover</span>
-          <button onClick={() => void restoreToDiscover()} className="h-9 rounded-full bg-white px-4 text-[10px] font-black uppercase tracking-[0.14em] text-black active:scale-95">Undo</button>
+          <button onClick={() => void restoreToDiscover()} className="h-10 rounded-full bg-white px-4 text-[12px] font-black uppercase tracking-[0.12em] text-black active:scale-95">Undo</button>
         </div>
       )}
     </motion.div>
@@ -627,11 +608,11 @@ function ProviderLogo({ provider }: { provider: TmdbWatchProvider }) {
       {provider.logo_path ? (
         <img src={imgUrl(provider.logo_path, 'w185')} alt="" className="h-9 w-9 shrink-0 rounded-[9px] object-cover" />
       ) : (
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] bg-white/[0.08] text-[10px] font-black">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-white/[0.08] text-[12px] font-black">
           {provider.provider_name.slice(0, 2).toUpperCase()}
         </span>
       )}
-      <span className="truncate text-xs font-bold text-white/72">{provider.provider_name}</span>
+      <span className="truncate text-[14px] font-bold text-white/76">{provider.provider_name}</span>
     </span>
   )
 }
@@ -642,7 +623,7 @@ function ProviderIcon({ provider }: { provider: TmdbWatchProvider }) {
       <img src={imgUrl(provider.logo_path, 'w185')} alt="" className="h-full w-full object-cover" />
     </span>
   ) : (
-    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] bg-white/[0.08] text-[9px] font-black text-white/64" title={provider.provider_name} aria-label={provider.provider_name}>
+    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] bg-white/[0.08] text-[11px] font-black text-white/68" title={provider.provider_name} aria-label={provider.provider_name}>
       {provider.provider_name.slice(0, 2).toUpperCase()}
     </span>
   )
@@ -657,35 +638,35 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
   const hasMore = streaming.length > 3 || transactional.length > 0
 
   return (
-    <section className="mt-4 border-y border-white/[0.07] py-3">
-      <div className="flex min-h-8 items-center gap-3">
+    <section className="mt-5 border-y border-white/[0.07] py-4">
+      <div className="flex min-h-10 items-center gap-3">
         <div>
-          <h2 className="whitespace-nowrap text-[9px] font-black uppercase tracking-[0.16em] text-white/72">Where to watch</h2>
-          <p className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-white/26">{region}</p>
+          <h2 className="whitespace-nowrap text-[13px] font-black uppercase tracking-[0.13em] text-white/78">Where to watch</h2>
+          <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.1em] text-white/42">{region}</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           {primary.slice(0, 3).map((provider) => <ProviderIcon key={provider.provider_id} provider={provider} />)}
           {hiddenCount > 0 && (
-            <span className="grid h-8 min-w-8 place-items-center rounded-[8px] bg-white/[0.06] px-1 text-[9px] font-black text-white/42">+{hiddenCount}</span>
+            <span className="grid h-9 min-w-9 place-items-center rounded-[9px] bg-white/[0.06] px-1 text-[12px] font-black text-white/52">+{hiddenCount}</span>
           )}
         </div>
         {providers.link && (
-          <a href={providers.link} target="_blank" rel="noreferrer" className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-white/[0.06] text-white/38 active:scale-95" aria-label="Open streaming options">
-            <ExternalLink size={13} />
+          <a href={providers.link} target="_blank" rel="noreferrer" className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white/[0.06] text-white/52 active:scale-95" aria-label="Open streaming options">
+            <ExternalLink size={16} />
           </a>
         )}
       </div>
 
       {hasMore && (
         <details className="group mt-2">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-[8px] font-black uppercase tracking-[0.14em] text-white/28 active:text-white/52">
+          <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 text-[12px] font-black uppercase tracking-[0.11em] text-white/44 active:text-white/68">
             More options
             <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
           </summary>
           <div className="mt-3 space-y-4">
             {streaming.length > 0 && (
               <div>
-                <p className="mb-2 text-[8px] font-black uppercase tracking-[0.14em] text-white/24">Stream</p>
+                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.11em] text-white/42">Stream</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                   {streaming.slice(0, 6).map((provider) => <ProviderLogo key={provider.provider_id} provider={provider} />)}
                 </div>
@@ -693,7 +674,7 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
             )}
             {transactional.length > 0 && (
               <div>
-                <p className="mb-2 text-[8px] font-black uppercase tracking-[0.14em] text-white/24">Rent or buy</p>
+                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.11em] text-white/42">Rent or buy</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                   {transactional.slice(0, 6).map((provider) => <ProviderLogo key={provider.provider_id} provider={provider} />)}
                 </div>
@@ -709,7 +690,7 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
 function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) => void }) {
   return (
     <div className="rounded-[20px] bg-[rgba(17,16,20,0.96)] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
-      <p className="mb-2 px-1 text-[8px] font-black uppercase tracking-[0.16em] text-white/32">Your rank</p>
+      <p className="mb-2 px-1 text-[12px] font-black uppercase tracking-[0.13em] text-white/48">Your rank</p>
       <div className="grid grid-cols-5 gap-1.5">
         {TIERS.map((rank) => {
           const style = TIER_DETAIL[rank]
@@ -743,10 +724,10 @@ function VideoSection({ videos, onSelect, accent }: { videos: TmdbVideoAsset[]; 
     <section className="mt-7">
       <div className="mb-3 flex items-end justify-between">
         <div>
-          <p className="text-[8px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>Watch before you watch</p>
-          <h2 className="mt-1 text-[15px] font-black tracking-[-0.04em] text-white/88">Trailers & clips</h2>
+          <p className="text-[11px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>Watch before you watch</p>
+          <h2 className="mt-1 text-[20px] font-black tracking-[-0.035em] text-white/92">Trailers & clips</h2>
         </div>
-        <span className="text-[9px] font-bold text-white/26">{videos.length} videos</span>
+        <span className="text-[12px] font-bold text-white/42">{videos.length} videos</span>
       </div>
       <div className="-mr-4 flex gap-2.5 overflow-x-auto pb-1 pr-4 no-scrollbar">
         {videos.map((video) => (
@@ -759,8 +740,8 @@ function VideoSection({ videos, onSelect, accent }: { videos: TmdbVideoAsset[]; 
             <div className="absolute inset-0 bg-gradient-to-t from-black/94 via-black/10 to-black/10" />
             <span className="absolute left-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-full text-black shadow-lg" style={{ background: accent }}><Play size={10} fill="currentColor" /></span>
             <span className="absolute inset-x-0 bottom-0 p-2.5">
-              <span className="block text-[8px] font-black uppercase tracking-[0.1em] text-white/40">{video.type}</span>
-              <span className="mt-0.5 line-clamp-2 block text-[10px] font-black leading-[1.15] text-white/88">{video.name}</span>
+              <span className="block text-[11px] font-black uppercase tracking-[0.08em] text-white/52">{video.type}</span>
+              <span className="mt-1 line-clamp-2 block text-[13px] font-black leading-[1.25] text-white/92">{video.name}</span>
             </span>
           </button>
         ))}
@@ -801,7 +782,7 @@ function VideoModal({ video, onClose }: { video: TmdbVideoAsset | null; onClose:
               />
             </div>
             <div className="flex items-center justify-between gap-4 px-4 py-3">
-              <div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-[0.13em] text-white/32">{video.type}</p><p className="truncate text-[12px] font-black text-white/82">{video.name}</p></div>
+              <div className="min-w-0"><p className="text-[11px] font-black uppercase tracking-[0.1em] text-white/48">{video.type}</p><p className="truncate text-[15px] font-black text-white/88">{video.name}</p></div>
               <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/72 ring-1 ring-white/[0.1] active:scale-95" aria-label="Close video"><X size={15} /></button>
             </div>
           </motion.div>
@@ -832,10 +813,10 @@ function CastSection({
   return (
     <section className="mt-8">
       <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/42">
-          <Drama size={14} /> Cast
+        <div className="flex items-center gap-2 text-[13px] font-black uppercase tracking-[0.16em] text-white/58">
+          <Drama size={17} /> Cast
         </div>
-        <button onClick={onCast} className="h-9 rounded-full border border-white/[0.1] bg-transparent px-4 text-[10px] font-black uppercase tracking-[0.16em] text-white/62 active:scale-95">
+        <button onClick={onCast} className="h-11 rounded-full border border-white/[0.1] bg-transparent px-4 text-[12px] font-black uppercase tracking-[0.12em] text-white/72 active:scale-95">
           Assign roles
         </button>
       </div>
@@ -847,11 +828,11 @@ function CastSection({
               {role.profilePath ? (
                 <img src={imgUrl(role.profilePath, 'w185')} alt="" className="h-8 w-8 rounded-full object-cover" />
               ) : (
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.08] text-[10px] font-black text-white/45">{role.characterName.slice(0, 2).toUpperCase()}</span>
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.08] text-[12px] font-black text-white/52">{role.characterName.slice(0, 2).toUpperCase()}</span>
               )}
               <span>
-                <span className="block text-[9px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>{role.roleName}</span>
-                <span className="block max-w-[118px] truncate text-[11px] font-black leading-none text-white/80">{role.characterName}</span>
+                <span className="block text-[11px] font-black uppercase tracking-[0.11em]" style={{ color: accent }}>{role.roleName}</span>
+                <span className="mt-0.5 block max-w-[118px] truncate text-[13px] font-black leading-none text-white/84">{role.characterName}</span>
               </span>
             </button>
           ))}
@@ -896,9 +877,9 @@ function CastSection({
                   {assignedRole ? <Check size={16} strokeWidth={3} /> : <Plus size={18} strokeWidth={3} />}
                 </span>
                 <div className="absolute inset-x-0 bottom-0 p-3">
-                  {assignedRole && <p className="mb-1 text-[9px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>{assignedRole.roleName}</p>}
-                  <p className="line-clamp-2 text-[13px] font-black leading-[0.95] tracking-[-0.05em] text-white">{member.character || member.name}</p>
-                  <p className="mt-1 truncate text-[9px] font-bold text-white/38">{member.name}</p>
+                  {assignedRole && <p className="mb-1 text-[11px] font-black uppercase tracking-[0.1em]" style={{ color: accent }}>{assignedRole.roleName}</p>}
+                  <p className="line-clamp-2 text-[15px] font-black leading-[1.05] tracking-[-0.04em] text-white">{member.character || member.name}</p>
+                  <p className="mt-1 truncate text-[11px] font-bold text-white/52">{member.name}</p>
                 </div>
               </button>
             )
@@ -907,8 +888,8 @@ function CastSection({
       ) : (
         <button onClick={onCast} className="flex min-h-[94px] w-full items-center justify-between rounded-[28px] bg-white/[0.045] px-4 text-left ring-1 ring-white/[0.06] active:scale-[0.99]">
           <span>
-            <span className="block text-[15px] font-black tracking-[-0.04em] text-white/82">Cast info unavailable</span>
-            <span className="mt-1 block text-[11px] font-bold text-white/36">Add a role manually</span>
+            <span className="block text-[18px] font-black tracking-[-0.035em] text-white/88">Cast info unavailable</span>
+            <span className="mt-1 block text-[14px] font-bold text-white/52">Add a role manually</span>
           </span>
           <span className="grid h-11 w-11 place-items-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/52">
             <Plus size={19} strokeWidth={3} />
@@ -941,24 +922,24 @@ function TrackingSection({
   return (
     <section className="mt-7">
       <div className="mb-3 flex items-end justify-between">
-        <div><p className="text-[8px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>Episode tracking</p><h2 className="mt-1 text-[15px] font-black tracking-[-0.04em] text-white/88">{complete ? 'All watched' : nextEpisode ? 'Up next' : 'Your progress'}</h2></div>
-        <button onClick={onOpen} className="text-[9px] font-black uppercase tracking-[0.1em]" style={{ color: accent }}>Episode guide</button>
+        <div><p className="text-[11px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>Episode tracking</p><h2 className="mt-1 text-[20px] font-black tracking-[-0.035em] text-white/92">{complete ? 'All watched' : nextEpisode ? 'Up next' : 'Your progress'}</h2></div>
+        <button onClick={onOpen} className="min-h-9 text-[12px] font-black uppercase tracking-[0.08em]" style={{ color: accent }}>Episode guide</button>
       </div>
       <button onClick={onOpen} className="group relative w-full overflow-hidden rounded-[16px] bg-[#101418] text-left ring-1 ring-white/[0.09] active:scale-[0.99]">
         {nextEpisode?.stillPath ? <img src={imgUrl(nextEpisode.stillPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-45 transition duration-500 group-hover:scale-[1.02]" loading="lazy" /> : show.backdropPath ? <img src={imgUrl(show.backdropPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" loading="lazy" /> : null}
         <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/72 to-black/28" />
         <div className="relative flex min-h-[112px] items-center justify-between gap-4 p-4">
           <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.12em]" style={{ color: accent }}>{nextEpisode?.label ?? (complete ? 'Complete' : 'Ready when you are')}</p>
-            <p className="mt-1 truncate text-[16px] font-black tracking-[-0.04em] text-white">{nextEpisode?.name ?? (complete ? 'You finished this series' : 'Choose your first episode')}</p>
-            <p className="mt-1 text-[9px] font-bold text-white/40">{progress.total > 0 ? `${progress.watched} of ${progress.total} watched · ${Math.round(percent)}%` : 'Open the episode guide to begin'}</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.1em]" style={{ color: accent }}>{nextEpisode?.label ?? (complete ? 'Complete' : 'Ready when you are')}</p>
+            <p className="mt-1 truncate text-[18px] font-black tracking-[-0.035em] text-white">{nextEpisode?.name ?? (complete ? 'You finished this series' : 'Choose your first episode')}</p>
+            <p className="mt-1.5 text-[12px] font-bold text-white/52">{progress.total > 0 ? `${progress.watched} of ${progress.total} watched · ${Math.round(percent)}%` : 'Open the episode guide to begin'}</p>
           </div>
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-black shadow-lg" style={{ background: accent }}>{complete ? <Check size={16} strokeWidth={3} /> : <Play size={13} fill="currentColor" />}</span>
         </div>
       </button>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        <button onClick={onOpen} className="h-10 rounded-[12px] border border-white/[0.1] bg-white/[0.025] text-[9px] font-black uppercase tracking-[0.12em] text-white/62 active:scale-[0.98]">Episodes</button>
-        <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-10 rounded-[12px] border bg-transparent text-[9px] font-black uppercase tracking-[0.12em] disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}4d` }}>{busy ? 'Saving' : complete ? 'Unmark all' : 'Mark watched'}</button>
+        <button onClick={onOpen} className="h-12 rounded-[14px] border border-white/[0.1] bg-white/[0.025] text-[12px] font-black uppercase tracking-[0.1em] text-white/72 active:scale-[0.98]">Episodes</button>
+        <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-12 rounded-[14px] border bg-transparent text-[12px] font-black uppercase tracking-[0.1em] disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}4d` }}>{busy ? 'Saving' : complete ? 'Unmark all' : 'Mark watched'}</button>
       </div>
     </section>
   )
@@ -977,13 +958,13 @@ function VibeRail({ showId, applied, accent }: { showId: number; applied: EmojiC
         {visible.map((category) => {
           const on = appliedIds.has(category.id)
           return (
-            <button key={category.id} onClick={() => on ? void removeEmoji(category.id, showId) : void applyEmoji(category.id, showId)} className={cn('min-h-8 rounded-full border px-2.5 text-left text-[11px] font-black uppercase tracking-[0.1em] backdrop-blur-xl active:scale-95', on ? 'border-white/24 bg-white/[0.08] text-white/82' : 'border-white/[0.08] bg-black/24 text-white/58')}>
+            <button key={category.id} onClick={() => on ? void removeEmoji(category.id, showId) : void applyEmoji(category.id, showId)} className={cn('min-h-10 rounded-full border px-3 text-left text-[13px] font-black uppercase tracking-[0.08em] backdrop-blur-xl active:scale-95', on ? 'border-white/24 bg-white/[0.08] text-white/82' : 'border-white/[0.08] bg-black/24 text-white/64')}>
               <span className="mr-1 text-sm leading-none">{category.emoji}</span>{category.label}
             </button>
           )
         })}
         {!creating && (
-          <button onClick={() => setCreating(true)} className="grid h-8 min-w-8 place-items-center rounded-full bg-black/36 px-2.5 text-[10px] font-black uppercase tracking-[0.14em] text-white/52 ring-1 ring-white/[0.08] active:scale-95">
+          <button onClick={() => setCreating(true)} className="grid h-10 min-w-10 place-items-center rounded-full bg-black/36 px-3 text-[12px] font-black uppercase tracking-[0.11em] text-white/62 ring-1 ring-white/[0.08] active:scale-95">
             Vibe
           </button>
         )}
@@ -1000,7 +981,7 @@ function VibeRail({ showId, applied, accent }: { showId: number; applied: EmojiC
           </div>
           <div className="flex gap-1.5">
             <input value={emoji} onChange={(e) => setEmoji(e.target.value.slice(0, 4))} placeholder="🥀" className="h-9 w-12 rounded-full bg-white/[0.06] px-2 text-center text-lg outline-none" />
-            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label" className="h-9 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3 text-xs font-bold text-white outline-none placeholder:text-white/24" />
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label" className="h-10 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3 text-sm font-bold text-white outline-none placeholder:text-white/32" />
             <button disabled={!emoji.trim()} onClick={async () => {
               const category = await createEmojiCategory(emoji.trim(), label.trim() || undefined)
               await applyEmoji(category.id, showId)
