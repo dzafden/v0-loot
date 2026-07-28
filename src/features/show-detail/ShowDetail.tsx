@@ -484,7 +484,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   }
 
   const handleEpisodeBulk = async (watchAll: boolean) => {
-    if (!owned) await handleAddToCollection()
+    if (!owned) return
     setEpisodeBulkBusy(watchAll ? 'mark' : 'unmark')
     try {
       await ensureSeasonCache()
@@ -623,6 +623,18 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             </section>
           )}
 
+          {!owned && (
+            <div className="mt-2 flex justify-end">
+              <button
+                onClick={() => discoverIsHidden ? void restoreToDiscover() : void hideFromDiscover()}
+                className="inline-flex min-h-9 items-center gap-1.5 text-[12px] font-semibold text-white/38 hover:text-white/68 active:scale-95"
+              >
+                <EyeOff size={12} />
+                {discoverIsHidden ? 'Show again' : 'Not interested'}
+              </button>
+            </div>
+          )}
+
           {mediaType === 'movie' && (
             <div className="mt-4 grid grid-cols-3 border-y border-white/[0.08]">
               {factItems.map((fact, index) => (
@@ -634,6 +646,20 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             </div>
           )}
 
+          <VideoSection videos={videos} onSelect={setSelectedVideo} accent={accent} />
+
+          {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
+
+          {mediaType === 'tv' && owned && <TrackingSection
+            show={liveShow}
+            progress={progress}
+            nextEpisode={nextEpisode}
+            busy={episodeBulkBusy}
+            onOpen={() => onTrackEpisodes(liveShow)}
+            onBulk={handleEpisodeBulk}
+            accent={accent}
+          />}
+
           <MadeBySection
             creativeLead={creativeLead}
             studios={animationStudios}
@@ -643,36 +669,6 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             onOpenShow={onOpenShow}
           />
 
-          {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
-
-          {mediaType === 'tv' && <TrackingSection
-            show={liveShow}
-            progress={progress}
-            nextEpisode={nextEpisode}
-            busy={episodeBulkBusy}
-            onOpen={async () => {
-              if (!owned) await handleAddToCollection()
-              onTrackEpisodes(liveShow)
-            }}
-            onBulk={handleEpisodeBulk}
-            accent={accent}
-          />}
-
-          <VideoSection videos={videos} onSelect={setSelectedVideo} accent={accent} />
-
-          <div className="mt-5 flex min-h-8 items-start justify-between gap-3">
-            <div className="min-w-0 flex-1"><VibeRail showId={show.id} applied={showEmojis} accent={accent} /></div>
-            {!owned && (
-              <button
-                onClick={() => discoverIsHidden ? void restoreToDiscover() : void hideFromDiscover()}
-                className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[12px] font-semibold text-white/38 hover:text-white/68 active:scale-95"
-              >
-                <EyeOff size={12} />
-                {discoverIsHidden ? 'Show again' : 'Not interested'}
-              </button>
-            )}
-          </div>
-
           <CastSection
             assigned={cast}
             members={showCast}
@@ -681,6 +677,10 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             onCastPerson={async (personId) => { if (!owned) await handleAddToCollection(); onAssignRole(liveShow, personId) }}
             accent={accent}
           />
+
+          <div className="mt-7">
+            <VibeRail showId={show.id} applied={showEmojis} accent={accent} />
+          </div>
 
           {owned && (
             <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
@@ -937,15 +937,19 @@ function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) 
 
 function VideoSection({ videos, onSelect, accent }: { videos: TmdbVideoAsset[]; onSelect: (video: TmdbVideoAsset) => void; accent: string }) {
   if (!videos.length) return null
+  const singleVideo = videos.length === 1
   return (
     <section className="mt-7">
       <h2 className="mb-3 text-[20px] font-bold tracking-[-0.025em] text-white/92">Trailers & clips</h2>
-      <div className="-mr-4 flex gap-2.5 overflow-x-auto pb-1 pr-4 no-scrollbar">
+      <div className={cn('flex gap-2.5 pb-1', !singleVideo && '-mr-4 overflow-x-auto pr-4 no-scrollbar')}>
         {videos.map((video) => (
           <button
             key={video.id}
             onClick={() => onSelect(video)}
-            className="group relative aspect-[16/10] w-[178px] shrink-0 overflow-hidden rounded-[14px] bg-black text-left ring-1 ring-white/[0.1] active:scale-[0.98]"
+            className={cn(
+              'group relative overflow-hidden rounded-[14px] bg-black text-left ring-1 ring-white/[0.1] active:scale-[0.98]',
+              singleVideo ? 'aspect-video w-full' : 'aspect-[16/10] w-[178px] shrink-0',
+            )}
           >
             <img src={`https://i.ytimg.com/vi/${video.key}/hqdefault.jpg`} alt="" className="absolute inset-0 h-full w-full object-cover opacity-75 transition duration-500 group-hover:scale-[1.04] group-hover:opacity-90" loading="lazy" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/94 via-black/10 to-black/10" />
