@@ -20,6 +20,7 @@ import {
 } from '../../data/queries'
 import {
   getCredits,
+  getCompanyShows,
   getSeason,
   getShowDetail,
   getShowImages,
@@ -28,16 +29,20 @@ import {
   getWatchRegion,
   hasTmdbKey,
   imgUrl,
+  tmdbToLoot,
+  type TmdbSearchResult,
   type TmdbVideoAsset,
+  type TmdbCreator,
+  type TmdbCrewMember,
+  type TmdbProductionCompany,
   type TmdbWatchProvider,
   type WatchProviderResult,
 } from '../../lib/tmdb'
+import { selectAnimationStudios, selectCreators, type CreativeLead } from '../../lib/creative-credits'
 import { getRarity, RARITIES } from '../../lib/rarity'
 import { cn } from '../../lib/utils'
 import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
-import { getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
-import { getVibeTitle } from '../../lib/vibe-engine'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { dominantColor } from '../../lib/dominantColor'
 
@@ -54,6 +59,7 @@ type DetailCastMember = {
   character: string
   profile_path: string | null
 }
+type StudioTitle = { show: Show; logoPath: string | null }
 
 const TIER_DETAIL: Record<Tier, TierDetailStyle> = {
   S: { color: '#fb7185', soft: 'rgba(251,113,133,0.22)', wash: 'rgba(251,113,133,0.10)' },
@@ -64,6 +70,29 @@ const TIER_DETAIL: Record<Tier, TierDetailStyle> = {
 }
 
 const logoCache = new Map<number, string | null>()
+const studioTitleCache = new Map<number, StudioTitle[]>()
+
+function studioResultToShow(result: TmdbSearchResult): Show {
+  const loot = tmdbToLoot({ ...result, mediaType: 'tv' })
+  const now = Date.now()
+  return {
+    id: loot.id,
+    name: loot.title,
+    year: loot.year === '—' ? undefined : Number(loot.year),
+    posterPath: loot.posterPath,
+    backdropPath: loot.backdropPath,
+    overview: loot.overview,
+    genres: loot.rawGenres as Show['genres'],
+    rawGenres: loot.rawGenres,
+    mediaType: 'tv',
+    tradition: loot.tradition,
+    vibeIds: loot.vibeIds,
+    vibeEvidence: loot.vibeEvidence,
+    cardDescriptor: loot.cardDescriptor,
+    addedAt: now,
+    updatedAt: now,
+  }
+}
 
 function readableArtworkAccent(hex: string) {
   const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex)
@@ -102,9 +131,10 @@ interface Props {
   onBack: () => void
   onTrackEpisodes: (s: Show) => void
   onAssignRole: (s: Show, personId?: number) => void
+  onOpenShow: (s: Show) => void
 }
 
-export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisodes, onAssignRole }: Props) {
+export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisodes, onAssignRole, onOpenShow }: Props) {
   const reducedMotion = useReducedMotion()
   const mediaType = show.mediaType ?? 'tv'
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
@@ -112,6 +142,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const [logoPath, setLogoPath] = useState<string | null>(() => logoCache.get(show.id) ?? null)
   const [seasonInfo, setSeasonInfo] = useState<SeasonInfo | null>(null)
   const [showCast, setShowCast] = useState<DetailCastMember[]>([])
+  const [detailCreators, setDetailCreators] = useState<TmdbCreator[]>([])
+  const [showCrew, setShowCrew] = useState<TmdbCrewMember[]>([])
+  const [animationStudios, setAnimationStudios] = useState<TmdbProductionCompany[]>([])
+  const [studioTitles, setStudioTitles] = useState<StudioTitle[]>([])
+  const [studioTitlesLoading, setStudioTitlesLoading] = useState(false)
   const [castLoading, setCastLoading] = useState(() => hasTmdbKey())
   const [detailInfo, setDetailInfo] = useState<DetailInfo>({ tagline: '', runtime: null, network: null, status: null })
   const [videos, setVideos] = useState<TmdbVideoAsset[]>([])
@@ -152,6 +187,10 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const discoverFeedback = useDexieQuery(['discoverFeedback'], () => db.discoverFeedback.get(show.id), undefined, [show.id])
   const [progress, setProgress] = useState({ watched: 0, total: 0 })
   const [feedbackUndoVisible, setFeedbackUndoVisible] = useState(false)
+  const creativeLead = useMemo(
+    () => selectCreators(mediaType, detailCreators, showCrew),
+    [detailCreators, mediaType, showCrew],
+  )
 
   useEffect(() => {
     if (scrollEl) scrollEl.scrollTo({ top: 0, behavior: 'auto' })
@@ -189,6 +228,8 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
           network: detail.networks?.[0]?.name ?? null,
           status: detail.status ?? null,
         })
+        setDetailCreators(detail.created_by ?? [])
+        setAnimationStudios(selectAnimationStudios(detail.production_companies ?? []))
         if (mediaType === 'movie') {
           setSeasonInfo(null)
           return
@@ -206,6 +247,8 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         if (!cancelled) {
           setSeasonInfo(null)
           setDetailInfo({ tagline: '', runtime: null, network: null, status: null })
+          setDetailCreators([])
+          setAnimationStudios([])
         }
       })
 
@@ -213,6 +256,52 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
       cancelled = true
     }
   }, [show.id, mediaType])
+
+  useEffect(() => {
+    const studio = animationStudios[0]
+    if (!studio || mediaType !== 'tv' || !hasTmdbKey()) {
+      setStudioTitles([])
+      setStudioTitlesLoading(false)
+      return
+    }
+
+    const cached = studioTitleCache.get(studio.id)
+    if (cached) {
+      setStudioTitles(cached.filter((title) => title.show.id !== show.id))
+      setStudioTitlesLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setStudioTitlesLoading(true)
+    getCompanyShows(studio.id)
+      .then((results) => results.slice(0, 13))
+      .then((results) => Promise.all(results.map(async (result) => {
+        let titleLogo = logoCache.get(result.id)
+        if (titleLogo === undefined) {
+          try {
+            const images = await getShowImages(result.id, 'tv')
+            titleLogo = bestLogo(images.logos)
+          } catch {
+            titleLogo = null
+          }
+          logoCache.set(result.id, titleLogo)
+        }
+        return { show: studioResultToShow(result), logoPath: titleLogo }
+      })))
+      .then((titles) => {
+        studioTitleCache.set(studio.id, titles)
+        if (!cancelled) setStudioTitles(titles.filter((title) => title.show.id !== show.id).slice(0, 12))
+      })
+      .catch(() => {
+        if (!cancelled) setStudioTitles([])
+      })
+      .finally(() => {
+        if (!cancelled) setStudioTitlesLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [animationStudios, mediaType, show.id])
 
   useEffect(() => {
     const art = liveShow.backdropPath || liveShow.posterPath
@@ -278,9 +367,13 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         const withImages = credits.cast.filter((member) => member.profile_path)
         const withoutImages = credits.cast.filter((member) => !member.profile_path)
         setShowCast([...withImages, ...withoutImages].slice(0, 14))
+        setShowCrew(credits.crew ?? [])
       })
       .catch(() => {
-        if (!cancelled) setShowCast([])
+        if (!cancelled) {
+          setShowCast([])
+          setShowCrew([])
+        }
       })
       .finally(() => {
         if (!cancelled) setCastLoading(false)
@@ -298,10 +391,9 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
   const fallbackAccent = tier ? TIER_DETAIL[tier].color : r.hex
   const accent = artworkAccent ?? fallbackAccent
   const showEmojis = useMemo(() => emojiCategories.filter((c) => c.showIds.includes(show.id)), [emojiCategories, show.id])
-  const metadata = [
+  const heroFacts = [
     liveShow.year,
-    getVibeTitle(liveShow.vibeIds?.[0]) ?? getTraditionDisplayLabel(liveShow.tradition) ?? liveShow.rawGenres?.find((genre) => genre !== 'Animation'),
-    mediaType === 'movie' ? 'Film' : seasonLabel(seasonInfo, progress),
+    mediaType === 'movie' ? runtimeLabel(detailInfo.runtime) ?? 'Film' : seasonLabel(seasonInfo, progress),
   ].filter((item): item is string | number => item !== null && item !== undefined && item !== '')
   const fullyWatched = progress.total > 0 && progress.watched >= progress.total
   const primaryAction = !owned
@@ -433,10 +525,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             <button onClick={onBack} className="grid h-11 w-11 place-items-center rounded-full bg-black/38 text-white/88 backdrop-blur-xl ring-1 ring-white/[0.12] active:scale-95" aria-label="Back">
               <ChevronLeft size={22} />
             </button>
+            <ImdbBadge showId={show.id} className="ml-auto" />
           </header>
 
           <div className="relative z-10 w-full">
-            <p className="mb-2 text-[12px] font-black uppercase tracking-[0.16em] text-white/68">
+            <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em] text-white/62">
               {detailInfo.network ?? (mediaType === 'movie' ? 'Feature film' : 'Television series')}
             </p>
             {logoPath ? (
@@ -444,30 +537,29 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             ) : (
               <h1 className="max-w-[350px] text-[43px] font-black leading-[0.9] tracking-[-0.075em] text-balance drop-shadow-[0_14px_30px_rgba(0,0,0,0.95)]">{liveShow.name}</h1>
             )}
-            {detailInfo.tagline && <p className="mt-2 max-w-[340px] text-[14px] font-semibold leading-[1.45] text-white/68">{detailInfo.tagline}</p>}
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] font-bold text-white/68">
-              <ImdbBadge showId={show.id} compact />
-              {metadata.map((item) => <span key={item}>{item}</span>)}
+            {detailInfo.tagline && <p className="mt-3 max-w-[340px] text-[14px] font-medium leading-[1.45] text-white/68">{detailInfo.tagline}</p>}
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] font-semibold text-white/68">
+              {heroFacts.map((item, index) => (
+                <span key={item} className="inline-flex items-center gap-3">
+                  {index > 0 && <span className="h-1 w-1 rounded-full bg-white/28" aria-hidden />}
+                  {item}
+                </span>
+              ))}
               {detailInfo.status && <span className="rounded-full border border-white/[0.12] bg-black/20 px-2.5 py-1 text-[11px] uppercase tracking-[0.06em] text-white/58">{detailInfo.status.replace(' Series', '')}</span>}
             </div>
-            {recommendationContext && (
-              <p className="mt-2 text-[12px] font-bold leading-[1.4] text-white/48">
-                Because you liked {recommendationContext.anchorName}{recommendationContext.sharedGenre ? ` · ${recommendationContext.sharedGenre}` : ''}
-              </p>
-            )}
 
-            <div className="mt-5 flex items-center gap-2">
+            <div className="mt-6 flex items-center gap-2">
               {resolvedPrimary ? (
                 <button
                   onClick={resolvedPrimary.onClick}
-                  className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[14px] px-4 text-[13px] font-black uppercase tracking-[0.08em] text-black shadow-[0_14px_32px_rgba(0,0,0,0.3)] active:scale-[0.98]"
+                  className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[14px] px-4 text-[14px] font-bold text-black shadow-[0_14px_32px_rgba(0,0,0,0.3)] active:scale-[0.98]"
                   style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 76%, white), ${accent})`, boxShadow: `0 14px 34px ${accent}2d` }}
                 >
                   {ResolvedPrimaryIcon && <ResolvedPrimaryIcon size={18} strokeWidth={3} />}
                   <span className="truncate">{resolvedPrimary.label}</span>
                 </button>
               ) : (
-                <div className="flex h-12 flex-1 items-center justify-center rounded-[14px] border border-white/[0.1] bg-white/[0.04] text-[13px] font-black uppercase tracking-[0.08em] text-white/58">In collection</div>
+                <div className="flex h-12 flex-1 items-center justify-center rounded-[14px] border border-white/[0.1] bg-white/[0.04] text-[14px] font-bold text-white/58">In collection</div>
               )}
               {trailer && resolvedPrimary?.label !== 'Play trailer' && (
                 <button onClick={() => setSelectedVideo(trailer)} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-white/[0.14] bg-black/34 text-white backdrop-blur-xl active:scale-95" aria-label="Play trailer">
@@ -502,11 +594,11 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
               )}
             </AnimatePresence>
 
-            {mediaType === 'tv' && (
+            {mediaType === 'tv' && progress.total > 0 && progress.watched > 0 && (
               <div className="mt-4">
-                <div className="flex justify-between text-[11px] font-black uppercase tracking-[0.08em] text-white/52">
-                  <span>{progress.total > 0 ? `${progress.watched} of ${progress.total} episodes watched` : 'Track your episodes'}</span>
-                  {progress.total > 0 && <span style={{ color: accent }}>{progressPercent}%</span>}
+                <div className="flex justify-between text-[11px] font-semibold text-white/48">
+                  <span>{progress.watched} of {progress.total} watched</span>
+                  <span style={{ color: accent }}>{progressPercent}%</span>
                 </div>
                 <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-white/[0.12]">
                   <motion.div className="h-full rounded-full" animate={{ width: `${progressPercent}%` }} style={{ background: `linear-gradient(90deg, ${accent}, white)` }} />
@@ -517,23 +609,39 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
         </section>
 
         <main className="relative z-20 px-5 pb-7">
+          {recommendationContext && (
+            <p className="mb-3 text-[12px] font-medium text-white/42">
+              Because you liked <span className="text-white/68">{recommendationContext.anchorName}</span>
+            </p>
+          )}
           {liveShow.overview && (
             <section>
               <p className={cn('text-[17px] font-semibold leading-[1.55] text-white/78', !storyOpen && 'line-clamp-4')}>{liveShow.overview}</p>
               {liveShow.overview.length > 180 && (
-                <button onClick={() => setStoryOpen((value) => !value)} className="mt-2 min-h-8 text-[12px] font-black uppercase tracking-[0.12em] text-white/48 active:scale-95">{storyOpen ? 'Less' : 'More'}</button>
+                <button onClick={() => setStoryOpen((value) => !value)} className="mt-2 min-h-8 text-[13px] font-semibold text-white/48 active:scale-95">{storyOpen ? 'Less' : 'More'}</button>
               )}
             </section>
           )}
 
-          <div className="mt-4 grid grid-cols-3 border-y border-white/[0.08]">
-            {factItems.map((fact, index) => (
-              <div key={`${fact.label}-${fact.value}`} className={cn('min-w-0 py-4', index > 0 && 'border-l border-white/[0.08] pl-3', index < 2 && 'pr-2')}>
-                <p className="line-clamp-2 text-[15px] font-black leading-[1.2] text-white/88">{fact.value}</p>
-                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.07em] text-white/42">{fact.label}</p>
-              </div>
-            ))}
-          </div>
+          {mediaType === 'movie' && (
+            <div className="mt-4 grid grid-cols-3 border-y border-white/[0.08]">
+              {factItems.map((fact, index) => (
+                <div key={`${fact.label}-${fact.value}`} className={cn('min-w-0 py-4', index > 0 && 'border-l border-white/[0.08] pl-3', index < 2 && 'pr-2')}>
+                  <p className="line-clamp-2 text-[15px] font-bold leading-[1.25] text-white/86">{fact.value}</p>
+                  <p className="mt-1 text-[11px] font-medium text-white/42">{fact.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <MadeBySection
+            creativeLead={creativeLead}
+            studios={animationStudios}
+            studioTitles={studioTitles}
+            studioTitlesLoading={studioTitlesLoading}
+            accent={accent}
+            onOpenShow={onOpenShow}
+          />
 
           {watchProviders && <WhereToWatch providers={watchProviders} region={getWatchRegion()} />}
 
@@ -557,7 +665,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
             {!owned && (
               <button
                 onClick={() => discoverIsHidden ? void restoreToDiscover() : void hideFromDiscover()}
-                className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[12px] font-black uppercase tracking-[0.1em] text-white/38 hover:text-white/68 active:scale-95"
+                className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[12px] font-semibold text-white/38 hover:text-white/68 active:scale-95"
               >
                 <EyeOff size={12} />
                 {discoverIsHidden ? 'Show again' : 'Not interested'}
@@ -576,7 +684,7 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
 
           {owned && (
             <div className="mt-9 flex justify-center border-t border-white/[0.06] pt-5">
-              <button onClick={handleDelete} className="inline-flex min-h-10 items-center gap-1.5 text-[12px] font-black uppercase tracking-[0.14em] text-white/28 hover:text-rose-300 active:scale-95"><Trash2 size={14} />Remove from collection</button>
+              <button onClick={handleDelete} className="inline-flex min-h-10 items-center gap-1.5 text-[12px] font-semibold text-white/28 hover:text-rose-300 active:scale-95"><Trash2 size={14} />Remove from collection</button>
             </div>
           )}
         </main>
@@ -587,10 +695,119 @@ export function ShowDetail({ show, recommendationContext, onBack, onTrackEpisode
       {feedbackUndoVisible && (
         <div className="fixed inset-x-4 bottom-24 z-[70] mx-auto flex h-14 max-w-sm items-center justify-between rounded-[20px] bg-[#17141b]/96 px-4 text-[14px] font-bold text-white shadow-[0_22px_54px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
           <span>Hidden from Discover</span>
-          <button onClick={() => void restoreToDiscover()} className="h-10 rounded-full bg-white px-4 text-[12px] font-black uppercase tracking-[0.12em] text-black active:scale-95">Undo</button>
+          <button onClick={() => void restoreToDiscover()} className="h-10 rounded-full bg-white px-4 text-[12px] font-semibold text-black active:scale-95">Undo</button>
         </div>
       )}
     </motion.div>
+  )
+}
+
+function MadeBySection({
+  creativeLead,
+  studios,
+  studioTitles,
+  studioTitlesLoading,
+  accent,
+  onOpenShow,
+}: {
+  creativeLead: CreativeLead
+  studios: TmdbProductionCompany[]
+  studioTitles: StudioTitle[]
+  studioTitlesLoading: boolean
+  accent: string
+  onOpenShow: (show: Show) => void
+}) {
+  const hasCreator = creativeLead.people.length > 0
+  const hasStudio = studios.length > 0
+  if (!hasCreator && !hasStudio) return null
+
+  const creator = creativeLead.people[0]
+  const studio = studios[0]
+
+  return (
+    <section className="mt-5">
+      <h2 className="mb-4 text-[18px] font-bold tracking-[-0.02em] text-white/88">Made by</h2>
+      <div className="space-y-4">
+        {hasCreator && (
+          <div className="flex min-w-0 items-center gap-3">
+            {creator.profile_path ? (
+              <img src={imgUrl(creator.profile_path, 'w185')} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover ring-1 ring-white/[0.12]" />
+            ) : (
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/[0.07] text-[12px] font-black text-white/68 ring-1 ring-white/[0.09]">
+                {creator.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}
+              </span>
+            )}
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold" style={{ color: accent }}>{creativeLead.label}</p>
+              <p className="mt-1 text-[15px] font-semibold leading-[1.35] text-white/84">
+                {creativeLead.people.map((person) => person.name).join(' · ')}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hasStudio && (
+          <div>
+            <div className="flex min-w-0 items-center gap-3">
+              {studio.logo_path ? (
+                <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-[10px] bg-white/90 p-1.5">
+                  <img src={imgUrl(studio.logo_path, 'w185')} alt="" className="max-h-full max-w-full object-contain" />
+                </span>
+              ) : (
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-white/[0.07] text-[11px] font-black text-white/68 ring-1 ring-white/[0.09]">
+                  {studio.name.slice(0, 2).toUpperCase()}
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold" style={{ color: accent }}>
+                  {studios.length > 1 ? 'Animation studios' : 'Animation studio'}
+                </p>
+                <p className="mt-1 text-[15px] font-semibold leading-[1.35] text-white/84">
+                  {studios.map((company) => company.name).join(' · ')}
+                </p>
+              </div>
+            </div>
+
+            {(studioTitlesLoading || studioTitles.length > 0) && (
+              <div className="-mr-5 mt-4 flex gap-2.5 overflow-x-auto pb-1 pr-5 no-scrollbar">
+                  {studioTitlesLoading
+                    ? [0, 1, 2].map((item) => <span key={item} className="h-[72px] w-[122px] shrink-0 animate-pulse rounded-[14px] bg-white/[0.055]" />)
+                    : studioTitles.map((title) => (
+                      <button
+                        key={title.show.id}
+                        onClick={() => onOpenShow(title.show)}
+                        className="group relative h-[76px] w-[132px] shrink-0 overflow-hidden rounded-[14px] bg-[#111419] text-center text-[12px] font-semibold leading-[1.15] text-white shadow-[0_9px_24px_rgba(0,0,0,.3)] ring-1 ring-white/[0.11] active:scale-[0.97]"
+                        aria-label={`Open ${title.show.name}`}
+                      >
+                        {(title.show.backdropPath || title.show.posterPath) && (
+                          <img
+                            src={imgUrl(title.show.backdropPath || title.show.posterPath, 'w342')}
+                            alt=""
+                            className="absolute inset-0 h-full w-full object-cover opacity-80 transition-transform duration-500 group-hover:scale-[1.05]"
+                            loading="lazy"
+                          />
+                        )}
+                        <span className="absolute inset-0 bg-gradient-to-t from-black/78 via-black/35 to-black/18" />
+                        <span className="relative z-10 grid h-full w-full place-items-center p-3">
+                          {title.logoPath ? (
+                            <img
+                              src={imgUrl(title.logoPath, 'w342')}
+                              alt={title.show.name}
+                              className="max-h-full max-w-full object-contain drop-shadow-[0_2px_5px_rgba(0,0,0,.95)] transition-transform duration-300 group-hover:scale-[1.04]"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="line-clamp-3 drop-shadow-[0_2px_4px_rgba(0,0,0,.9)]">{title.show.name}</span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -641,8 +858,8 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
     <section className="mt-5 border-y border-white/[0.07] py-4">
       <div className="flex min-h-10 items-center gap-3">
         <div>
-          <h2 className="whitespace-nowrap text-[13px] font-black uppercase tracking-[0.13em] text-white/78">Where to watch</h2>
-          <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.1em] text-white/42">{region}</p>
+          <h2 className="whitespace-nowrap text-[17px] font-bold tracking-[-0.02em] text-white/88">Where to watch</h2>
+          <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.08em] text-white/42">{region}</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           {primary.slice(0, 3).map((provider) => <ProviderIcon key={provider.provider_id} provider={provider} />)}
@@ -659,14 +876,14 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
 
       {hasMore && (
         <details className="group mt-2">
-          <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 text-[12px] font-black uppercase tracking-[0.11em] text-white/44 active:text-white/68">
+          <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 text-[12px] font-semibold text-white/44 active:text-white/68">
             More options
             <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
           </summary>
           <div className="mt-3 space-y-4">
             {streaming.length > 0 && (
               <div>
-                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.11em] text-white/42">Stream</p>
+                <p className="mb-2 text-[11px] font-semibold text-white/42">Stream</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                   {streaming.slice(0, 6).map((provider) => <ProviderLogo key={provider.provider_id} provider={provider} />)}
                 </div>
@@ -674,7 +891,7 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
             )}
             {transactional.length > 0 && (
               <div>
-                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.11em] text-white/42">Rent or buy</p>
+                <p className="mb-2 text-[11px] font-semibold text-white/42">Rent or buy</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                   {transactional.slice(0, 6).map((provider) => <ProviderLogo key={provider.provider_id} provider={provider} />)}
                 </div>
@@ -690,7 +907,7 @@ function WhereToWatch({ providers, region }: { providers: WatchProviderResult; r
 function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) => void }) {
   return (
     <div className="rounded-[20px] bg-[rgba(17,16,20,0.96)] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.62)] ring-1 ring-white/[0.1] backdrop-blur-2xl">
-      <p className="mb-2 px-1 text-[12px] font-black uppercase tracking-[0.13em] text-white/48">Your rank</p>
+      <p className="mb-2 px-1 text-[12px] font-semibold text-white/48">Your rank</p>
       <div className="grid grid-cols-5 gap-1.5">
         {TIERS.map((rank) => {
           const style = TIER_DETAIL[rank]
@@ -722,13 +939,7 @@ function VideoSection({ videos, onSelect, accent }: { videos: TmdbVideoAsset[]; 
   if (!videos.length) return null
   return (
     <section className="mt-7">
-      <div className="mb-3 flex items-end justify-between">
-        <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>Watch before you watch</p>
-          <h2 className="mt-1 text-[20px] font-black tracking-[-0.035em] text-white/92">Trailers & clips</h2>
-        </div>
-        <span className="text-[12px] font-bold text-white/42">{videos.length} videos</span>
-      </div>
+      <h2 className="mb-3 text-[20px] font-bold tracking-[-0.025em] text-white/92">Trailers & clips</h2>
       <div className="-mr-4 flex gap-2.5 overflow-x-auto pb-1 pr-4 no-scrollbar">
         {videos.map((video) => (
           <button
@@ -740,8 +951,7 @@ function VideoSection({ videos, onSelect, accent }: { videos: TmdbVideoAsset[]; 
             <div className="absolute inset-0 bg-gradient-to-t from-black/94 via-black/10 to-black/10" />
             <span className="absolute left-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-full text-black shadow-lg" style={{ background: accent }}><Play size={10} fill="currentColor" /></span>
             <span className="absolute inset-x-0 bottom-0 p-2.5">
-              <span className="block text-[11px] font-black uppercase tracking-[0.08em] text-white/52">{video.type}</span>
-              <span className="mt-1 line-clamp-2 block text-[13px] font-black leading-[1.25] text-white/92">{video.name}</span>
+              <span className="line-clamp-2 block text-[13px] font-semibold leading-[1.3] text-white/88">{video.name}</span>
             </span>
           </button>
         ))}
@@ -782,7 +992,7 @@ function VideoModal({ video, onClose }: { video: TmdbVideoAsset | null; onClose:
               />
             </div>
             <div className="flex items-center justify-between gap-4 px-4 py-3">
-              <div className="min-w-0"><p className="text-[11px] font-black uppercase tracking-[0.1em] text-white/48">{video.type}</p><p className="truncate text-[15px] font-black text-white/88">{video.name}</p></div>
+              <p className="min-w-0 truncate text-[15px] font-semibold text-white/88">{video.name}</p>
               <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/72 ring-1 ring-white/[0.1] active:scale-95" aria-label="Close video"><X size={15} /></button>
             </div>
           </motion.div>
@@ -813,10 +1023,10 @@ function CastSection({
   return (
     <section className="mt-8">
       <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[13px] font-black uppercase tracking-[0.16em] text-white/58">
+        <div className="flex items-center gap-2 text-[18px] font-bold tracking-[-0.02em] text-white/82">
           <Drama size={17} /> Cast
         </div>
-        <button onClick={onCast} className="h-11 rounded-full border border-white/[0.1] bg-transparent px-4 text-[12px] font-black uppercase tracking-[0.12em] text-white/72 active:scale-95">
+        <button onClick={onCast} className="h-11 rounded-full border border-white/[0.1] bg-transparent px-4 text-[12px] font-semibold text-white/72 active:scale-95">
           Assign roles
         </button>
       </div>
@@ -831,8 +1041,8 @@ function CastSection({
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.08] text-[12px] font-black text-white/52">{role.characterName.slice(0, 2).toUpperCase()}</span>
               )}
               <span>
-                <span className="block text-[11px] font-black uppercase tracking-[0.11em]" style={{ color: accent }}>{role.roleName}</span>
-                <span className="mt-0.5 block max-w-[118px] truncate text-[13px] font-black leading-none text-white/84">{role.characterName}</span>
+                <span className="block text-[11px] font-semibold" style={{ color: accent }}>{role.roleName}</span>
+                <span className="mt-0.5 block max-w-[118px] truncate text-[13px] font-semibold leading-none text-white/84">{role.characterName}</span>
               </span>
             </button>
           ))}
@@ -877,8 +1087,8 @@ function CastSection({
                   {assignedRole ? <Check size={16} strokeWidth={3} /> : <Plus size={18} strokeWidth={3} />}
                 </span>
                 <div className="absolute inset-x-0 bottom-0 p-3">
-                  {assignedRole && <p className="mb-1 text-[11px] font-black uppercase tracking-[0.1em]" style={{ color: accent }}>{assignedRole.roleName}</p>}
-                  <p className="line-clamp-2 text-[15px] font-black leading-[1.05] tracking-[-0.04em] text-white">{member.character || member.name}</p>
+                  {assignedRole && <p className="mb-1 text-[11px] font-semibold" style={{ color: accent }}>{assignedRole.roleName}</p>}
+                  <p className="line-clamp-2 text-[15px] font-bold leading-[1.1] tracking-[-0.025em] text-white">{member.character || member.name}</p>
                   <p className="mt-1 truncate text-[11px] font-bold text-white/52">{member.name}</p>
                 </div>
               </button>
@@ -888,7 +1098,7 @@ function CastSection({
       ) : (
         <button onClick={onCast} className="flex min-h-[94px] w-full items-center justify-between rounded-[28px] bg-white/[0.045] px-4 text-left ring-1 ring-white/[0.06] active:scale-[0.99]">
           <span>
-            <span className="block text-[18px] font-black tracking-[-0.035em] text-white/88">Cast info unavailable</span>
+            <span className="block text-[18px] font-bold tracking-[-0.025em] text-white/88">Cast info unavailable</span>
             <span className="mt-1 block text-[14px] font-bold text-white/52">Add a role manually</span>
           </span>
           <span className="grid h-11 w-11 place-items-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/52">
@@ -918,29 +1128,22 @@ function TrackingSection({
   accent: string
 }) {
   const complete = progress.total > 0 && progress.watched >= progress.total
-  const percent = progress.total > 0 ? Math.min(100, (progress.watched / progress.total) * 100) : 0
   return (
     <section className="mt-7">
-      <div className="mb-3 flex items-end justify-between">
-        <div><p className="text-[11px] font-black uppercase tracking-[0.14em]" style={{ color: accent }}>Episode tracking</p><h2 className="mt-1 text-[20px] font-black tracking-[-0.035em] text-white/92">{complete ? 'All watched' : nextEpisode ? 'Up next' : 'Your progress'}</h2></div>
-        <button onClick={onOpen} className="min-h-9 text-[12px] font-black uppercase tracking-[0.08em]" style={{ color: accent }}>Episode guide</button>
-      </div>
+      <h2 className="mb-3 text-[20px] font-bold tracking-[-0.025em] text-white/92">Episodes</h2>
       <button onClick={onOpen} className="group relative w-full overflow-hidden rounded-[16px] bg-[#101418] text-left ring-1 ring-white/[0.09] active:scale-[0.99]">
         {nextEpisode?.stillPath ? <img src={imgUrl(nextEpisode.stillPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-45 transition duration-500 group-hover:scale-[1.02]" loading="lazy" /> : show.backdropPath ? <img src={imgUrl(show.backdropPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" loading="lazy" /> : null}
         <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/72 to-black/28" />
         <div className="relative flex min-h-[112px] items-center justify-between gap-4 p-4">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-[0.1em]" style={{ color: accent }}>{nextEpisode?.label ?? (complete ? 'Complete' : 'Ready when you are')}</p>
-            <p className="mt-1 truncate text-[18px] font-black tracking-[-0.035em] text-white">{nextEpisode?.name ?? (complete ? 'You finished this series' : 'Choose your first episode')}</p>
-            <p className="mt-1.5 text-[12px] font-bold text-white/52">{progress.total > 0 ? `${progress.watched} of ${progress.total} watched · ${Math.round(percent)}%` : 'Open the episode guide to begin'}</p>
+            {nextEpisode && <p className="text-[11px] font-semibold" style={{ color: accent }}>{nextEpisode.label}</p>}
+            <p className={cn('truncate text-[18px] font-bold tracking-[-0.025em] text-white', nextEpisode && 'mt-1')}>{nextEpisode?.name ?? (complete ? 'All episodes watched' : 'Choose your first episode')}</p>
+            {progress.total > 0 && !complete && <p className="mt-1.5 text-[12px] font-semibold text-white/52">{progress.watched} of {progress.total} watched</p>}
           </div>
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-black shadow-lg" style={{ background: accent }}>{complete ? <Check size={16} strokeWidth={3} /> : <Play size={13} fill="currentColor" />}</span>
         </div>
       </button>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <button onClick={onOpen} className="h-12 rounded-[14px] border border-white/[0.1] bg-white/[0.025] text-[12px] font-black uppercase tracking-[0.1em] text-white/72 active:scale-[0.98]">Episodes</button>
-        <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="h-12 rounded-[14px] border bg-transparent text-[12px] font-black uppercase tracking-[0.1em] disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}4d` }}>{busy ? 'Saving' : complete ? 'Unmark all' : 'Mark watched'}</button>
-      </div>
+      <button onClick={() => onBulk(!complete)} disabled={busy !== null} className="mt-2 h-11 w-full rounded-[14px] border bg-transparent text-[13px] font-semibold disabled:opacity-50 active:scale-[0.98]" style={{ color: accent, borderColor: `${accent}4d` }}>{busy ? 'Saving' : complete ? 'Unmark all' : 'Mark all watched'}</button>
     </section>
   )
 }
@@ -958,13 +1161,13 @@ function VibeRail({ showId, applied, accent }: { showId: number; applied: EmojiC
         {visible.map((category) => {
           const on = appliedIds.has(category.id)
           return (
-            <button key={category.id} onClick={() => on ? void removeEmoji(category.id, showId) : void applyEmoji(category.id, showId)} className={cn('min-h-10 rounded-full border px-3 text-left text-[13px] font-black uppercase tracking-[0.08em] backdrop-blur-xl active:scale-95', on ? 'border-white/24 bg-white/[0.08] text-white/82' : 'border-white/[0.08] bg-black/24 text-white/64')}>
+            <button key={category.id} onClick={() => on ? void removeEmoji(category.id, showId) : void applyEmoji(category.id, showId)} className={cn('min-h-10 rounded-full border px-3 text-left text-[13px] font-semibold backdrop-blur-xl active:scale-95', on ? 'border-white/24 bg-white/[0.08] text-white/82' : 'border-white/[0.08] bg-black/24 text-white/64')}>
               <span className="mr-1 text-sm leading-none">{category.emoji}</span>{category.label}
             </button>
           )
         })}
         {!creating && (
-          <button onClick={() => setCreating(true)} className="grid h-10 min-w-10 place-items-center rounded-full bg-black/36 px-3 text-[12px] font-black uppercase tracking-[0.11em] text-white/62 ring-1 ring-white/[0.08] active:scale-95">
+          <button onClick={() => setCreating(true)} className="grid h-10 min-w-10 place-items-center rounded-full bg-black/36 px-3 text-[12px] font-semibold text-white/62 ring-1 ring-white/[0.08] active:scale-95">
             Vibe
           </button>
         )}

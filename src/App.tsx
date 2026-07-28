@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BottomNav, type Tab } from './components/ui/BottomNav'
 import { Collection } from './features/library/Collection'
 import { Rankings } from './features/tier-game/Rankings'
@@ -27,9 +27,25 @@ type DetailTarget = {
   recommendationContext?: RecommendationContext
 }
 
+type LootHistoryState = {
+  lootApp: true
+  tab: Tab
+  detail: DetailTarget | null
+}
+
+const APP_TABS: Tab[] = ['discover', 'collection', 'rankings', 'profile']
+
+function historyState(value: unknown): LootHistoryState | null {
+  if (!value || typeof value !== 'object') return null
+  const state = value as Partial<LootHistoryState>
+  if (state.lootApp !== true || !APP_TABS.includes(state.tab as Tab)) return null
+  return { lootApp: true, tab: state.tab as Tab, detail: state.detail ?? null }
+}
+
 export default function App() {
-  const [tab, setTab] = useState<Tab>('discover')
-  const [detail, setDetail] = useState<DetailTarget | null>(null)
+  const initialHistory = historyState(window.history.state)
+  const [tab, setTab] = useState<Tab>(() => initialHistory?.tab ?? 'discover')
+  const [detail, setDetail] = useState<DetailTarget | null>(() => initialHistory?.detail ?? null)
   const [adding, setAdding] = useState(false)
   const [tracking, setTracking] = useState<Show | null>(null)
   const [castingFor, setCastingFor] = useState<CastingTarget | null>(null)
@@ -57,6 +73,48 @@ export default function App() {
     }).catch(() => setShowOnboarding(false))
   }, [showOnboarding])
 
+  useEffect(() => {
+    if (!historyState(window.history.state)) {
+      window.history.replaceState({ lootApp: true, tab, detail }, '')
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      const state = historyState(event.state)
+      if (!state) return
+      setTab(state.tab)
+      setDetail(state.detail)
+      setTracking(null)
+      setCastingFor(null)
+      setAdding(false)
+      setSettingsOpen(false)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  const openDetail = useCallback((show: Show, recommendationContext?: RecommendationContext) => {
+    const target = { show, recommendationContext }
+    window.history.pushState({ lootApp: true, tab, detail: target }, '')
+    setDetail(target)
+  }, [tab])
+
+  const closeDetail = useCallback(() => {
+    const current = historyState(window.history.state)
+    if (current?.detail) {
+      window.history.back()
+      return
+    }
+    setDetail(null)
+  }, [])
+
+  const navigateTab = useCallback((nextTab: Tab) => {
+    if (nextTab === tab && !detail) return
+    window.history.pushState({ lootApp: true, tab: nextTab, detail: null }, '')
+    setDetail(null)
+    setTab(nextTab)
+  }, [detail, tab])
+
   // Inject keyframes for shine animation (used by LootCard).
   useEffect(() => {
     const style = document.createElement('style')
@@ -80,16 +138,16 @@ export default function App() {
         {tab === 'discover' && (
           <Discover
             onOpenSettings={() => setSettingsOpen(true)}
-            onOpenShow={(show, recommendationContext) => setDetail({ show, recommendationContext })}
+            onOpenShow={openDetail}
           />
         )}
         {tab === 'collection' && (
-          <Collection onAddShow={() => setAdding(true)} onOpenShow={(show) => setDetail({ show })} />
+          <Collection onAddShow={() => setAdding(true)} onOpenShow={(show) => openDetail(show)} />
         )}
         {tab === 'rankings' && (
-          <Rankings onGoDiscover={() => setTab('discover')} onOpenShow={(show) => setDetail({ show })} />
+          <Rankings onGoDiscover={() => navigateTab('discover')} onOpenShow={(show) => openDetail(show)} />
         )}
-        {tab === 'profile' && <ProfileTab onOpenShow={(show) => setDetail({ show })} />}
+        {tab === 'profile' && <ProfileTab onOpenShow={(show) => openDetail(show)} />}
 
         <AnimatePresence mode="wait">
           {detail && !tracking && (
@@ -97,7 +155,8 @@ export default function App() {
               key={detail.show.id}
               show={detail.show}
               recommendationContext={detail.recommendationContext}
-              onBack={() => setDetail(null)}
+              onBack={closeDetail}
+              onOpenShow={(show) => openDetail(show)}
               onTrackEpisodes={(s) => setTracking(s)}
               onAssignRole={(s, personId) => setCastingFor({ show: s, personId })}
             />
@@ -106,10 +165,7 @@ export default function App() {
 
         <BottomNav
           active={tab}
-          onChange={(t) => {
-            setDetail(null)
-            setTab(t)
-          }}
+          onChange={navigateTab}
           unsortedCount={unsortedCount}
           subdued={Boolean(detail)}
         />
@@ -129,7 +185,7 @@ export default function App() {
         <IOSInstallBanner />
         {showOnboarding === null && <div className="fixed inset-0 z-[99] bg-[#050507]" aria-hidden />}
         <AnimatePresence>
-          {showOnboarding && <FirstSessionOnboarding onComplete={() => { setTab(hasTmdbKey() ? 'discover' : 'collection'); setShowOnboarding(false) }} />}
+          {showOnboarding && <FirstSessionOnboarding onComplete={() => { navigateTab(hasTmdbKey() ? 'discover' : 'collection'); setShowOnboarding(false) }} />}
         </AnimatePresence>
       </div>
     </div>

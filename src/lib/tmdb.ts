@@ -303,6 +303,13 @@ export const getNetworkShows = (networkId: number) =>
     'vote_count.gte': '20',
   })
 
+export const getCompanyShows = (companyId: number) =>
+  discoverList('tv', {
+    with_companies: String(companyId),
+    sort_by: 'popularity.desc',
+    'vote_count.gte': '5',
+  })
+
 // ── Discover feed (combined fetch + module-level TTL cache) ────────────────
 
 export interface DiscoverFeed {
@@ -453,9 +460,32 @@ export interface TmdbShowDetail extends TmdbSearchResult {
   overview?: string
   first_air_date?: string
   networks?: { id: number; name: string }[]
+  created_by?: TmdbCreator[]
+  production_companies?: TmdbProductionCompany[]
   tagline?: string
   runtime?: number
   release_date?: string
+}
+
+export interface TmdbCreator {
+  id: number
+  name: string
+  profile_path: string | null
+}
+
+export interface TmdbProductionCompany {
+  id: number
+  name: string
+  logo_path: string | null
+  origin_country?: string
+}
+
+export interface TmdbCrewMember {
+  id: number
+  name: string
+  department: string
+  job: string
+  profile_path: string | null
 }
 
 export interface TmdbImageAsset {
@@ -630,6 +660,7 @@ export async function getCredits(showId: number, mediaType: MediaType = 'tv') {
       character: string
       profile_path: string | null
     }[]
+    crew: TmdbCrewMember[]
   }>(`/${mediaType}/${showId}/credits`)
 }
 
