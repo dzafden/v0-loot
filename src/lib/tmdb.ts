@@ -240,6 +240,22 @@ async function discoverList(
   return data.results.map((result) => normalizeListItem(result, mediaType)).slice(0, limit)
 }
 
+async function discoverPages(
+  mediaType: MediaType,
+  params: Record<string, string> = {},
+  pages = 2,
+) {
+  const batches = await Promise.all(
+    Array.from({ length: pages }, (_, index) => discoverList(mediaType, {
+      ...params,
+      page: String(index + 1),
+    })),
+  )
+  return Array.from(
+    new Map(batches.flat().map((show) => [show.id, show])).values(),
+  )
+}
+
 const isoDate = (date: Date) => date.toISOString().slice(0, 10)
 const daysAgo = (days: number) => isoDate(new Date(Date.now() - days * 86_400_000))
 
@@ -329,16 +345,16 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
     const recent = daysAgo(240)
     const [freshStudiosPrimary, freshStudiosExpanded, newAnimeRaw, newWesternRaw, grownUpNetworkRaw, grownUpKeywordRaw, allAgesRaw, handmadeRaw, animatedFilmsRaw, topRatedRaw] =
       await Promise.all([
-        getFreshByNetworks([19, 47, 80]),
-        getFreshByNetworks([56, 213, 49, 453, 1112]),
-        discoverList('tv', { with_origin_country: 'JP', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
-        discoverList('tv', { with_origin_country: 'US|GB|CA|AU', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
-        discoverList('tv', { with_networks: '19|47|80', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
-        discoverList('tv', { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
-        discoverList('tv', { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
-        discoverList('tv', { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }),
-        discoverList('movie', { sort_by: 'popularity.desc', 'vote_count.gte': '50' }),
-        getTopRatedShows(),
+        discoverPages('tv', { with_networks: '19|47|80', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }),
+        discoverPages('tv', { with_networks: '56|213|49|453|1112', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }),
+        discoverPages('tv', { with_origin_country: 'JP', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
+        discoverPages('tv', { with_origin_country: 'US|GB|CA|AU', sort_by: 'first_air_date.desc', 'first_air_date.gte': recent, 'vote_count.gte': '5' }),
+        discoverPages('tv', { with_networks: '19|47|80', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
+        discoverPages('tv', { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
+        discoverPages('tv', { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
+        discoverPages('tv', { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }),
+        discoverPages('movie', { sort_by: 'popularity.desc', 'vote_count.gte': '50' }),
+        discoverPages('tv', { sort_by: 'vote_average.desc', 'vote_count.gte': '200' }),
       ])
     const freshStudiosRaw = Array.from(
       new Map([...freshStudiosPrimary, ...freshStudiosExpanded].map((show) => [show.id, show])).values(),
@@ -350,17 +366,18 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
     const basePool = map([...freshStudiosRaw, ...newAnimeRaw, ...newWesternRaw, ...grownUpRaw, ...allAgesRaw])
     const dayIndex = Math.floor(Date.now() / 86_400_000)
     const vibeIds = Array.from(new Set(basePool.flatMap((show) => show.vibeIds)))
-    const rotatingVibe = vibeIds.length ? vibeIds[dayIndex % vibeIds.length] : undefined
+    const viableVibes = vibeIds.filter((vibeId) => basePool.filter((show) => show.vibeIds.includes(vibeId)).length >= 10)
+    const rotatingVibe = viableVibes.length ? viableVibes[dayIndex % viableVibes.length] : undefined
     const data: DiscoverFeed = {
-      freshStudios: balanceTraditions(map(freshStudiosRaw)),
+      freshStudios: balanceTraditions(map(freshStudiosRaw), 40),
       newAnime: map(newAnimeRaw),
       newWestern: map(newWesternRaw),
-      adultAnimation: balanceTraditions(map(grownUpRaw)),
-      allAges: balanceTraditions(map(allAgesRaw)),
-      handmade: balanceTraditions(map(handmadeRaw)),
-      vibeCrate: balanceTraditions(rotatingVibe ? basePool.filter((show) => show.vibeIds.includes(rotatingVibe)) : basePool),
-      animatedFilms: balanceTraditions(map(animatedFilmsRaw)),
-      topRated: balanceTraditions(map(topRatedRaw)),
+      adultAnimation: balanceTraditions(map(grownUpRaw), 40),
+      allAges: balanceTraditions(map(allAgesRaw), 40),
+      handmade: balanceTraditions(map(handmadeRaw), 40),
+      vibeCrate: balanceTraditions(rotatingVibe ? basePool.filter((show) => show.vibeIds.includes(rotatingVibe)) : basePool, 40),
+      animatedFilms: balanceTraditions(map(animatedFilmsRaw), 40),
+      topRated: balanceTraditions(map(topRatedRaw), 40),
     }
     feedCache = { data, ts: Date.now() }
     return data

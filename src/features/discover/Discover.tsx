@@ -1,5 +1,5 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bookmark, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
@@ -50,6 +50,8 @@ const ACTIVE_ANCHOR_COUNT = 8
 const TASTE_REC_TTL_MS = 24 * 60 * 60_000
 const DISCOVER_IMPRESSIONS_KEY = 'loot:discover-impressions:v1'
 const DISCOVER_LIBRARY_SNAPSHOT_KEY = 'loot:discover-library-snapshot:v1'
+const DISCOVER_ROTATION_KEY = 'loot:discover-rotation:v1'
+const DISCOVER_FRESHNESS_WINDOW_MS = 6 * 60 * 60_000
 const WATCH_DROP_ENABLED = false
 const cardDescriptorEnrichmentCache = new Map<string, Promise<CardDescriptor | undefined>>()
 
@@ -343,6 +345,40 @@ function seededShuffle<T>(items: T[], seed: number) {
   return shuffled
 }
 
+function rotatingSelection(shows: LootShow[], seed: number, limit = 10) {
+  if (shows.length <= limit) return seededShuffle(shows, seed)
+
+  const coreSize = Math.min(shows.length, Math.max(limit, 14))
+  const coreCount = Math.min(Math.max(1, Math.floor(limit * 0.7)), coreSize)
+  const explorationCount = limit - coreCount
+  const core = seededShuffle(shows.slice(0, coreSize), seed).slice(0, coreCount)
+  const exploration = seededShuffle(shows.slice(coreSize), seed ^ 0x9e3779b9).slice(0, explorationCount)
+
+  return uniqueShows([
+    ...core,
+    ...exploration,
+    ...seededShuffle(shows, seed ^ 0x85ebca6b),
+  ]).slice(0, limit)
+}
+
+function readDiscoverRotation() {
+  try {
+    const stored = Number(sessionStorage.getItem(DISCOVER_ROTATION_KEY))
+    if (Number.isFinite(stored) && stored > 0) return stored
+  } catch {
+    // Session storage can be unavailable; the time window still gives us a stable seed.
+  }
+  return Math.floor(Date.now() / DISCOVER_FRESHNESS_WINDOW_MS)
+}
+
+function writeDiscoverRotation(rotation: number) {
+  try {
+    sessionStorage.setItem(DISCOVER_ROTATION_KEY, String(rotation))
+  } catch {
+    // Discover rotation can remain in memory when session storage is unavailable.
+  }
+}
+
 function readDiscoverImpressions(): DiscoverImpressions {
   try {
     const raw = localStorage.getItem(DISCOVER_IMPRESSIONS_KEY)
@@ -527,7 +563,9 @@ function personalizeShows(
   const filtered = uniqueShows(shows)
     .filter((show) => show.id !== options.featuredId)
     .filter((show) => options.allowOwned || !ownedSet.has(show.id))
-  if (options.preserveOrder) return filtered
+  if (options.preserveOrder) {
+    return filtered.sort((a, b) => impressionPenalty(a, options.impressions) - impressionPenalty(b, options.impressions))
+  }
   return filtered.sort((a, b) =>
     tasteScore(b, tasteWeights, options.recommendationBoost, options.impressions)
     - tasteScore(a, tasteWeights, options.recommendationBoost, options.impressions),
@@ -593,9 +631,9 @@ function discoverHero(
     ?? personalizeShows(pool, tasteWeights, ownedSet, { allowOwned: true, recommendationBoost, impressions })[0]
 }
 
-async function getTasteRecommendationPool(anchors: Show[]) {
+async function getTasteRecommendationPool(anchors: Show[], page = 1) {
   if (!anchors.length) return []
-  const cacheKey = anchors.map((show) => show.id).join(',')
+  const cacheKey = `${page}:${anchors.map((show) => show.id).join(',')}`
   const cached = tasteRecCache.get(cacheKey)
   if (cached && Date.now() - cached.ts < TASTE_REC_TTL_MS) return cached.data
 
@@ -604,7 +642,7 @@ async function getTasteRecommendationPool(anchors: Show[]) {
 
   const request = Promise.all(
     anchors.map((anchor) =>
-      getShowRecommendations(anchor.id, 1, anchor.mediaType ?? 'tv')
+      getShowRecommendations(anchor.id, page, anchor.mediaType ?? 'tv')
         .then((data) => ({
           anchorId: anchor.id,
           shows: uniqueShows(data.results.map(tmdbToLoot)).filter((show) => show.posterPath || show.backdropPath),
@@ -753,7 +791,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [categoryLoading, setCategoryLoading] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [tasteRecommendationGroups, setTasteRecommendationGroups] = useState<TasteRecommendationGroup[]>([])
-  const [impressions] = useState<DiscoverImpressions>(() => readDiscoverImpressions())
+  const [impressions, setImpressions] = useState<DiscoverImpressions>(() => readDiscoverImpressions())
+  const [discoverRotation, setDiscoverRotation] = useState(readDiscoverRotation)
   const [librarySnapshot, setLibrarySnapshot] = useState<DiscoverLibrarySnapshot | null>(() => readLibrarySnapshot())
   const [watchDropOpen, setWatchDropOpen] = useState(false)
   const pullStartY = useRef<number | null>(null)
@@ -776,8 +815,15 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const tasteWeights = useMemo(() => buildTasteWeights(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
   const tasteAnchors = useMemo(() => pickTasteAnchors(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
   const tasteSignature = librarySnapshot?.signature ?? ''
-  const activeTasteAnchors = useMemo(() => rotateActiveAnchors(tasteAnchors, tasteSignature), [tasteAnchors, tasteSignature])
-  const discoverSeed = useMemo(() => hashString(`${todayKey()}:${tasteSignature}`), [tasteSignature])
+  const activeTasteAnchors = useMemo(
+    () => rotateActiveAnchors(tasteAnchors, `${tasteSignature}:${discoverRotation}`),
+    [discoverRotation, tasteAnchors, tasteSignature],
+  )
+  const recommendationPage = discoverRotation % 3 + 1
+  const discoverSeed = useMemo(
+    () => hashString(`${todayKey()}:${tasteSignature}:${discoverRotation}`),
+    [discoverRotation, tasteSignature],
+  )
   const tasteRecommendations = useMemo(
     () => uniqueShows(tasteRecommendationGroups.flatMap((group) => group.shows)),
     [tasteRecommendationGroups],
@@ -817,7 +863,12 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     const snapshot = createLibrarySnapshot(ownedShows, tierAssignments)
     writeLibrarySnapshot(snapshot)
     setLibrarySnapshot(snapshot)
-    setTasteRecommendationGroups([])
+    setImpressions(readDiscoverImpressions())
+    setDiscoverRotation((current) => {
+      const next = current + 1
+      writeDiscoverRotation(next)
+      return next
+    })
   }
 
   // Trending feed — fetched on mount, cached at module level for 5 min.
@@ -847,7 +898,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       return
     }
     let cancelled = false
-    getTasteRecommendationPool(activeTasteAnchors)
+    getTasteRecommendationPool(activeTasteAnchors, recommendationPage)
       .then((groups) => {
         if (!cancelled) setTasteRecommendationGroups(groups.map((group) => ({
           ...group,
@@ -860,7 +911,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     return () => {
       cancelled = true
     }
-  }, [keyOk, activeTasteAnchors, profileOwnedSet])
+  }, [keyOk, activeTasteAnchors, profileOwnedSet, recommendationPage])
 
   // Search debounce.
   useEffect(() => {
@@ -947,18 +998,28 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }, [heroShow, profileShows, profileTierAssignments, visibleTasteRecommendationGroups])
   const todayPicks = useMemo(() => {
     if (!visibleFeed) return []
-    return uniqueShows([
+    const candidates = uniqueShows([
       ...visibleTasteRecommendations,
       ...visibleFeed.freshStudios,
       ...visibleFeed.newAnime,
       ...visibleFeed.newWestern,
       ...visibleFeed.animatedFilms,
-    ]).filter((show) => !profileOwnedSet.has(show.id)).slice(0, 3)
-  }, [profileOwnedSet, visibleFeed, visibleTasteRecommendations])
+    ])
+    const ranked = personalizeShows(candidates, tasteWeights, profileOwnedSet, {
+      recommendationBoost,
+      impressions,
+    })
+    return rotatingSelection(ranked, discoverSeed ^ 0x27d4eb2d, 3)
+  }, [discoverSeed, impressions, profileOwnedSet, recommendationBoost, tasteWeights, visibleFeed, visibleTasteRecommendations])
 
-  const handleImpressions = (ids: number[]) => {
+  const leadingImpressionIds = useMemo(
+    () => heroShow && heroRecommendation ? [heroShow.id] : todayPicks.map((show) => show.id),
+    [heroRecommendation, heroShow, todayPicks],
+  )
+
+  const handleImpressions = useCallback((ids: number[]) => {
     recordDiscoverImpressions(ids)
-  }
+  }, [])
 
   const openCategory = (key: DiscoverCategoryKey, title: string) => {
     setActiveCategory({ key, title })
@@ -1089,6 +1150,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
               recommendationBoost={recommendationBoost}
               impressions={impressions}
               discoverSeed={discoverSeed}
+              leadingIds={leadingImpressionIds}
               onImpressions={handleImpressions}
               onOpenCategory={openCategory}
               onOpenShow={onOpenShow}
@@ -2191,6 +2253,9 @@ function buildTastePackets(
   profileShows: Show[],
   assignments: TierAssignment[],
   ownedIds: Set<number>,
+  seed: number,
+  impressions: DiscoverImpressions,
+  leadingIds: number[],
   featuredId?: number,
 ) {
   const showsById = new Map(profileShows.map((show) => [show.id, show]))
@@ -2201,7 +2266,7 @@ function buildTastePackets(
     const top8Score = typeof show.top8Position === 'number' ? 70 - show.top8Position : 0
     return tierScore + top8Score
   }
-  const used = new Set<number>([...ownedIds, ...(featuredId ? [featuredId] : [])])
+  const used = new Set<number>([...ownedIds, ...leadingIds, ...(featuredId ? [featuredId] : [])])
   const packets: TastePacket[] = []
 
   const candidates = groups
@@ -2210,8 +2275,11 @@ function buildTastePackets(
     .sort((a, b) => priority(b.anchor) - priority(a.anchor))
 
   for (const group of candidates) {
-    const available = group.shows.filter((show) => !used.has(show.id))
-    const shows = diversifyShows(available, 8, 3)
+    const available = group.shows
+      .filter((show) => !used.has(show.id))
+      .sort((a, b) => impressionPenalty(a, impressions) - impressionPenalty(b, impressions))
+    const rotated = rotatingSelection(available, seed ^ hashString(String(group.anchorId)), 12)
+    const shows = diversifyShows(rotated, 8, 3)
     if (shows.length < 4) continue
     shows.forEach((show) => used.add(show.id))
     packets.push({ anchor: group.anchor, tier: tierByShow.get(group.anchor.id), shows })
@@ -2233,6 +2301,7 @@ function FeedRows({
   recommendationBoost,
   impressions,
   discoverSeed,
+  leadingIds,
   onImpressions,
   onOpenCategory,
   onOpenShow,
@@ -2249,6 +2318,7 @@ function FeedRows({
   recommendationBoost: Map<number, number>
   impressions: DiscoverImpressions
   discoverSeed: number
+  leadingIds: number[]
   onImpressions: (ids: number[]) => void
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
   onOpenShow: (show: Show, context?: RecommendationContext) => void
@@ -2256,35 +2326,59 @@ function FeedRows({
 }) {
   const profileOwnedSet = useMemo(() => new Set(profileOwnedIds), [profileOwnedIds])
   const tasteWeights = useMemo(() => buildTasteWeights(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
-  const sourceRow = (key: keyof DiscoverFeed, options: { preserveOrder?: boolean } = {}) => {
-    const fresh = personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
-      featuredId,
-      preserveOrder: options.preserveOrder,
-    })
-    const fallback = fresh.length >= 4
-      ? fresh
-      : personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
-        allowOwned: true,
-        featuredId,
-        preserveOrder: options.preserveOrder,
-      })
-    return fallback.slice(0, 10)
-  }
   const personalized = useMemo(() => {
     const diverse = diversifyShows(canonRow(feed, tasteWeights, profileOwnedSet, tasteRecommendations, recommendationBoost, impressions, featuredId), 24, 3)
-    return seededShuffle(diverse.slice(0, 18), discoverSeed + 17).slice(0, 12)
-  }, [discoverSeed, feed, featuredId, impressions, profileOwnedSet, recommendationBoost, tasteRecommendations, tasteWeights])
+    const available = diverse.filter((show) => !leadingIds.includes(show.id))
+    return seededShuffle(available.slice(0, 18), discoverSeed + 17).slice(0, 12)
+  }, [discoverSeed, feed, featuredId, impressions, leadingIds, profileOwnedSet, recommendationBoost, tasteRecommendations, tasteWeights])
   const packets = useMemo(
-    () => buildTastePackets(tasteRecommendationGroups, profileShows, profileTierAssignments, profileOwnedSet, featuredId),
-    [featuredId, profileOwnedSet, profileShows, profileTierAssignments, tasteRecommendationGroups],
+    () => buildTastePackets(tasteRecommendationGroups, profileShows, profileTierAssignments, profileOwnedSet, discoverSeed, impressions, leadingIds, featuredId),
+    [discoverSeed, featuredId, impressions, leadingIds, profileOwnedSet, profileShows, profileTierAssignments, tasteRecommendationGroups],
   )
+  const sourceRows = useMemo(() => {
+    const rows = {} as Record<keyof DiscoverFeed, LootShow[]>
+    const used = new Set(leadingIds)
+    const leadingRecommendations = packets.length
+      ? packets.flatMap((packet) => packet.shows)
+      : personalized
+    leadingRecommendations.forEach((show) => used.add(show.id))
+
+    FEED_KEYS.forEach((key, index) => {
+      const preserveOrder = key === 'freshStudios' || key === 'newAnime' || key === 'newWestern'
+      const fresh = personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
+        featuredId,
+        impressions,
+        preserveOrder,
+      })
+      const fallback = fresh.length >= 4
+        ? fresh
+        : personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
+          allowOwned: true,
+          featuredId,
+          impressions,
+          preserveOrder,
+        })
+      const unclaimed = fallback.filter((show) => !used.has(show.id))
+      const pool = unclaimed.length >= 6 ? unclaimed : uniqueShows([...unclaimed, ...fallback])
+      const selected = rotatingSelection(pool, discoverSeed ^ hashString(`${key}:${index}`), 10)
+      selected.forEach((show) => used.add(show.id))
+      rows[key] = selected
+    })
+
+    return rows
+  }, [discoverSeed, featuredId, feed, impressions, leadingIds, packets, personalized, profileOwnedSet, tasteWeights])
 
   useEffect(() => {
     const visibleRecommendations = packets.length
-      ? packets.flatMap((packet) => packet.shows).slice(0, 8)
-      : personalized.slice(0, 8)
-    onImpressions([...(featuredId ? [featuredId] : []), ...visibleRecommendations.map((show) => show.id)])
-  }, [featuredId, onImpressions, packets, personalized])
+      ? packets.flatMap((packet) => packet.shows.slice(0, 4))
+      : personalized.slice(0, 4)
+    const visibleSourceShows = FEED_KEYS.flatMap((key) => sourceRows[key].slice(0, 4))
+    onImpressions([
+      ...leadingIds,
+      ...visibleRecommendations.map((show) => show.id),
+      ...visibleSourceShows.map((show) => show.id),
+    ])
+  }, [leadingIds, onImpressions, packets, personalized, sourceRows])
 
   return (
     <>
@@ -2293,15 +2387,15 @@ function FeedRows({
             <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenShow={onOpenShow} />
           ))
         : <CarouselRow title="For Your Taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
-      <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRow('freshStudios', { preserveOrder: true })} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRow('newAnime', { preserveOrder: true })} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRow('newWestern', { preserveOrder: true })} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRow('adultAnimation')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRow('allAges')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRow('handmade')} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRow('vibeCrate')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Animated Films" categoryKey="animatedFilms" shows={sourceRow('animatedFilms')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRow('topRated')} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRows.newWestern} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRows.adultAnimation} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRows.allAges} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRows.handmade} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Animated Films" categoryKey="animatedFilms" shows={sourceRows.animatedFilms} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRows.topRated} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
     </>
   )
 }
