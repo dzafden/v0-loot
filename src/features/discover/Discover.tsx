@@ -1,5 +1,5 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bookmark, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
@@ -169,6 +169,14 @@ type DiscoverLibrarySnapshot = {
   signature: string
   createdAt: number
 }
+
+type DiscoverChapter = 'today' | 'for-you' | 'explore'
+
+const DISCOVER_CHAPTERS: { id: DiscoverChapter; label: string }[] = [
+  { id: 'today', label: 'Today' },
+  { id: 'for-you', label: 'For you' },
+  { id: 'explore', label: 'Explore' },
+]
 
 type MoodKey = 'happy' | 'action' | 'slow' | 'love' | 'dark' | 'comfort' | 'funny' | 'tense' | 'sad' | 'weird'
 type EpisodeModifier = 'sweet' | 'messy' | 'breakup' | 'violence' | 'betrayal' | 'family' | 'friendship' | 'party' | 'case' | 'work'
@@ -776,6 +784,9 @@ function pickEpisode(
 
 export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [activeChapter, setActiveChapter] = useState<DiscoverChapter>('today')
+  const [headerVisible, setHeaderVisible] = useState(true)
   const [debouncedQ, setDebouncedQ] = useState('')
   const [results, setResults] = useState<LootShow[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
@@ -796,6 +807,10 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [librarySnapshot, setLibrarySnapshot] = useState<DiscoverLibrarySnapshot | null>(() => readLibrarySnapshot())
   const [watchDropOpen, setWatchDropOpen] = useState(false)
   const pullStartY = useRef<number | null>(null)
+  const lastScrollY = useRef(0)
+  const scrollTravel = useRef(0)
+  const scrollDirection = useRef<-1 | 0 | 1>(0)
+  const headerPinnedUntil = useRef(0)
 
   const keyOk = hasTmdbKey()
 
@@ -920,6 +935,18 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }, [query])
 
   useEffect(() => {
+    if (!searchOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSearchOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [searchOpen])
+
+  useEffect(() => {
     if (!keyOk) return
     if (!debouncedQ.trim()) {
       setResults([])
@@ -977,6 +1004,67 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     return () => observer.disconnect()
   }, [activeCategory, categoryLoading, categoryPage, categoryTotalPages])
 
+  useEffect(() => {
+    if (activeCategory || searchOpen || feedLoading || !visibleFeed) return
+    const updateActiveChapter = () => {
+      const marker = 150
+      let next: DiscoverChapter = 'today'
+      for (const chapter of DISCOVER_CHAPTERS) {
+        const section = document.getElementById(`discover-${chapter.id}`)
+        if (section && section.getBoundingClientRect().top <= marker) next = chapter.id
+      }
+      setActiveChapter((current) => current === next ? current : next)
+    }
+    updateActiveChapter()
+    window.addEventListener('scroll', updateActiveChapter, { passive: true })
+    return () => window.removeEventListener('scroll', updateActiveChapter)
+  }, [activeCategory, feedLoading, searchOpen, visibleFeed])
+
+  useEffect(() => {
+    if (activeCategory || searchOpen) return
+    lastScrollY.current = Math.max(window.scrollY, 0)
+    scrollTravel.current = 0
+    scrollDirection.current = 0
+
+    const updateHeaderVisibility = () => {
+      const currentY = Math.max(window.scrollY, 0)
+      const delta = currentY - lastScrollY.current
+      lastScrollY.current = currentY
+
+      if (currentY <= 28) {
+        scrollTravel.current = 0
+        scrollDirection.current = 0
+        setHeaderVisible(true)
+        return
+      }
+
+      if (performance.now() < headerPinnedUntil.current) {
+        scrollTravel.current = 0
+        scrollDirection.current = 0
+        return
+      }
+
+      if (Math.abs(delta) < 0.5) return
+      const direction: -1 | 1 = delta > 0 ? 1 : -1
+      if (direction !== scrollDirection.current) {
+        scrollDirection.current = direction
+        scrollTravel.current = 0
+      }
+      scrollTravel.current += Math.abs(delta)
+
+      if (direction === 1 && scrollTravel.current >= 20) {
+        setHeaderVisible(false)
+        scrollTravel.current = 0
+      } else if (direction === -1 && scrollTravel.current >= 10) {
+        setHeaderVisible(true)
+        scrollTravel.current = 0
+      }
+    }
+
+    window.addEventListener('scroll', updateHeaderVisibility, { passive: true })
+    return () => window.removeEventListener('scroll', updateHeaderVisibility)
+  }, [activeCategory, searchOpen])
+
   const heroShow = useMemo(
     () => visibleFeed ? discoverHero(visibleFeed, tasteWeights, profileOwnedSet, visibleTasteRecommendations, recommendationBoost, impressions, discoverSeed) : undefined,
     [discoverSeed, impressions, profileOwnedSet, recommendationBoost, tasteWeights, visibleFeed, visibleTasteRecommendations],
@@ -1028,12 +1116,27 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     setCategoryTotalPages(1)
   }
 
+  const scrollToChapter = (chapter: DiscoverChapter) => {
+    const section = document.getElementById(`discover-${chapter}`)
+    if (!section) return
+    headerPinnedUntil.current = performance.now() + 800
+    setHeaderVisible(true)
+    setActiveChapter(chapter)
+    const top = section.getBoundingClientRect().top + window.scrollY - 112
+    window.scrollTo({ top, behavior: 'smooth' })
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setQuery('')
+  }
+
   const onDiscoverTouchStart: React.TouchEventHandler<HTMLDivElement> = (event) => {
     if (!WATCH_DROP_ENABLED) {
       pullStartY.current = null
       return
     }
-    if (window.scrollY > 8 || query.trim() || activeCategory) {
+    if (window.scrollY > 8 || searchOpen || activeCategory) {
       pullStartY.current = null
       return
     }
@@ -1052,45 +1155,62 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }
 
   return (
-    <div className="relative flex flex-col min-h-full pb-28 overflow-hidden" onTouchStart={onDiscoverTouchStart} onTouchEnd={onDiscoverTouchEnd}>
+    <div className="relative flex min-h-full flex-col pb-28" onTouchStart={onDiscoverTouchStart} onTouchEnd={onDiscoverTouchEnd}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_50%_0%,rgba(245,196,83,0.16),transparent_22rem)]" aria-hidden />
-      {!activeCategory && <div className="sticky top-0 z-30 bg-[#08070a]/45 backdrop-blur-2xl pt-4 pb-3 px-4 flex flex-col gap-3">
-        <div className="relative group">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35 group-focus-within:text-[#f5c453] transition-colors pointer-events-none"
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search animation only…"
-            disabled={!keyOk}
-            className="w-full bg-black/26 border border-white/[0.08] rounded-full py-2.5 pl-9 pr-9 font-bold text-sm text-white placeholder:text-white/28 outline-none focus:border-[#f5c453]/55 focus:bg-black/42 transition-colors disabled:opacity-50"
-          />
-          {query && (
+      {!activeCategory && <>
+      <motion.header
+        initial={false}
+        animate={{ y: headerVisible ? 0 : '-100%' }}
+        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+        inert={!headerVisible}
+        className="fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-md border-b border-white/[0.05] bg-[#08070a]/82 px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl will-change-transform"
+      >
+        <div className="flex h-11 items-center justify-between">
+          <h1 className="text-[25px] font-bold tracking-[-0.045em] text-white/94">Discover</h1>
+          <div className="flex items-center gap-1">
+            {librarySnapshot && (
+              <button
+                onClick={refreshDiscoverMix}
+                className="grid h-10 w-10 place-items-center rounded-full text-white/42 transition-colors hover:bg-white/[0.06] hover:text-white active:scale-90"
+                aria-label="Refresh recommendations"
+              >
+                <RefreshCw size={17} />
+              </button>
+            )}
             <button
-              onClick={() => setQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
-              aria-label="Clear search"
+              onClick={() => setSearchOpen(true)}
+              disabled={!keyOk}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.07] text-white/82 ring-1 ring-white/[0.08] transition-colors hover:bg-white/[0.11] active:scale-95 disabled:opacity-40"
+              aria-label="Search animated titles"
             >
-              <X size={14} />
+              <Search size={18} />
             </button>
-          )}
-          {!query && librarySnapshot && (
-            <button
-              onClick={refreshDiscoverMix}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/28 hover:text-[#f5c453] active:scale-90 transition-colors"
-              aria-label="Refresh Discover"
-            >
-              <RefreshCw size={14} />
-            </button>
-          )}
+          </div>
         </div>
-        {WATCH_DROP_ENABLED && !query && !activeCategory && (
+
+        <nav className="mt-1 grid grid-cols-3 rounded-full bg-white/[0.035] p-1 ring-1 ring-white/[0.055]" aria-label="Discover sections">
+          {DISCOVER_CHAPTERS.map((chapter) => {
+            const selected = activeChapter === chapter.id
+            return (
+              <button
+                key={chapter.id}
+                onClick={() => scrollToChapter(chapter.id)}
+                className={cn(
+                  'h-8 rounded-full text-[12px] font-medium transition-colors',
+                  selected ? 'bg-white/[0.1] text-white' : 'text-white/42 hover:text-white/72',
+                )}
+                aria-current={selected ? 'page' : undefined}
+              >
+                {chapter.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        {WATCH_DROP_ENABLED && !activeCategory && (
           <button
             onClick={() => setWatchDropOpen(true)}
-            className="group relative h-11 overflow-hidden rounded-[18px] bg-[#171018] text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),0_14px_34px_rgba(0,0,0,0.36)] active:scale-[0.985]"
+            className="group relative mt-3 h-11 w-full overflow-hidden rounded-[18px] bg-[#171018] text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),0_14px_34px_rgba(0,0,0,0.36)] active:scale-[0.985]"
             aria-label="Open Watch Drop"
           >
             <span className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,232,111,0.28),rgba(255,87,130,0.18),rgba(102,242,181,0.22))]" />
@@ -1101,8 +1221,9 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             </span>
           </button>
         )}
-        {searchError && <p className="text-xs text-rose-300">{searchError}</p>}
-      </div>}
+      </motion.header>
+      <div className="h-[calc(6.125rem+max(0.75rem,env(safe-area-inset-top)))] shrink-0" aria-hidden />
+      </>}
 
       <div className="relative z-10 flex-1 pt-1">
         {activeCategory ? (
@@ -1114,19 +1235,20 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             ownedIds={liveOwnedSet}
             watchlistIds={liveWatchlistSet}
             onOpenShow={onOpenShow}
-            onBack={() => setActiveCategory(null)}
+            onBack={() => {
+              setHeaderVisible(true)
+              setActiveCategory(null)
+            }}
           />
         ) : !keyOk ? (
           <NoKey onOpenSettings={onOpenSettings} />
-        ) : query.trim() ? (
-          <SearchResults loading={searchLoading} results={results} ownedIds={liveOwnedIds} watchlistIds={liveWatchlistSet} onOpenShow={onOpenShow} />
         ) : feedError ? (
           <p className="px-5 py-10 text-center text-rose-300 text-sm">{feedError}</p>
         ) : feedLoading || !visibleFeed || !librarySnapshot ? (
           <SkeletonRows />
         ) : (
-          <>
-            {heroShow && heroRecommendation ? (
+          <FeedRows
+            leadingContent={heroShow && heroRecommendation ? (
               <PortalHero
                 show={heroShow}
                 reason={heroRecommendation.reason}
@@ -1138,27 +1260,78 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             ) : (
               <TodayPicks shows={todayPicks} ownedIds={liveOwnedSet} watchlistIds={liveWatchlistSet} onOpenShow={onOpenShow} />
             )}
-            <FeedRows
-              feed={visibleFeed}
-              ownedIds={liveOwnedIds}
-              watchlistIds={liveWatchlistSet}
-              profileOwnedIds={profileOwnedIds}
-              profileShows={profileShows}
-              profileTierAssignments={profileTierAssignments}
-              tasteRecommendations={visibleTasteRecommendations}
-              tasteRecommendationGroups={visibleTasteRecommendationGroups}
-              recommendationBoost={recommendationBoost}
-              impressions={impressions}
-              discoverSeed={discoverSeed}
-              leadingIds={leadingImpressionIds}
-              onImpressions={handleImpressions}
-              onOpenCategory={openCategory}
-              onOpenShow={onOpenShow}
-              featuredId={heroRecommendation ? heroShow?.id : undefined}
-            />
-          </>
+            feed={visibleFeed}
+            ownedIds={liveOwnedIds}
+            watchlistIds={liveWatchlistSet}
+            profileOwnedIds={profileOwnedIds}
+            profileShows={profileShows}
+            profileTierAssignments={profileTierAssignments}
+            tasteRecommendations={visibleTasteRecommendations}
+            tasteRecommendationGroups={visibleTasteRecommendationGroups}
+            recommendationBoost={recommendationBoost}
+            impressions={impressions}
+            discoverSeed={discoverSeed}
+            leadingIds={leadingImpressionIds}
+            onImpressions={handleImpressions}
+            onOpenCategory={openCategory}
+            onOpenShow={onOpenShow}
+            featuredId={heroRecommendation ? heroShow?.id : undefined}
+          />
         )}
       </div>
+
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[55] overflow-y-auto bg-[#08070a]"
+          >
+            <div className="mx-auto min-h-full w-full max-w-md bg-[#08070a] pb-12">
+              <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#08070a]/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl">
+                <div className="flex items-center gap-2">
+                  <button onClick={closeSearch} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/72 active:scale-95" aria-label="Close search">
+                    <ChevronLeft size={21} />
+                  </button>
+                  <div className="relative min-w-0 flex-1">
+                    <Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/36" />
+                    <input
+                      autoFocus
+                      type="text"
+                      role="searchbox"
+                      inputMode="search"
+                      enterKeyHint="search"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search animated titles"
+                      className="h-11 w-full rounded-full border border-white/[0.09] bg-white/[0.055] pl-10 pr-10 text-[15px] font-normal text-white outline-none placeholder:text-white/30 focus:border-[#f5c453]/48 focus:bg-white/[0.075]"
+                    />
+                    {query && (
+                      <button onClick={() => setQuery('')} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center text-white/38 hover:text-white" aria-label="Clear search">
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {searchError && <p className="mt-2 px-14 text-[12px] text-rose-300">{searchError}</p>}
+              </header>
+              <SearchResults
+                query={query}
+                loading={searchLoading || query.trim() !== debouncedQ.trim()}
+                results={results}
+                ownedIds={liveOwnedIds}
+                watchlistIds={liveWatchlistSet}
+                onOpenShow={(selected) => {
+                  closeSearch()
+                  onOpenShow(selected)
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {WATCH_DROP_ENABLED && watchDropOpen && (
@@ -2087,8 +2260,8 @@ function TodayPicks({
   if (!shows.length) return null
   return (
     <section className="mb-11">
-      <div className="mb-4 flex items-center justify-between px-4">
-        <h2 className="text-[12px] font-black uppercase tracking-[0.18em] text-[#f5c453]">Today&apos;s picks</h2>
+      <div className="mb-3 flex items-center justify-between px-4">
+        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">In focus</h3>
       </div>
       <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 px-4 pb-3">
         {shows.slice(0, 3).map((show) => (
@@ -2155,8 +2328,8 @@ function CategoryGrid({
           >
             <ChevronLeft size={18} />
           </button>
-          <h2 className="min-w-0 flex-1 truncate text-[12px] font-black uppercase tracking-[0.13em] text-white">{title}</h2>
-          <span className="shrink-0 rounded-full bg-black/28 px-2.5 py-1 text-[9px] font-black tabular-nums text-white/48">
+          <h2 className="min-w-0 flex-1 truncate text-[17px] font-bold tracking-[-0.025em] text-white">{title}</h2>
+          <span className="shrink-0 rounded-full bg-black/28 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/48">
             {loading && items.length === 0 ? '…' : items.length}
           </span>
         </div>
@@ -2198,18 +2371,30 @@ function NoKey({ onOpenSettings }: { onOpenSettings: () => void }) {
 }
 
 function SearchResults({
+  query,
   loading,
   results,
   ownedIds,
   watchlistIds,
   onOpenShow,
 }: {
+  query: string
   loading: boolean
   results: LootShow[]
   ownedIds: number[]
   watchlistIds: Set<number>
   onOpenShow: (show: Show) => void
 }) {
+  if (!query.trim()) {
+    return (
+      <div className="flex flex-col items-center justify-center px-4 py-24 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-white/[0.045] text-white/24 ring-1 ring-white/[0.06]">
+          <Search size={23} />
+        </span>
+        <p className="mt-4 text-[15px] font-medium text-white/46">Find any animated title</p>
+      </div>
+    )
+  }
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -2221,7 +2406,7 @@ function SearchResults({
     return (
       <div className="flex flex-col items-center justify-center py-20 opacity-40 px-4">
         <Search size={40} className="mb-3 text-zinc-500" />
-        <p className="font-black uppercase tracking-widest text-sm">No animated titles found</p>
+        <p className="text-[15px] font-medium">No animated titles found</p>
       </div>
     )
   }
@@ -2290,6 +2475,7 @@ function buildTastePackets(
 }
 
 function FeedRows({
+  leadingContent,
   feed,
   ownedIds,
   watchlistIds,
@@ -2307,6 +2493,7 @@ function FeedRows({
   onOpenShow,
   featuredId,
 }: {
+  leadingContent: ReactNode
   feed: DiscoverFeed
   ownedIds: number[]
   watchlistIds: Set<number>
@@ -2382,21 +2569,88 @@ function FeedRows({
 
   return (
     <>
-      {packets.length
-        ? packets.map((packet) => (
-            <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenShow={onOpenShow} />
-          ))
-        : <CarouselRow title="For Your Taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
-      <CarouselRow title="Fresh from the Studios" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="New This Season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="New in Western Animation" categoryKey="newWestern" shows={sourceRows.newWestern} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRows.adultAnimation} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="All-Ages & Family" categoryKey="allAges" shows={sourceRows.allAges} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Stop-Motion & Handmade" categoryKey="handmade" shows={sourceRows.handmade} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Vibe Crate · Rotating" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Animated Films" categoryKey="animatedFilms" shows={sourceRows.animatedFilms} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-      <CarouselRow title="Top Rated All Time" categoryKey="topRated" shows={sourceRows.topRated} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      <section id="discover-today" className="scroll-mt-28">
+        <ChapterHeader title="Today in animation" />
+        {leadingContent}
+        <CarouselRow title="Fresh from studios" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="New in Western animation" categoryKey="newWestern" shows={sourceRows.newWestern} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+      </section>
+
+      <section id="discover-for-you" className="scroll-mt-28">
+        <ChapterHeader title="For you" />
+        {packets.length
+          ? packets.map((packet) => (
+              <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenShow={onOpenShow} />
+            ))
+          : <CarouselRow title="Picked for your taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
+      </section>
+
+      <section id="discover-explore" className="scroll-mt-28">
+        <ChapterHeader title="Explore animation" />
+        <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRows.adultAnimation} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="All ages & family" categoryKey="allAges" shows={sourceRows.allAges} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="Stop-motion & handmade" categoryKey="handmade" shows={sourceRows.handmade} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="Vibe crate" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="Animated films" categoryKey="animatedFilms" shows={sourceRows.animatedFilms} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <RankedList title="Top rated, all time" shows={sourceRows.topRated} onOpenCategory={() => onOpenCategory('topRated', 'Top rated, all time')} onOpenShow={onOpenShow} />
+      </section>
     </>
+  )
+}
+
+function ChapterHeader({ title }: { title: string }) {
+  return (
+    <div className="mb-5 px-4 pt-2">
+      <h2 className="text-[27px] font-bold leading-none tracking-[-0.05em] text-white/96">{title}</h2>
+      <div className="mt-3 h-px bg-gradient-to-r from-white/[0.16] via-white/[0.05] to-transparent" />
+    </div>
+  )
+}
+
+function RankedList({
+  title,
+  shows,
+  onOpenCategory,
+  onOpenShow,
+}: {
+  title: string
+  shows: LootShow[]
+  onOpenCategory: () => void
+  onOpenShow: (show: Show) => void
+}) {
+  if (!shows.length) return null
+  return (
+    <section className="mb-11 px-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">{title}</h3>
+        <button onClick={onOpenCategory} className="grid h-10 w-10 place-items-center rounded-full text-white/34 hover:text-white" aria-label={`Open ${title}`}>
+          <ChevronRight size={19} />
+        </button>
+      </div>
+      <div className="overflow-hidden rounded-[22px] border border-white/[0.075] bg-white/[0.025]">
+        {shows.slice(0, 5).map((show, index) => (
+          <button
+            key={show.id}
+            onClick={() => onOpenShow(lootToShow(show))}
+            className={cn(
+              'flex min-h-[78px] w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-white/[0.045] active:bg-white/[0.07]',
+              index > 0 && 'border-t border-white/[0.06]',
+            )}
+          >
+            <span className="w-7 shrink-0 text-center text-[19px] font-medium tabular-nums text-white/26">{index + 1}</span>
+            <span className="h-14 w-10 shrink-0 overflow-hidden rounded-[8px] bg-white/[0.05] ring-1 ring-white/[0.07]">
+              {show.posterPath && <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" loading="lazy" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-2 block text-[15px] font-bold leading-[1.15] text-white/88">{show.title}</span>
+              <span className="mt-1 block truncate text-[11px] font-medium text-white/42">{show.cardDescriptor?.label ?? show.genre}</span>
+            </span>
+            <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -2412,17 +2666,13 @@ function TastePacketRow({
   onOpenShow: (show: Show, context?: RecommendationContext) => void
 }) {
   const anchorGenres = new Set([...(packet.anchor.genres ?? []), ...(packet.anchor.rawGenres ?? [])])
-  const heading = packet.tier
-    ? `Because you ranked ${packet.anchor.name} ${packet.tier}`
-    : `Because ${packet.anchor.name} is in your Top 8`
+  const context = packet.tier ? `Based on your ${packet.tier} rank` : 'From your Top 8'
 
   return (
     <section className="mb-9">
-      <div className="mb-3 flex items-center gap-2.5 px-4">
-        <div className="h-9 w-7 flex-shrink-0 overflow-hidden rounded-[8px] bg-white/[0.06] ring-1 ring-white/[0.08]">
-          {packet.anchor.posterPath && <img src={imgUrl(packet.anchor.posterPath, 'w185')} alt="" className="h-full w-full object-cover" />}
-        </div>
-        <h2 className="min-w-0 text-[11px] font-black uppercase tracking-[0.14em] text-white/58">{heading}</h2>
+      <div className="mb-3 px-4">
+        <h3 className="truncate text-[19px] font-bold tracking-[-0.025em] text-white/92">More like {packet.anchor.name}</h3>
+        <p className="mt-0.5 text-[12px] font-medium text-white/42">{context}</p>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 px-4">
         {packet.shows.map((show) => (
@@ -2488,14 +2738,14 @@ function CarouselRow({
   if (shows.length === 0) return null
   return (
     <section className="mb-11">
-      <div className="mb-4 flex items-center justify-between px-4">
-        <h2 className="font-black tracking-[0.18em] text-[12px] uppercase text-white/62">{title}</h2>
+      <div className="mb-3 flex items-center justify-between px-4">
+        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">{title}</h3>
         <button
           onClick={() => onOpenCategory(categoryKey, title)}
-          className="text-white/28 hover:text-white transition-colors"
+          className="grid h-10 w-10 place-items-center rounded-full text-white/34 transition-colors hover:text-white"
           aria-label={`Open ${title}`}
         >
-          <ChevronRight size={18} />
+          <ChevronRight size={19} />
         </button>
       </div>
       <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 pb-3 px-4">
@@ -2506,17 +2756,6 @@ function CarouselRow({
             <PortraitCard key={show.id} show={show} isOwned={ownedIds.includes(show.id)} isWatchlisted={watchlistIds.has(show.id)} variant="carousel" onOpenShow={onOpenShow} />
           ),
         )}
-        <button
-          onClick={() => onOpenCategory(categoryKey, title)}
-          className={cn(
-            'flex-shrink-0 snap-start rounded-[28px] bg-white/[0.035] text-white/62 hover:bg-white/[0.07] transition-colors',
-            landscape ? 'h-[286px] w-[88vw] min-w-[336px] max-w-[380px]' : 'h-[458px] w-[64vw] min-w-[226px] max-w-[252px]',
-          )}
-        >
-          <div className="w-full h-full grid place-items-center">
-            <ChevronRight size={18} />
-          </div>
-        </button>
       </div>
     </section>
   )
@@ -2575,9 +2814,8 @@ function TaxonomyLabel({
   const label = descriptor?.label
   if (!label) return null
   return (
-    <span className="mb-1.5 flex max-w-full items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.075em] text-white/78">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#f5c453] shadow-[0_0_10px_rgba(245,196,83,0.7)]" aria-hidden />
-      <span className="truncate">{label}</span>
+    <span className="mb-1.5 block max-w-full text-[11px] font-medium leading-tight tracking-[0.01em] text-white/52">
+      <span className="block truncate">{label}</span>
     </span>
   )
 }
@@ -2850,7 +3088,7 @@ function PortraitCard({
       </div>
       <ColorAwareRail imageSrc={posterUrl} className="relative z-20 min-h-[96px] px-4 py-3">
         <TaxonomyLabel show={show} descriptor={descriptor} />
-        <h3 className="truncate text-[15px] font-black leading-tight tracking-[-0.025em] text-white">{show.title}</h3>
+        <h3 className="truncate text-[16px] font-bold leading-tight tracking-[-0.025em] text-white">{show.title}</h3>
         <div className="mt-2 flex min-h-6 items-center gap-2.5">
           {show.year !== '—' && <span className="text-[10px] font-black tracking-[0.04em] text-white/76">{show.year}</span>}
           <ImdbBadge showId={show.id} compact className="shadow-none" />
@@ -2970,7 +3208,7 @@ function LandscapeCard({
       <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[112px] px-4 py-3">
         <TaxonomyLabel show={show} descriptor={descriptor} />
         <div className="flex min-w-0 items-center justify-between gap-3">
-          <h3 className="min-w-0 flex-1 truncate text-[17px] font-black leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
+          <h3 className="min-w-0 flex-1 truncate text-[18px] font-bold leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
           <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
         </div>
         <p className="mt-1.5 line-clamp-2 max-w-[320px] text-[14px] font-medium leading-[1.4] text-white/78">
