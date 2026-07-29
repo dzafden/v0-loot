@@ -148,6 +148,7 @@ type RawTmdbListItem = Omit<TmdbSearchResult, 'name'> & {
   name?: string
   title?: string
   release_date?: string
+  media_type?: 'tv' | 'movie' | 'person'
 }
 
 function normalizeListItem(raw: RawTmdbListItem, mediaType: MediaType): TmdbSearchResult {
@@ -318,7 +319,6 @@ export interface DiscoverFeed {
   newWestern: LootShow[]
   adultAnimation: LootShow[]
   allAges: LootShow[]
-  handmade: LootShow[]
   vibeCrate: LootShow[]
   animatedFilms: LootShow[]
   topRated: LootShow[]
@@ -330,7 +330,6 @@ export type DiscoverCategoryKey =
   | 'newWestern'
   | 'adultAnimation'
   | 'allAges'
-  | 'handmade'
   | 'vibeCrate'
   | 'animatedFilms'
   | 'topRated'
@@ -338,6 +337,273 @@ export type DiscoverCategoryKey =
 const FEED_TTL_MS = 5 * 60_000
 let feedCache: { data: DiscoverFeed; ts: number } | null = null
 let inflight: Promise<DiscoverFeed> | null = null
+
+export interface TmdbEpisodeSummary {
+  id: number
+  name: string
+  overview?: string
+  air_date?: string | null
+  season_number: number
+  episode_number: number
+  still_path?: string | null
+}
+
+export interface AnimationScheduleEntry {
+  show: LootShow
+  episode?: TmdbEpisodeSummary | null
+}
+
+export interface AnimationScheduleDay {
+  date: string
+  entries: AnimationScheduleEntry[]
+}
+
+export interface AnimationTrailerFeature {
+  show: LootShow
+  video: TmdbVideoAsset
+}
+
+export interface AnimationTodayPulse {
+  days: AnimationScheduleDay[]
+  trending: LootShow[]
+  generatedAt: number
+  partial: boolean
+}
+
+const TODAY_PULSE_TTL_MS = 30 * 60_000
+const TODAY_TRAILER_TTL_MS = 6 * 60 * 60_000
+const TODAY_PULSE_STORAGE_KEY = 'loot:today-pulse:v2'
+const TODAY_TRAILER_STORAGE_KEY = 'loot:today-trailer:v1'
+const TODAY_EPISODE_STORAGE_KEY = 'loot:today-episodes:v2'
+type TodayCache<T> = { key: string; data: T; ts: number }
+let todayPulseCache: TodayCache<AnimationTodayPulse> | null = null
+let todayTrailerCache: TodayCache<AnimationTrailerFeature | null> | null = null
+let todayPulseInflight: { key: string; request: Promise<AnimationTodayPulse> } | null = null
+let todayTrailerInflight: { key: string; request: Promise<AnimationTrailerFeature | null> } | null = null
+let todayEpisodeCache: TodayCache<Record<string, TmdbEpisodeSummary | null>> | null = null
+const todayEpisodeInflight = new Map<string, Promise<TmdbEpisodeSummary | null>>()
+
+function localDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function dateKeyAfter(days: number) {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  date.setDate(date.getDate() + days)
+  return localDateKey(date)
+}
+
+function todayContext() {
+  const date = localDateKey(new Date())
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  const region = getWatchRegion()
+  return { date, timezone, region, key: `${date}:${timezone}:${region}` }
+}
+
+function readTodayCache<T>(storageKey: string, contextKey: string): TodayCache<T> | null {
+  try {
+    const cached = JSON.parse(localStorage.getItem(storageKey) || 'null') as TodayCache<T> | null
+    return cached?.key === contextKey ? cached : null
+  } catch {
+    return null
+  }
+}
+
+function writeTodayCache<T>(storageKey: string, cached: TodayCache<T>) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(cached))
+  } catch {
+    // The in-memory cache still keeps the experience working when storage is full or unavailable.
+  }
+}
+
+async function getAnimationScheduleForDate(date: string, timezone: string) {
+  const raw = await discoverList('tv', {
+    sort_by: 'popularity.desc',
+    'air_date.gte': date,
+    'air_date.lte': date,
+    timezone,
+  }, 12)
+  return raw.map(tmdbToLoot)
+}
+
+async function getTrendingAnimation() {
+  const data = await tmdb<{ results: RawTmdbListItem[] }>('/trending/all/day')
+  return data.results
+    .filter((result) => (result.media_type === 'tv' || result.media_type === 'movie') && result.genre_ids?.includes(ANIMATION_GENRE_ID))
+    .map((result) => normalizeListItem(result, result.media_type as MediaType))
+    .map(tmdbToLoot)
+}
+
+function uniqueLootShows(shows: LootShow[]) {
+  return Array.from(new Map(shows.map((show) => [`${show.mediaType}:${show.id}`, show])).values())
+}
+
+function rankVideos(videos: TmdbVideoAsset[]) {
+  const typeRank: Record<string, number> = { Trailer: 4, Teaser: 3, Clip: 2, Featurette: 1 }
+  return videos
+    .filter((video) => video.site === 'YouTube' && typeRank[video.type])
+    .sort((a, b) => {
+      const officialDelta = Number(Boolean(b.official)) - Number(Boolean(a.official))
+      if (officialDelta) return officialDelta
+      const typeDelta = (typeRank[b.type] ?? 0) - (typeRank[a.type] ?? 0)
+      if (typeDelta) return typeDelta
+      return (b.published_at ?? '').localeCompare(a.published_at ?? '')
+    })
+}
+
+export function getCachedAnimationTodayPulse() {
+  const { key } = todayContext()
+  if (todayPulseCache?.key === key) return todayPulseCache.data
+  todayPulseCache = readTodayCache<AnimationTodayPulse>(TODAY_PULSE_STORAGE_KEY, key)
+  return todayPulseCache?.data ?? null
+}
+
+export async function getAnimationTodayPulse(force = false): Promise<AnimationTodayPulse> {
+  const context = todayContext()
+  const stored = todayPulseCache?.key === context.key
+    ? todayPulseCache
+    : readTodayCache<AnimationTodayPulse>(TODAY_PULSE_STORAGE_KEY, context.key)
+  if (!force && stored && Date.now() - stored.ts < TODAY_PULSE_TTL_MS) {
+    todayPulseCache = stored
+    return stored.data
+  }
+  if (todayPulseInflight?.key === context.key) return todayPulseInflight.request
+
+  const request = (async () => {
+    const dates = Array.from({ length: 7 }, (_, index) => dateKeyAfter(index))
+    const [scheduleResults, trendingResult] = await Promise.all([
+      Promise.allSettled(dates.map((date) => getAnimationScheduleForDate(date, context.timezone))),
+      Promise.allSettled([getTrendingAnimation()]),
+    ])
+
+    const days: AnimationScheduleDay[] = dates.map((date, index) => ({
+      date,
+      entries: scheduleResults[index].status === 'fulfilled'
+        ? scheduleResults[index].value.slice(0, 8).map((show) => ({ show }))
+        : [],
+    }))
+    const trending = trendingResult[0].status === 'fulfilled' ? trendingResult[0].value.slice(0, 10) : []
+    const data = {
+      days,
+      trending,
+      generatedAt: Date.now(),
+      partial: scheduleResults.some((result) => result.status === 'rejected') || trendingResult[0].status === 'rejected',
+    }
+    if (!days.some((day) => day.entries.length) && !trending.length) {
+      throw new Error('Today in animation is temporarily unavailable')
+    }
+    todayPulseCache = { key: context.key, data, ts: Date.now() }
+    writeTodayCache(TODAY_PULSE_STORAGE_KEY, todayPulseCache)
+    return data
+  })()
+  todayPulseInflight = { key: context.key, request }
+
+  try {
+    return await request
+  } finally {
+    if (todayPulseInflight?.request === request) todayPulseInflight = null
+  }
+}
+
+export function getCachedAnimationTodayTrailer() {
+  const { key } = todayContext()
+  if (todayTrailerCache?.key === key) return todayTrailerCache.data
+  todayTrailerCache = readTodayCache<AnimationTrailerFeature | null>(TODAY_TRAILER_STORAGE_KEY, key)
+  return todayTrailerCache?.data ?? null
+}
+
+export async function getAnimationTodayTrailer(pulse: AnimationTodayPulse, force = false): Promise<AnimationTrailerFeature | null> {
+  const context = todayContext()
+  const stored = todayTrailerCache?.key === context.key
+    ? todayTrailerCache
+    : readTodayCache<AnimationTrailerFeature | null>(TODAY_TRAILER_STORAGE_KEY, context.key)
+  if (!force && stored && Date.now() - stored.ts < TODAY_TRAILER_TTL_MS) {
+    todayTrailerCache = stored
+    return stored.data
+  }
+  if (todayTrailerInflight?.key === context.key) return todayTrailerInflight.request
+
+  const candidates = uniqueLootShows([
+    ...pulse.trending,
+    ...pulse.days.flatMap((day) => day.entries.map((entry) => entry.show)),
+  ]).slice(0, 3)
+  const request = Promise.allSettled(
+    candidates.map(async (show) => ({ show, videos: rankVideos((await getShowVideos(show.id, show.mediaType)).results) })),
+  ).then((results) => {
+    const result = results.find((candidate) => candidate.status === 'fulfilled' && candidate.value.videos[0])
+    const data = result?.status === 'fulfilled' ? { show: result.value.show, video: result.value.videos[0] } : null
+    todayTrailerCache = { key: context.key, data, ts: Date.now() }
+    writeTodayCache(TODAY_TRAILER_STORAGE_KEY, todayTrailerCache)
+    return data
+  })
+  todayTrailerInflight = { key: context.key, request }
+  try {
+    return await request
+  } finally {
+    if (todayTrailerInflight?.request === request) todayTrailerInflight = null
+  }
+}
+
+function episodeCacheForContext(contextKey: string) {
+  if (todayEpisodeCache?.key === contextKey && Date.now() - todayEpisodeCache.ts < TODAY_TRAILER_TTL_MS) {
+    return todayEpisodeCache
+  }
+  todayEpisodeCache = readTodayCache<Record<string, TmdbEpisodeSummary | null>>(TODAY_EPISODE_STORAGE_KEY, contextKey)
+  if (!todayEpisodeCache || Date.now() - todayEpisodeCache.ts >= TODAY_TRAILER_TTL_MS) {
+    todayEpisodeCache = { key: contextKey, data: {}, ts: Date.now() }
+  }
+  return todayEpisodeCache
+}
+
+async function getAnimationScheduleEpisode(show: LootShow, date: string, force = false) {
+  if (show.mediaType !== 'tv') return null
+  const context = todayContext()
+  const cache = episodeCacheForContext(context.key)
+  const cacheKey = `${date}:${show.id}`
+  const inflightKey = `${context.key}:${cacheKey}`
+  if (!force && Object.prototype.hasOwnProperty.call(cache.data, cacheKey)) return cache.data[cacheKey]
+  if (todayEpisodeInflight.has(inflightKey)) return todayEpisodeInflight.get(inflightKey)!
+
+  const request = getShowDetail(show.id, 'tv')
+    .then((detail) => {
+      const scheduleTime = new Date(`${date}T12:00:00Z`).getTime()
+      const episode = [detail.next_episode_to_air, detail.last_episode_to_air]
+        .filter((candidate): candidate is TmdbEpisodeSummary => Boolean(candidate?.air_date))
+        .map((candidate) => ({
+          candidate,
+          distance: Math.abs(new Date(`${candidate.air_date}T12:00:00Z`).getTime() - scheduleTime),
+        }))
+        .filter(({ distance }) => distance <= 24 * 60 * 60_000)
+        .sort((a, b) => a.distance - b.distance)[0]?.candidate ?? null
+      cache.data[cacheKey] = episode
+      cache.ts = Date.now()
+      writeTodayCache(TODAY_EPISODE_STORAGE_KEY, cache)
+      return episode
+    })
+    .finally(() => todayEpisodeInflight.delete(inflightKey))
+  todayEpisodeInflight.set(inflightKey, request)
+  return request
+}
+
+export async function getAnimationScheduleDayEpisodes(day: AnimationScheduleDay, force = false): Promise<AnimationScheduleDay> {
+  const results = await Promise.allSettled(
+    day.entries.map(async (entry) => ({
+      ...entry,
+      episode: await getAnimationScheduleEpisode(entry.show, day.date, force),
+    })),
+  )
+  return {
+    ...day,
+    entries: day.entries.map((entry, index) => (
+      results[index].status === 'fulfilled' ? results[index].value : { ...entry, episode: null }
+    )),
+  }
+}
 
 export function getCachedDiscoverFeed(): DiscoverFeed | null {
   if (!feedCache) return null
@@ -350,7 +616,7 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
   if (inflight) return inflight
   inflight = (async () => {
     const recent = daysAgo(240)
-    const [freshStudiosPrimary, freshStudiosExpanded, newAnimeRaw, newWesternRaw, grownUpNetworkRaw, grownUpKeywordRaw, allAgesRaw, handmadeRaw, animatedFilmsRaw, topRatedRaw] =
+    const [freshStudiosPrimary, freshStudiosExpanded, newAnimeRaw, newWesternRaw, grownUpNetworkRaw, grownUpKeywordRaw, allAgesRaw, animatedFilmsRaw, topRatedRaw] =
       await Promise.all([
         discoverPages('tv', { with_networks: '19|47|80', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }),
         discoverPages('tv', { with_networks: '56|213|49|453|1112', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }),
@@ -359,7 +625,6 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
         discoverPages('tv', { with_networks: '19|47|80', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
         discoverPages('tv', { with_keywords: '161919', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
         discoverPages('tv', { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
-        discoverPages('tv', { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }),
         discoverPages('movie', { sort_by: 'popularity.desc', 'vote_count.gte': '50' }),
         discoverPages('tv', { sort_by: 'vote_average.desc', 'vote_count.gte': '200' }),
       ])
@@ -381,7 +646,6 @@ export async function getDiscoverFeed(): Promise<DiscoverFeed> {
       newWestern: map(newWesternRaw),
       adultAnimation: balanceTraditions(map(grownUpRaw), 40),
       allAges: balanceTraditions(map(allAgesRaw), 40),
-      handmade: balanceTraditions(map(handmadeRaw), 40),
       vibeCrate: balanceTraditions(rotatingVibe ? basePool.filter((show) => show.vibeIds.includes(rotatingVibe)) : basePool, 40),
       animatedFilms: balanceTraditions(map(animatedFilmsRaw), 40),
       topRated: balanceTraditions(map(topRatedRaw), 40),
@@ -420,9 +684,6 @@ export async function getDiscoverCategoryPage(
       break
     case 'allAges':
       params = { with_genres: '10751', sort_by: 'popularity.desc', 'vote_count.gte': '20' }
-      break
-    case 'handmade':
-      params = { with_keywords: '18003|2499|207928', sort_by: 'vote_average.desc', 'vote_count.gte': '5' }
       break
     case 'vibeCrate':
       params = { with_networks: '19|47|80', sort_by: 'first_air_date.desc', 'vote_count.gte': '5' }
@@ -465,6 +726,8 @@ export interface TmdbShowDetail extends TmdbSearchResult {
   tagline?: string
   runtime?: number
   release_date?: string
+  next_episode_to_air?: TmdbEpisodeSummary | null
+  last_episode_to_air?: TmdbEpisodeSummary | null
 }
 
 export interface TmdbCreator {
@@ -503,6 +766,8 @@ export interface TmdbVideoAsset {
   name: string
   site: string
   type: string
+  official?: boolean
+  published_at?: string
 }
 
 export interface TmdbAggregateCastMember {

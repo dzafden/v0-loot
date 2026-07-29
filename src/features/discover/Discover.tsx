@@ -1,11 +1,17 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Bookmark, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Bookmark, CalendarDays, ChevronLeft, ChevronRight, Eye, Flame, Play, RefreshCw, Search, X } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
   getCachedDiscoverFeed,
   getDiscoverCategoryPage,
+  getAnimationTodayPulse,
+  getAnimationTodayTrailer,
+  getAnimationScheduleDayEpisodes,
+  getCachedAnimationTodayPulse,
+  getCachedAnimationTodayTrailer,
   getSeason,
   getShowDetail,
   getShowKeywords,
@@ -21,6 +27,9 @@ import {
   searchShows,
   tmdbToLoot,
   type DiscoverFeed,
+  type AnimationTodayPulse,
+  type AnimationScheduleDay,
+  type AnimationTrailerFeature,
   type LootShow,
 } from '../../lib/tmdb'
 import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf, ensureDefaultWatchlistShelves } from '../../data/queries'
@@ -43,7 +52,7 @@ interface Props {
   onOpenShow: (show: Show, context?: RecommendationContext) => void
 }
 
-const FEED_KEYS: (keyof DiscoverFeed)[] = ['freshStudios', 'newAnime', 'newWestern', 'adultAnimation', 'allAges', 'handmade', 'vibeCrate', 'animatedFilms', 'topRated']
+const FEED_KEYS: (keyof DiscoverFeed)[] = ['freshStudios', 'newAnime', 'newWestern', 'adultAnimation', 'allAges', 'vibeCrate', 'animatedFilms', 'topRated']
 const TIER_TASTE_WEIGHT: Record<Tier, number> = { S: 9, A: 6, B: 3, C: 1, D: -3 }
 const TASTE_ANCHOR_LIMIT = 18
 const ACTIVE_ANCHOR_COUNT = 8
@@ -795,6 +804,11 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [feed, setFeed] = useState<DiscoverFeed | null>(() => getCachedDiscoverFeed())
   const [feedLoading, setFeedLoading] = useState(false)
   const [feedError, setFeedError] = useState<string | null>(null)
+  const [todayPulse, setTodayPulse] = useState<AnimationTodayPulse | null>(() => getCachedAnimationTodayPulse())
+  const [todayPulseLoading, setTodayPulseLoading] = useState(() => !getCachedAnimationTodayPulse())
+  const [todayPulseError, setTodayPulseError] = useState<string | null>(null)
+  const [todayTrailer, setTodayTrailer] = useState<AnimationTrailerFeature | null>(() => getCachedAnimationTodayTrailer())
+  const [selectedTodayTrailer, setSelectedTodayTrailer] = useState<AnimationTrailerFeature | null>(null)
   const [activeCategory, setActiveCategory] = useState<null | { key: DiscoverCategoryKey; title: string }>(null)
   const [categoryItems, setCategoryItems] = useState<LootShow[]>([])
   const [categoryPage, setCategoryPage] = useState(1)
@@ -874,6 +888,28 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     return () => window.clearTimeout(timer)
   }, [librarySnapshot, ownedShows, tierAssignments])
 
+  const loadTodayPulse = useCallback(async (force = false) => {
+    const cached = getCachedAnimationTodayPulse()
+    if (cached) setTodayPulse(cached)
+    else {
+      setTodayPulse(null)
+      setTodayTrailer(null)
+    }
+    setTodayPulseLoading(!cached)
+    setTodayPulseError(null)
+    try {
+      const pulse = await getAnimationTodayPulse(force)
+      setTodayPulse(pulse)
+      setTodayPulseLoading(false)
+      void getAnimationTodayTrailer(pulse, force)
+        .then(setTodayTrailer)
+        .catch(() => {})
+    } catch (error) {
+      if (!cached) setTodayPulseError((error as Error).message)
+      setTodayPulseLoading(false)
+    }
+  }, [])
+
   const refreshDiscoverMix = () => {
     const snapshot = createLibrarySnapshot(ownedShows, tierAssignments)
     writeLibrarySnapshot(snapshot)
@@ -884,6 +920,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       writeDiscoverRotation(next)
       return next
     })
+    void loadTodayPulse(true)
   }
 
   // Trending feed — fetched on mount, cached at module level for 5 min.
@@ -906,6 +943,20 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       cancelled = true
     }
   }, [keyOk])
+
+  useEffect(() => {
+    if (!keyOk) return
+    void loadTodayPulse()
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadTodayPulse()
+    }
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    const freshnessTimer = window.setInterval(refreshWhenVisible, 60_000)
+    return () => {
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      window.clearInterval(freshnessTimer)
+    }
+  }, [keyOk, loadTodayPulse])
 
   useEffect(() => {
     if (!keyOk || activeTasteAnchors.length === 0) {
@@ -1172,7 +1223,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
               <button
                 onClick={refreshDiscoverMix}
                 className="grid h-10 w-10 place-items-center rounded-full text-white/42 transition-colors hover:bg-white/[0.06] hover:text-white active:scale-90"
-                aria-label="Refresh recommendations"
+                aria-label="Refresh Discover"
               >
                 <RefreshCw size={17} />
               </button>
@@ -1260,6 +1311,12 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             ) : (
               <TodayPicks shows={todayPicks} ownedIds={liveOwnedSet} watchlistIds={liveWatchlistSet} onOpenShow={onOpenShow} />
             )}
+            todayPulse={todayPulse}
+            todayPulseLoading={todayPulseLoading}
+            todayPulseError={todayPulseError}
+            todayTrailer={todayTrailer}
+            onRetryToday={() => loadTodayPulse(true)}
+            onPlayTodayTrailer={setSelectedTodayTrailer}
             feed={visibleFeed}
             ownedIds={liveOwnedIds}
             watchlistIds={liveWatchlistSet}
@@ -1332,6 +1389,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <TodayTrailerModal trailer={selectedTodayTrailer} onClose={() => setSelectedTodayTrailer(null)} />
 
       <AnimatePresence>
         {WATCH_DROP_ENABLED && watchDropOpen && (
@@ -2476,6 +2535,12 @@ function buildTastePackets(
 
 function FeedRows({
   leadingContent,
+  todayPulse,
+  todayPulseLoading,
+  todayPulseError,
+  todayTrailer,
+  onRetryToday,
+  onPlayTodayTrailer,
   feed,
   ownedIds,
   watchlistIds,
@@ -2494,6 +2559,12 @@ function FeedRows({
   featuredId,
 }: {
   leadingContent: ReactNode
+  todayPulse: AnimationTodayPulse | null
+  todayPulseLoading: boolean
+  todayPulseError: string | null
+  todayTrailer: AnimationTrailerFeature | null
+  onRetryToday: () => void
+  onPlayTodayTrailer: (trailer: AnimationTrailerFeature) => void
   feed: DiscoverFeed
   ownedIds: number[]
   watchlistIds: Set<number>
@@ -2571,14 +2642,20 @@ function FeedRows({
     <>
       <section id="discover-today" className="scroll-mt-28">
         <ChapterHeader title="Today in animation" />
-        {leadingContent}
-        <CarouselRow title="Fresh from studios" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="New in Western animation" categoryKey="newWestern" shows={sourceRows.newWestern} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <TodayInAnimation
+          pulse={todayPulse}
+          loading={todayPulseLoading}
+          error={todayPulseError}
+          trailer={todayTrailer}
+          onRetry={onRetryToday}
+          onOpenShow={onOpenShow}
+          onPlayTrailer={onPlayTodayTrailer}
+        />
       </section>
 
       <section id="discover-for-you" className="scroll-mt-28">
         <ChapterHeader title="For you" />
+        {leadingContent}
         {packets.length
           ? packets.map((packet) => (
               <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenShow={onOpenShow} />
@@ -2588,14 +2665,370 @@ function FeedRows({
 
       <section id="discover-explore" className="scroll-mt-28">
         <ChapterHeader title="Explore animation" />
+        <CarouselRow title="Recently released" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="New in Western animation" categoryKey="newWestern" shows={sourceRows.newWestern} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRows.adultAnimation} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="All ages & family" categoryKey="allAges" shows={sourceRows.allAges} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="Stop-motion & handmade" categoryKey="handmade" shows={sourceRows.handmade} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="Vibe crate" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="Animated films" categoryKey="animatedFilms" shows={sourceRows.animatedFilms} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <RankedList title="Top rated, all time" shows={sourceRows.topRated} onOpenCategory={() => onOpenCategory('topRated', 'Top rated, all time')} onOpenShow={onOpenShow} />
       </section>
     </>
+  )
+}
+
+function scheduleDate(date: string, options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat(undefined, options).format(new Date(`${date}T12:00:00`))
+}
+
+function episodeCode(episode: AnimationScheduleDay['entries'][number]['episode']) {
+  if (!episode) return null
+  return `S${episode.season_number} E${episode.episode_number}`
+}
+
+function mergeScheduleDay(base: AnimationScheduleDay, enriched: AnimationScheduleDay) {
+  const episodes = new Map(enriched.entries.map((entry) => [entry.show.id, entry.episode]))
+  return {
+    ...base,
+    entries: base.entries.map((entry) => (
+      episodes.has(entry.show.id) ? { ...entry, episode: episodes.get(entry.show.id) } : entry
+    )),
+  }
+}
+
+function TodayInAnimation({
+  pulse,
+  loading,
+  error,
+  trailer,
+  onRetry,
+  onOpenShow,
+  onPlayTrailer,
+}: {
+  pulse: AnimationTodayPulse | null
+  loading: boolean
+  error: string | null
+  trailer: AnimationTrailerFeature | null
+  onRetry: () => void
+  onOpenShow: (show: Show) => void
+  onPlayTrailer: (trailer: AnimationTrailerFeature) => void
+}) {
+  const [selectedDay, setSelectedDay] = useState<AnimationScheduleDay | null>(null)
+  const [episodeDays, setEpisodeDays] = useState<Record<string, AnimationScheduleDay>>({})
+
+  useEffect(() => {
+    if (!pulse) return
+    let active = true
+    const previewDays = pulse.days.map((day, index) => (
+      index === 0 ? day : { ...day, entries: day.entries.slice(0, 1) }
+    ))
+    void Promise.all(previewDays.map((day) => getAnimationScheduleDayEpisodes(day)))
+      .then((days) => {
+        if (!active) return
+        setEpisodeDays((current) => {
+          const next = { ...current }
+          days.forEach((day) => { next[day.date] = mergeScheduleDay(pulse.days.find((candidate) => candidate.date === day.date) ?? day, day) })
+          return next
+        })
+      })
+    return () => { active = false }
+  }, [pulse])
+
+  if (loading && !pulse) return <TodayPulseSkeleton />
+  if (!pulse) {
+    return (
+      <div className="mx-4 mb-10 rounded-[20px] border border-white/[0.07] bg-white/[0.025] px-4 py-5 text-[14px] text-white/46">
+        <p>{error || 'Today’s animation schedule is temporarily unavailable.'}</p>
+        <button onClick={onRetry} className="mt-3 rounded-full bg-white/[0.08] px-4 py-2 text-[12px] font-semibold text-white/76 active:scale-95">Try again</button>
+      </div>
+    )
+  }
+
+  const today = episodeDays[pulse.days[0].date] ?? pulse.days[0]
+  const weekAhead = pulse.days.slice(1).filter((day) => day.entries.length).map((day) => episodeDays[day.date] ?? day)
+  const trendingShows = pulse.trending.slice(0, 4)
+
+  return (
+    <div>
+      <section className="mb-9">
+        <div className="mb-3 flex items-end justify-between px-4">
+          <div>
+            <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-[#f5c453]/78">
+              <CalendarDays size={13} /> {scheduleDate(today.date, { weekday: 'long', month: 'short', day: 'numeric' })}
+            </p>
+            <h3 className="text-[20px] font-bold tracking-[-0.03em] text-white/94">Airing today</h3>
+          </div>
+          <span className="text-[12px] font-medium tabular-nums text-white/34">{today.entries.length}</span>
+        </div>
+        {today.entries.length ? (
+          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 no-scrollbar">
+            {today.entries.map((entry) => (
+              <button
+                key={entry.show.id}
+                onClick={() => onOpenShow(lootToShow(entry.show))}
+                className="flex h-[122px] w-[82vw] max-w-[344px] shrink-0 snap-start overflow-hidden rounded-[18px] border border-white/[0.08] bg-white/[0.035] text-left active:scale-[0.985]"
+              >
+                <span className="h-full w-[118px] shrink-0 bg-white/[0.04]">
+                  {(entry.show.backdropPath || entry.show.posterPath) && (
+                    <img src={imgUrl(entry.show.backdropPath || entry.show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  )}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col justify-center px-3.5 py-3">
+                  <span className="line-clamp-2 text-[16px] font-bold leading-[1.15] tracking-[-0.02em] text-white/92">{entry.show.title}</span>
+                  {entry.episode ? (
+                    <>
+                      <span className="mt-2 block text-[11px] font-semibold text-[#f5c453]/80">{episodeCode(entry.episode)}</span>
+                      <span className="mt-0.5 line-clamp-1 text-[12px] font-medium text-white/54">{entry.episode.name || 'Untitled episode'}</span>
+                    </>
+                  ) : <span className="mt-2 text-[11px] font-medium text-white/34">Episode details pending</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mx-4 rounded-[18px] bg-white/[0.025] px-4 py-4 text-[14px] text-white/42 ring-1 ring-white/[0.055]">No animated episodes are currently listed for today.</p>
+        )}
+      </section>
+
+      {weekAhead.length > 0 && (
+        <section className="mb-9">
+          <div className="mb-3 px-4">
+            <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">Week ahead</h3>
+            <p className="mt-0.5 text-[12px] font-medium text-white/40">New episodes over the next seven days</p>
+          </div>
+          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 no-scrollbar">
+            {weekAhead.map((day) => {
+              const first = day.entries[0]
+              return (
+                <button
+                  key={day.date}
+                  onClick={() => setSelectedDay(day)}
+                  className="w-[172px] shrink-0 snap-start overflow-hidden rounded-[18px] border border-white/[0.075] bg-white/[0.03] text-left active:scale-[0.98]"
+                  aria-label={`Open schedule for ${scheduleDate(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}`}
+                >
+                  <span className="relative block aspect-[16/10] bg-white/[0.04]">
+                    {(first.show.backdropPath || first.show.posterPath) && <img src={imgUrl(first.show.backdropPath || first.show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />}
+                  </span>
+                  <span className="block px-3 py-2.5">
+                    <span className="block text-[11px] font-medium text-[#f5c453]/76">{scheduleDate(day.date, { weekday: 'short', day: 'numeric' })}</span>
+                    <span className="mt-1 line-clamp-2 block text-[14px] font-bold leading-[1.2] text-white/86">{first.show.title}</span>
+                    {first.episode ? (
+                      <>
+                        <span className="mt-2 block text-[11px] font-semibold text-white/52">{episodeCode(first.episode)}</span>
+                        <span className="mt-0.5 line-clamp-1 block text-[11px] text-white/38">{first.episode.name || 'Untitled episode'}</span>
+                      </>
+                    ) : <span className="mt-2 block text-[11px] text-white/28">Episode details pending</span>}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {trendingShows.length > 0 && (
+        <section className="mb-9 px-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Flame size={17} className="text-[#ff766d]" />
+            <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">Trending now</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {trendingShows.map((show, index) => {
+              const featured = trendingShows.length % 2 === 1 && index === 0
+              return (
+              <button key={`${show.mediaType}:${show.id}`} onClick={() => onOpenShow(lootToShow(show))} className={cn('group text-left active:scale-[0.98]', featured && 'col-span-2')}>
+                <span className={cn('relative block overflow-hidden rounded-[16px] bg-white/[0.04] ring-1 ring-white/[0.075]', featured ? 'aspect-[16/7]' : 'aspect-[4/3]')}>
+                  {(show.backdropPath || show.posterPath) && <img src={imgUrl(show.backdropPath || show.posterPath, 'w342')} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" loading="lazy" />}
+                  <span className="absolute left-2 top-2 grid h-7 min-w-7 place-items-center rounded-full bg-black/72 px-2 text-[12px] font-bold tabular-nums text-white">{index + 1}</span>
+                </span>
+                <span className="mt-2 line-clamp-2 block text-[14px] font-bold leading-[1.2] text-white/84">{show.title}</span>
+              </button>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {trailer && (
+        <section className="mb-11 px-4">
+          <div className="mb-3">
+            <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">Trailer spotlight</h3>
+            <p className="mt-0.5 text-[12px] font-medium text-white/40">Watch before you decide</p>
+          </div>
+          <button onClick={() => onPlayTrailer(trailer)} className="group relative aspect-video w-full overflow-hidden rounded-[22px] bg-black text-left ring-1 ring-white/[0.1] active:scale-[0.99]">
+            <img src={`https://i.ytimg.com/vi/${trailer.video.key}/hqdefault.jpg`} alt="" className="absolute inset-0 h-full w-full object-cover opacity-78 transition duration-500 group-hover:scale-[1.03] group-hover:opacity-90" loading="lazy" />
+            <span className="absolute inset-0 bg-gradient-to-t from-black via-black/8 to-black/12" />
+            <span className="absolute left-4 top-4 grid h-11 w-11 place-items-center rounded-full bg-white text-black shadow-xl"><Play size={16} fill="currentColor" /></span>
+            <span className="absolute inset-x-0 bottom-0 p-4">
+              <span className="block text-[17px] font-bold tracking-[-0.025em] text-white">{trailer.show.title}</span>
+              <span className="mt-1 line-clamp-1 block text-[12px] font-medium text-white/58">{trailer.video.name}</span>
+            </span>
+          </button>
+        </section>
+      )}
+
+      {pulse.partial && (
+        <button onClick={onRetry} className="mx-4 mb-10 text-left text-[12px] font-medium text-white/34 underline decoration-white/15 underline-offset-4">
+          Some listings may be missing. Refresh
+        </button>
+      )}
+
+      <ScheduleDaySheet
+        day={selectedDay}
+        onClose={() => setSelectedDay(null)}
+        onOpenShow={(show) => {
+          setSelectedDay(null)
+          onOpenShow(show)
+        }}
+      />
+    </div>
+  )
+}
+
+function ScheduleDaySheet({
+  day,
+  onClose,
+  onOpenShow,
+}: {
+  day: AnimationScheduleDay | null
+  onClose: () => void
+  onOpenShow: (show: Show) => void
+}) {
+  const [enrichedDay, setEnrichedDay] = useState<AnimationScheduleDay | null>(day)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!day) {
+      setEnrichedDay(null)
+      return
+    }
+    let active = true
+    setEnrichedDay(day)
+    setLoading(true)
+    void getAnimationScheduleDayEpisodes(day)
+      .then((result) => { if (active) setEnrichedDay(result) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [day])
+
+  useEffect(() => {
+    if (!day) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [day, onClose])
+
+  return createPortal(
+    <AnimatePresence>
+      {day && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[75] flex items-end justify-center bg-black/66 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Animation schedule for ${scheduleDate(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}`}
+          onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+        >
+          <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 360, damping: 34 }} className="max-h-[78svh] w-full max-w-md overflow-hidden rounded-t-[28px] border-t border-white/[0.1] bg-[#0b0c0e] shadow-[0_-24px_80px_rgba(0,0,0,.55)]">
+            <div className="flex items-center justify-between border-b border-white/[0.07] px-5 pb-4 pt-5">
+              <div>
+                <p className="text-[11px] font-medium text-[#f5c453]/72">Week ahead</p>
+                <h3 className="mt-1 text-[21px] font-bold tracking-[-0.035em] text-white/92">{scheduleDate(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+              </div>
+              <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.06] text-white/56" aria-label="Close schedule"><X size={17} /></button>
+            </div>
+            <div className="max-h-[calc(78svh-88px)] overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 no-scrollbar">
+              {loading && <p className="px-1 py-3 text-[12px] font-medium text-white/36">Loading episode details…</p>}
+              {(enrichedDay ?? day).entries.map((entry) => (
+                <button key={entry.show.id} onClick={() => onOpenShow(lootToShow(entry.show))} className="flex min-h-[116px] w-full items-start gap-3 border-b border-white/[0.055] py-4 text-left active:bg-white/[0.035]">
+                  <span className="mt-0.5 h-[72px] w-[108px] shrink-0 overflow-hidden rounded-[11px] bg-white/[0.04]">
+                    {(entry.episode?.still_path || entry.show.backdropPath || entry.show.posterPath) && <img src={imgUrl(entry.episode?.still_path || entry.show.backdropPath || entry.show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-1 block text-[11px] font-medium text-white/38">{entry.show.title}</span>
+                    {entry.episode ? (
+                      <>
+                        <span className="mt-1 block text-[11px] font-semibold text-[#f5c453]/74">{episodeCode(entry.episode)}</span>
+                        <span className="mt-0.5 line-clamp-2 block text-[15px] font-bold leading-[1.2] text-white/88">{entry.episode.name || 'Untitled episode'}</span>
+                        {entry.episode.overview && <span className="mt-1.5 line-clamp-2 block text-[12px] leading-[1.35] text-white/42">{entry.episode.overview}</span>}
+                      </>
+                    ) : <span className="mt-2 block text-[13px] font-medium text-white/38">Episode details have not been published yet.</span>}
+                  </span>
+                  <ChevronRight size={17} className="mt-7 shrink-0 text-white/24" />
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
+function TodayPulseSkeleton() {
+  return (
+    <div className="mb-10 animate-pulse px-4">
+      <div className="h-4 w-28 rounded bg-white/[0.06]" />
+      <div className="mt-2 h-6 w-40 rounded bg-white/[0.07]" />
+      <div className="mt-4 flex gap-3 overflow-hidden">
+        <div className="h-[104px] w-[78vw] max-w-[326px] shrink-0 rounded-[18px] bg-white/[0.055]" />
+        <div className="h-[104px] w-[78vw] max-w-[326px] shrink-0 rounded-[18px] bg-white/[0.04]" />
+      </div>
+    </div>
+  )
+}
+
+function TodayTrailerModal({ trailer, onClose }: { trailer: AnimationTrailerFeature | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!trailer) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onClose, trailer])
+
+  return (
+    <AnimatePresence>
+      {trailer && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[90] grid place-items-center bg-black/88 p-4 backdrop-blur-xl"
+          role="dialog"
+          aria-modal="true"
+          aria-label={trailer.video.name}
+          onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+        >
+          <motion.div initial={{ opacity: 0, scale: 0.96, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-3xl overflow-hidden rounded-[22px] bg-[#090b0d] shadow-[0_28px_100px_rgba(0,0,0,.72)] ring-1 ring-white/[0.12]">
+            <div className="aspect-video bg-black">
+              <iframe
+                src={`https://www.youtube.com/embed/${trailer.video.key}?autoplay=1&rel=0`}
+                title={trailer.video.name}
+                className="h-full w-full"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 p-4">
+              <div className="min-w-0">
+                <p className="truncate text-[16px] font-bold text-white/92">{trailer.show.title}</p>
+                <p className="mt-1 line-clamp-1 text-[12px] text-white/46">{trailer.video.name}</p>
+              </div>
+              <button onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/70" aria-label="Close trailer"><X size={17} /></button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }
 
