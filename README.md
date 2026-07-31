@@ -1,4 +1,10 @@
-# React + TypeScript + Vite
+# Loot
+
+## Product design standard
+
+All user-facing design work must follow the [Loot Visual System](LOOT_VISUAL_SYSTEM.md). It defines the product's immersion model, visual grammar, motion principles, use of lumination, and required review checklist.
+
+## Development
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

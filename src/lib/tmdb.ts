@@ -372,14 +372,14 @@ export interface AnimationTodayPulse {
 
 const TODAY_PULSE_TTL_MS = 30 * 60_000
 const TODAY_TRAILER_TTL_MS = 6 * 60 * 60_000
-const TODAY_PULSE_STORAGE_KEY = 'loot:today-pulse:v2'
-const TODAY_TRAILER_STORAGE_KEY = 'loot:today-trailer:v1'
+const TODAY_PULSE_STORAGE_KEY = 'loot:today-pulse:v3'
+const TODAY_TRAILERS_STORAGE_KEY = 'loot:today-trailers:v1'
 const TODAY_EPISODE_STORAGE_KEY = 'loot:today-episodes:v2'
 type TodayCache<T> = { key: string; data: T; ts: number }
 let todayPulseCache: TodayCache<AnimationTodayPulse> | null = null
-let todayTrailerCache: TodayCache<AnimationTrailerFeature | null> | null = null
+let todayTrailersCache: TodayCache<AnimationTrailerFeature[]> | null = null
 let todayPulseInflight: { key: string; request: Promise<AnimationTodayPulse> } | null = null
-let todayTrailerInflight: { key: string; request: Promise<AnimationTrailerFeature | null> } | null = null
+let todayTrailersInflight: { key: string; request: Promise<AnimationTrailerFeature[]> } | null = null
 let todayEpisodeCache: TodayCache<Record<string, TmdbEpisodeSummary | null>> | null = null
 const todayEpisodeInflight = new Map<string, Promise<TmdbEpisodeSummary | null>>()
 
@@ -431,12 +431,35 @@ async function getAnimationScheduleForDate(date: string, timezone: string) {
   return raw.map(tmdbToLoot)
 }
 
+function interleaveTrending(groups: LootShow[][]) {
+  const items: LootShow[] = []
+  const maxLength = Math.max(0, ...groups.map((group) => group.length))
+  for (let index = 0; index < maxLength; index += 1) {
+    groups.forEach((group) => {
+      if (group[index]) items.push(group[index])
+    })
+  }
+  return items
+}
+
 async function getTrendingAnimation() {
-  const data = await tmdb<{ results: RawTmdbListItem[] }>('/trending/all/day')
-  return data.results
-    .filter((result) => (result.media_type === 'tv' || result.media_type === 'movie') && result.genre_ids?.includes(ANIMATION_GENRE_ID))
-    .map((result) => normalizeListItem(result, result.media_type as MediaType))
-    .map(tmdbToLoot)
+  const load = async (mediaType: MediaType, window: 'day' | 'week') => {
+    const data = await tmdb<{ results: RawTmdbListItem[] }>(`/trending/${mediaType}/${window}`)
+    return data.results
+      .filter((result) => result.genre_ids?.includes(ANIMATION_GENRE_ID))
+      .map((result) => tmdbToLoot(normalizeListItem(result, mediaType)))
+  }
+  const results = await Promise.allSettled([
+    load('tv', 'day'),
+    load('movie', 'day'),
+    load('tv', 'week'),
+    load('movie', 'week'),
+  ])
+  const [tvDay, movieDay, tvWeek, movieWeek] = results.map((result) => result.status === 'fulfilled' ? result.value : [])
+  return uniqueLootShows([
+    ...interleaveTrending([tvDay, movieDay]),
+    ...interleaveTrending([tvWeek, movieWeek]),
+  ])
 }
 
 function uniqueLootShows(shows: LootShow[]) {
@@ -510,42 +533,46 @@ export async function getAnimationTodayPulse(force = false): Promise<AnimationTo
   }
 }
 
-export function getCachedAnimationTodayTrailer() {
+export function getCachedAnimationTodayTrailers() {
   const { key } = todayContext()
-  if (todayTrailerCache?.key === key) return todayTrailerCache.data
-  todayTrailerCache = readTodayCache<AnimationTrailerFeature | null>(TODAY_TRAILER_STORAGE_KEY, key)
-  return todayTrailerCache?.data ?? null
+  if (todayTrailersCache?.key === key) return todayTrailersCache.data
+  todayTrailersCache = readTodayCache<AnimationTrailerFeature[]>(TODAY_TRAILERS_STORAGE_KEY, key)
+  return todayTrailersCache?.data ?? []
 }
 
-export async function getAnimationTodayTrailer(pulse: AnimationTodayPulse, force = false): Promise<AnimationTrailerFeature | null> {
+export async function getAnimationTodayTrailers(pulse: AnimationTodayPulse, force = false): Promise<AnimationTrailerFeature[]> {
   const context = todayContext()
-  const stored = todayTrailerCache?.key === context.key
-    ? todayTrailerCache
-    : readTodayCache<AnimationTrailerFeature | null>(TODAY_TRAILER_STORAGE_KEY, context.key)
+  const stored = todayTrailersCache?.key === context.key
+    ? todayTrailersCache
+    : readTodayCache<AnimationTrailerFeature[]>(TODAY_TRAILERS_STORAGE_KEY, context.key)
   if (!force && stored && Date.now() - stored.ts < TODAY_TRAILER_TTL_MS) {
-    todayTrailerCache = stored
+    todayTrailersCache = stored
     return stored.data
   }
-  if (todayTrailerInflight?.key === context.key) return todayTrailerInflight.request
+  if (todayTrailersInflight?.key === context.key) return todayTrailersInflight.request
 
   const candidates = uniqueLootShows([
     ...pulse.trending,
     ...pulse.days.flatMap((day) => day.entries.map((entry) => entry.show)),
-  ]).slice(0, 3)
+  ]).slice(0, 10)
   const request = Promise.allSettled(
     candidates.map(async (show) => ({ show, videos: rankVideos((await getShowVideos(show.id, show.mediaType)).results) })),
   ).then((results) => {
-    const result = results.find((candidate) => candidate.status === 'fulfilled' && candidate.value.videos[0])
-    const data = result?.status === 'fulfilled' ? { show: result.value.show, video: result.value.videos[0] } : null
-    todayTrailerCache = { key: context.key, data, ts: Date.now() }
-    writeTodayCache(TODAY_TRAILER_STORAGE_KEY, todayTrailerCache)
+    const data = results
+      .flatMap((result) => result.status === 'fulfilled' && result.value.videos[0]
+        ? [{ show: result.value.show, video: result.value.videos[0] }]
+        : [])
+      .filter((feature, index, features) => features.findIndex((candidate) => candidate.video.key === feature.video.key) === index)
+      .slice(0, 6)
+    todayTrailersCache = { key: context.key, data, ts: Date.now() }
+    writeTodayCache(TODAY_TRAILERS_STORAGE_KEY, todayTrailersCache)
     return data
   })
-  todayTrailerInflight = { key: context.key, request }
+  todayTrailersInflight = { key: context.key, request }
   try {
     return await request
   } finally {
-    if (todayTrailerInflight?.request === request) todayTrailerInflight = null
+    if (todayTrailersInflight?.request === request) todayTrailersInflight = null
   }
 }
 

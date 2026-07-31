@@ -11,6 +11,7 @@ import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { getVibeTitle } from '../../lib/vibe-engine'
 import { getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { rankGlyphStyle } from '../../components/show/CollectibleMediaCard'
 
 type TierData = Record<Tier, number[]>
 type TierStyle = { color: string; soft: string; text: string; label: Tier }
@@ -260,11 +261,10 @@ function SorterGame({ queue, tierShows, onFinish }: { queue: Show[]; tierShows: 
                   onClick={() => void place(tier)}
                   disabled={Boolean(settlingTier)}
                   className={cn(
-                    'h-20 rounded-[24px] font-black text-3xl transition-all active:scale-95 disabled:cursor-default border backdrop-blur-xl',
+                    'grid h-20 place-items-center rounded-[24px] transition-all active:scale-95 disabled:cursor-default border backdrop-blur-xl',
                     active && 'scale-[1.045]',
                   )}
                   style={{
-                    color: style.color,
                     background: active
                       ? `linear-gradient(180deg, ${style.color}3d, rgba(8,8,10,0.96))`
                       : `linear-gradient(180deg, rgba(18,18,22,0.96), rgba(5,5,7,0.98))`,
@@ -274,7 +274,9 @@ function SorterGame({ queue, tierShows, onFinish }: { queue: Show[]; tierShows: 
                       : `0 14px 30px rgba(0,0,0,0.46), 0 0 14px ${style.color}24, inset 0 1px 0 rgba(255,255,255,0.08)`,
                   }}
                 >
-                  {tier}
+                  <span className="block text-[43px] leading-none tracking-[-0.08em]" style={rankGlyphStyle(tier)}>
+                    {tier}
+                  </span>
                 </button>
               )
             })}
@@ -309,7 +311,7 @@ function TierRow({ tier, shows, onOpenShow }: { tier: Tier; shows: Show[]; onOpe
   if (shows.length === 0) {
     return (
       <div className="flex h-11 items-center gap-3 rounded-[18px] px-3 ring-1 ring-white/[0.05]" style={{ background: `linear-gradient(90deg, ${style.color}16, rgba(255,255,255,0.018))` }}>
-        <span className="text-[18px] font-black" style={{ color: style.color }}>{tier}</span>
+        <span className="w-6 text-center text-[25px] leading-none tracking-[-0.08em]" style={rankGlyphStyle(tier, true)}>{tier}</span>
         <span className="text-[9px] font-black uppercase tracking-[0.16em] text-white/24">Empty tier</span>
       </div>
     )
@@ -329,7 +331,7 @@ function TierRow({ tier, shows, onOpenShow }: { tier: Tier; shows: Show[]; onOpe
           className="relative z-10 flex w-[54px] flex-shrink-0 flex-col items-center justify-center gap-1 self-stretch active:scale-95"
           aria-label={expanded ? `Collapse ${tier} tier` : `Expand ${tier} tier`}
         >
-          <span className="font-black text-[32px] leading-none" style={{ color: style.color }}>{tier}</span>
+          <span className="text-[46px] leading-[0.8] tracking-[-0.08em]" style={rankGlyphStyle(tier)}>{tier}</span>
           <span className="text-[9px] font-black tabular-nums text-white/48">{shows.length}</span>
         </button>
         <div className="min-w-0 flex-1 overflow-x-auto no-scrollbar">

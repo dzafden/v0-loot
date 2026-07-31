@@ -15,6 +15,20 @@ export const TIER_COLORS: Record<Tier, string> = {
   D: '#38bdf8',
 }
 
+export function rankGlyphStyle(tier: Tier, compact = false): CSSProperties {
+  const tierColor = TIER_COLORS[tier]
+  return {
+    color: tierColor,
+    fontFamily: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
+    fontStyle: 'italic',
+    WebkitTextStroke: compact ? '0.7px rgba(5,6,10,.92)' : '1.15px rgba(5,6,10,.94)',
+    textShadow: compact
+      ? `0 -1px 0 rgba(255,255,255,.2), 0 0 5px ${tierColor}80, 1px 2px 0 rgba(5,6,10,.82)`
+      : `0 -1px 0 rgba(255,255,255,.24), 0 0 9px ${tierColor}8c, 3px 4px 0 rgba(5,6,10,.84)`,
+    transform: 'rotate(-6deg)',
+  }
+}
+
 function particleUnit(seed: number) {
   const x = Math.sin(seed * 12.9898) * 43758.5453
   return x - Math.floor(x)
@@ -36,28 +50,20 @@ export function RankMark({
   className?: string
 }) {
   if (!tier) return null
-  const tierColor = TIER_COLORS[tier]
   const sizeClass = compact
-    ? featured ? 'h-9 w-9 rounded-[14px] text-[17px]' : 'h-7 w-7 rounded-[10px] text-[13px]'
-    : featured ? 'h-11 w-11 rounded-[17px] text-[20px]' : 'h-9 w-9 rounded-[13px] text-[16px]'
+    ? featured ? 'min-w-8 text-[30px]' : 'min-w-7 text-[24px]'
+    : featured ? 'min-w-10 text-[36px]' : 'min-w-8 text-[29px]'
   return (
-    <div
+    <span
       className={cn(
-        'grid place-items-center border font-black backdrop-blur-xl',
+        'pointer-events-none inline-grid select-none place-items-center leading-none tracking-[-0.08em]',
         sizeClass,
         className,
       )}
-      style={{
-        color: tierColor,
-        borderColor: `${tierColor}40`,
-        background: 'linear-gradient(180deg, rgba(18,18,22,0.96), rgba(5,5,7,0.98))',
-        boxShadow: featured
-          ? `0 12px 24px rgba(0,0,0,0.38), 0 0 16px ${tierColor}3a, inset 0 1px 0 rgba(255,255,255,0.1)`
-          : `0 8px 18px rgba(0,0,0,0.36), 0 0 10px ${tierColor}30, inset 0 1px 0 rgba(255,255,255,0.08)`,
-      }}
+      style={rankGlyphStyle(tier, compact || !featured)}
     >
-      <span>{tier}</span>
-    </div>
+      {tier}
+    </span>
   )
 }
 

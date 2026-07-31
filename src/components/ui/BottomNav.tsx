@@ -24,7 +24,7 @@ export function BottomNav({ active, onChange, unsortedCount = 0, subdued = false
   ]
 
   return (
-    <nav className={`fixed left-1/2 -translate-x-1/2 rounded-full border border-white/[0.07] grid grid-cols-4 gap-1 shadow-[0_18px_54px_rgba(0,0,0,0.65)] z-40 transition-all duration-300 ${subdued ? 'bottom-3 w-[64%] max-w-[250px] bg-black/16 p-1 opacity-45 backdrop-blur-xl' : 'bottom-5 w-[78%] max-w-[320px] bg-black/28 p-1.5 opacity-100 backdrop-blur-2xl'}`}>
+    <nav className={`fixed left-1/2 -translate-x-1/2 rounded-full border border-white/[0.085] grid grid-cols-4 gap-1 shadow-[0_16px_44px_rgba(0,0,0,0.58)] z-40 transition-all duration-300 ${subdued ? 'bottom-3 w-[62%] max-w-[242px] bg-[rgba(10,11,14,0.78)] p-1 opacity-50 backdrop-blur-xl' : 'bottom-4 w-[68%] max-w-[276px] bg-[rgba(10,11,14,0.88)] p-1 opacity-100 backdrop-blur-2xl'}`}>
       {TABS.map(({ id, Icon, badge }) => {
         const isActive = active === id
         const numericBadge = typeof badge === 'number' ? Math.min(badge, 99) : badge
@@ -34,25 +34,25 @@ export function BottomNav({ active, onChange, unsortedCount = 0, subdued = false
           <button
             key={id}
             onClick={() => onChange(id)}
-            className={`relative ${subdued ? 'h-10' : 'h-12'} rounded-full grid place-items-center transition-all duration-300 ${
+            className={`relative ${subdued ? 'h-10' : 'h-11'} rounded-full grid place-items-center transition-all duration-300 ${
               isActive ? 'text-white' : 'hover:bg-white/[0.05]'
             }`}
             aria-label={id}
           >
             {isActive && (
-              <span className="absolute inset-1 rounded-full bg-white/[0.08] shadow-[0_0_28px_rgba(245,196,83,0.24)]" />
+              <span className="absolute inset-1 rounded-full bg-white/[0.075] ring-1 ring-inset ring-white/[0.035]" />
             )}
             <Icon
               size={21}
               strokeWidth={isActive ? 2.4 : 2.1}
               className={`relative z-10 transition-colors duration-300 ${
                 isActive
-                  ? 'text-[#f5c453] drop-shadow-[0_0_12px_rgba(245,196,83,0.5)]'
-                  : 'text-white/38'
+                  ? 'text-white'
+                  : 'text-white/50'
               }`}
             />
             {isActive && (
-              <div className="absolute -bottom-0.5 h-1 w-5 rounded-full bg-[#f5c453]/95 shadow-[0_0_10px_rgba(245,196,83,0.75)]" />
+              <div className="absolute bottom-0 h-0.5 w-4 rounded-full bg-white/80 shadow-[0_0_8px_rgba(255,255,255,0.2)]" />
             )}
             {badge && !isActive && (
               <div

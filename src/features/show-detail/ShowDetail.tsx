@@ -45,6 +45,7 @@ import { WatchlistShelfPicker } from '../watchlist/WatchlistShelfPicker'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { dominantColor } from '../../lib/dominantColor'
+import { rankGlyphStyle } from '../../components/show/CollectibleMediaCard'
 
 const TIERS: Tier[] = ['S', 'A', 'B', 'C', 'D']
 const SUGGESTED_EMOJI = ['❤️', '🔥', '💀', '🥶', '😭', '🍔', '🥲', '🌹', '🥀', '👑', '🎯', '🤡', '🧠', '🎲', '🌶️', '⭐']
@@ -916,9 +917,8 @@ function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) 
             <button
               key={rank}
               onClick={() => onTier(rank)}
-              className={cn('h-11 w-11 rounded-[14px] border text-lg font-black transition-transform active:scale-95', active && 'scale-[1.04]')}
+              className={cn('grid h-11 w-11 place-items-center rounded-[14px] border transition-transform active:scale-95', active && 'scale-[1.04]')}
               style={{
-                color: style.color,
                 background: active ? 'rgba(255,255,255,0.055)' : 'rgba(255,255,255,0.02)',
                 borderColor: active ? `${style.color}aa` : `${style.color}38`,
                 boxShadow: active ? `inset 0 0 0 1px ${style.color}24` : undefined,
@@ -926,7 +926,7 @@ function InlineRank({ tier, onTier }: { tier: Tier | null; onTier: (tier: Tier) 
               aria-pressed={active}
               aria-label={`${rank} rank`}
             >
-              {rank}
+              <span className="text-[26px] leading-none tracking-[-0.08em]" style={rankGlyphStyle(rank, true)}>{rank}</span>
             </button>
           )
         })}

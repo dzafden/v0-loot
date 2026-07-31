@@ -1,17 +1,17 @@
 import { useAnimation, motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Bookmark, CalendarDays, ChevronLeft, ChevronRight, Eye, Flame, Play, RefreshCw, Search, X } from 'lucide-react'
+import { Bookmark, CalendarDays, ChevronLeft, ChevronRight, Eye, Play, RefreshCw, Search, X } from 'lucide-react'
 import {
   type DiscoverCategoryKey,
   getDiscoverFeed,
   getCachedDiscoverFeed,
   getDiscoverCategoryPage,
   getAnimationTodayPulse,
-  getAnimationTodayTrailer,
+  getAnimationTodayTrailers,
   getAnimationScheduleDayEpisodes,
   getCachedAnimationTodayPulse,
-  getCachedAnimationTodayTrailer,
+  getCachedAnimationTodayTrailers,
   getSeason,
   getShowDetail,
   getShowKeywords,
@@ -37,12 +37,13 @@ import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import type { CardDescriptor, Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
-import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
+import { CollectibleMediaCard, rankGlyphStyle } from '../../components/show/CollectibleMediaCard'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
+import { useImdbRating } from '../../lib/imdbRatings'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
 import { getVibeTitle } from '../../lib/vibe-engine'
 import { pickAnimationKey } from '../../engine/genre-animations'
-import { getSecondaryAnimationGenre, getTraditionDisplayLabel } from '../../lib/animation-taxonomy'
+import { getSecondaryAnimationGenre } from '../../lib/animation-taxonomy'
 import { dominantColor } from '../../lib/dominantColor'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { selectCardDescriptor } from '../../lib/card-descriptors'
@@ -53,6 +54,7 @@ interface Props {
 }
 
 const FEED_KEYS: (keyof DiscoverFeed)[] = ['freshStudios', 'newAnime', 'newWestern', 'adultAnimation', 'allAges', 'vibeCrate', 'animatedFilms', 'topRated']
+const HOME_FEED_KEYS: (keyof DiscoverFeed)[] = ['freshStudios', 'newAnime', 'vibeCrate', 'animatedFilms', 'topRated']
 const TIER_TASTE_WEIGHT: Record<Tier, number> = { S: 9, A: 6, B: 3, C: 1, D: -3 }
 const TASTE_ANCHOR_LIMIT = 18
 const ACTIVE_ANCHOR_COUNT = 8
@@ -182,7 +184,7 @@ type DiscoverLibrarySnapshot = {
 type DiscoverChapter = 'today' | 'for-you' | 'explore'
 
 const DISCOVER_CHAPTERS: { id: DiscoverChapter; label: string }[] = [
-  { id: 'today', label: 'Today' },
+  { id: 'today', label: 'Now' },
   { id: 'for-you', label: 'For you' },
   { id: 'explore', label: 'Explore' },
 ]
@@ -625,7 +627,7 @@ function canonRow(
   )
 }
 
-function discoverHero(
+function discoverHeroes(
   feed: DiscoverFeed,
   tasteWeights: Map<string, number>,
   ownedSet: Set<number>,
@@ -644,8 +646,8 @@ function discoverHero(
   ]
   const ranked = diversifyShows(personalizeShows(pool, tasteWeights, ownedSet, { recommendationBoost, impressions }), 18, 3)
   const rotatingTop = seededShuffle(ranked.slice(0, 10), seed)
-  return rotatingTop[0]
-    ?? personalizeShows(pool, tasteWeights, ownedSet, { allowOwned: true, recommendationBoost, impressions })[0]
+  const fallback = personalizeShows(pool, tasteWeights, ownedSet, { allowOwned: true, recommendationBoost, impressions })
+  return uniqueShows([...rotatingTop, ...fallback]).slice(0, 3)
 }
 
 async function getTasteRecommendationPool(anchors: Show[], page = 1) {
@@ -807,7 +809,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [todayPulse, setTodayPulse] = useState<AnimationTodayPulse | null>(() => getCachedAnimationTodayPulse())
   const [todayPulseLoading, setTodayPulseLoading] = useState(() => !getCachedAnimationTodayPulse())
   const [todayPulseError, setTodayPulseError] = useState<string | null>(null)
-  const [todayTrailer, setTodayTrailer] = useState<AnimationTrailerFeature | null>(() => getCachedAnimationTodayTrailer())
+  const [todayTrailers, setTodayTrailers] = useState<AnimationTrailerFeature[]>(() => getCachedAnimationTodayTrailers())
   const [selectedTodayTrailer, setSelectedTodayTrailer] = useState<AnimationTrailerFeature | null>(null)
   const [activeCategory, setActiveCategory] = useState<null | { key: DiscoverCategoryKey; title: string }>(null)
   const [categoryItems, setCategoryItems] = useState<LootShow[]>([])
@@ -893,7 +895,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     if (cached) setTodayPulse(cached)
     else {
       setTodayPulse(null)
-      setTodayTrailer(null)
+      setTodayTrailers([])
     }
     setTodayPulseLoading(!cached)
     setTodayPulseError(null)
@@ -901,8 +903,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       const pulse = await getAnimationTodayPulse(force)
       setTodayPulse(pulse)
       setTodayPulseLoading(false)
-      void getAnimationTodayTrailer(pulse, force)
-        .then(setTodayTrailer)
+      void getAnimationTodayTrailers(pulse, force)
+        .then(setTodayTrailers)
         .catch(() => {})
     } catch (error) {
       if (!cached) setTodayPulseError((error as Error).message)
@@ -1116,25 +1118,25 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     return () => window.removeEventListener('scroll', updateHeaderVisibility)
   }, [activeCategory, searchOpen])
 
-  const heroShow = useMemo(
-    () => visibleFeed ? discoverHero(visibleFeed, tasteWeights, profileOwnedSet, visibleTasteRecommendations, recommendationBoost, impressions, discoverSeed) : undefined,
+  const heroShows = useMemo(
+    () => visibleFeed ? discoverHeroes(visibleFeed, tasteWeights, profileOwnedSet, visibleTasteRecommendations, recommendationBoost, impressions, discoverSeed) : [],
     [discoverSeed, impressions, profileOwnedSet, recommendationBoost, tasteWeights, visibleFeed, visibleTasteRecommendations],
   )
-  const heroRecommendation = useMemo(() => {
-    if (!heroShow) return null
-    const group = visibleTasteRecommendationGroups.find((candidate) => candidate.shows.some((show) => show.id === heroShow.id))
-    const anchor = group ? profileShows.find((show) => show.id === group.anchorId) : undefined
-    if (!anchor) return null
-    const tier = profileTierAssignments.find((assignment) => assignment.showId === anchor.id)?.tier
-    return {
-      reason: tier ? `Because you ranked ${anchor.name} ${tier}` : `Because ${anchor.name} is in your collection`,
-      context: {
+  const heroRecommendations = useMemo(() => {
+    const recommendations = new Map<number, RecommendationContext>()
+    heroShows.forEach((heroShow) => {
+      const group = visibleTasteRecommendationGroups.find((candidate) => candidate.shows.some((show) => show.id === heroShow.id))
+      const anchor = group ? profileShows.find((show) => show.id === group.anchorId) : undefined
+      if (!anchor) return
+      const tier = profileTierAssignments.find((assignment) => assignment.showId === anchor.id)?.tier
+      recommendations.set(heroShow.id, {
         anchorName: anchor.name,
         anchorTier: tier,
         sharedGenre: anchor.rawGenres?.find((genre) => heroShow.rawGenres.includes(genre) && genre !== 'Animation'),
-      } satisfies RecommendationContext,
-    }
-  }, [heroShow, profileShows, profileTierAssignments, visibleTasteRecommendationGroups])
+      })
+    })
+    return recommendations
+  }, [heroShows, profileShows, profileTierAssignments, visibleTasteRecommendationGroups])
   const todayPicks = useMemo(() => {
     if (!visibleFeed) return []
     const candidates = uniqueShows([
@@ -1152,8 +1154,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }, [discoverSeed, impressions, profileOwnedSet, recommendationBoost, tasteWeights, visibleFeed, visibleTasteRecommendations])
 
   const leadingImpressionIds = useMemo(
-    () => heroShow && heroRecommendation ? [heroShow.id] : todayPicks.map((show) => show.id),
-    [heroRecommendation, heroShow, todayPicks],
+    () => heroShows.length ? heroShows.map((show) => show.id) : todayPicks.map((show) => show.id),
+    [heroShows, todayPicks],
   )
 
   const handleImpressions = useCallback((ids: number[]) => {
@@ -1207,22 +1209,21 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
 
   return (
     <div className="relative flex min-h-full flex-col pb-28" onTouchStart={onDiscoverTouchStart} onTouchEnd={onDiscoverTouchEnd}>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_50%_0%,rgba(245,196,83,0.16),transparent_22rem)]" aria-hidden />
       {!activeCategory && <>
       <motion.header
         initial={false}
         animate={{ y: headerVisible ? 0 : '-100%' }}
         transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
         inert={!headerVisible}
-        className="fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-md border-b border-white/[0.05] bg-[#08070a]/82 px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl will-change-transform"
+        className="fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-md border-b border-white/[0.045] bg-[#08070a]/80 px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl will-change-transform"
       >
         <div className="flex h-11 items-center justify-between">
-          <h1 className="text-[25px] font-bold tracking-[-0.045em] text-white/94">Discover</h1>
+          <h1 className="text-[25px] font-bold tracking-[-0.045em] text-white/95">Discover</h1>
           <div className="flex items-center gap-1">
             {librarySnapshot && (
               <button
                 onClick={refreshDiscoverMix}
-                className="grid h-10 w-10 place-items-center rounded-full text-white/42 transition-colors hover:bg-white/[0.06] hover:text-white active:scale-90"
+                className="grid h-10 w-10 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white active:scale-90"
                 aria-label="Refresh Discover"
               >
                 <RefreshCw size={17} />
@@ -1231,7 +1232,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             <button
               onClick={() => setSearchOpen(true)}
               disabled={!keyOk}
-              className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.07] text-white/82 ring-1 ring-white/[0.08] transition-colors hover:bg-white/[0.11] active:scale-95 disabled:opacity-40"
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.07] text-white/80 ring-1 ring-white/[0.08] transition-colors hover:bg-white/[0.11] active:scale-95 disabled:opacity-40"
               aria-label="Search animated titles"
             >
               <Search size={18} />
@@ -1239,7 +1240,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           </div>
         </div>
 
-        <nav className="mt-1 grid grid-cols-3 rounded-full bg-white/[0.035] p-1 ring-1 ring-white/[0.055]" aria-label="Discover sections">
+        <nav className="mt-1 grid grid-cols-3 rounded-full bg-white/[0.028] p-1 ring-1 ring-white/[0.045]" aria-label="Discover sections">
           {DISCOVER_CHAPTERS.map((chapter) => {
             const selected = activeChapter === chapter.id
             return (
@@ -1248,7 +1249,9 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
                 onClick={() => scrollToChapter(chapter.id)}
                 className={cn(
                   'h-8 rounded-full text-[12px] font-medium transition-colors',
-                  selected ? 'bg-white/[0.1] text-white' : 'text-white/42 hover:text-white/72',
+                  selected
+                    ? 'bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.045)]'
+                    : 'text-white/40 hover:text-white/70',
                 )}
                 aria-current={selected ? 'page' : undefined}
               >
@@ -1265,9 +1268,9 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             aria-label="Open Watch Drop"
           >
             <span className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,232,111,0.28),rgba(255,87,130,0.18),rgba(102,242,181,0.22))]" />
-            <span className="absolute left-1/2 top-1.5 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/42 shadow-[0_0_18px_rgba(255,255,255,0.45)]" />
+            <span className="absolute left-1/2 top-1.5 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/40 shadow-[0_0_18px_rgba(255,255,255,0.45)]" />
             <span className="relative z-10 flex h-full items-center justify-between px-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/78">Pull for Watch Drop</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/80">Pull for Watch Drop</span>
               <span className="grid h-7 w-7 place-items-center rounded-full bg-black/32 text-[16px] font-black text-white/80">⌄</span>
             </span>
           </button>
@@ -1299,14 +1302,15 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           <SkeletonRows />
         ) : (
           <FeedRows
-            leadingContent={heroShow && heroRecommendation ? (
-              <PortalHero
-                show={heroShow}
-                reason={heroRecommendation.reason}
-                recommendationContext={heroRecommendation.context}
-                isOwned={liveOwnedSet.has(heroShow.id)}
-                isWatchlisted={liveWatchlistSet.has(heroShow.id)}
+            leadingContent={heroShows.length ? (
+              <PortalHeroDeck
+                shows={heroShows}
+                recommendations={heroRecommendations}
+                trailers={todayTrailers}
+                ownedIds={liveOwnedSet}
+                watchlistIds={liveWatchlistSet}
                 onOpenShow={onOpenShow}
+                onPlayTrailer={setSelectedTodayTrailer}
               />
             ) : (
               <TodayPicks shows={todayPicks} ownedIds={liveOwnedSet} watchlistIds={liveWatchlistSet} onOpenShow={onOpenShow} />
@@ -1314,7 +1318,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             todayPulse={todayPulse}
             todayPulseLoading={todayPulseLoading}
             todayPulseError={todayPulseError}
-            todayTrailer={todayTrailer}
+            todayTrailers={todayTrailers}
             onRetryToday={() => loadTodayPulse(true)}
             onPlayTodayTrailer={setSelectedTodayTrailer}
             feed={visibleFeed}
@@ -1332,7 +1336,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             onImpressions={handleImpressions}
             onOpenCategory={openCategory}
             onOpenShow={onOpenShow}
-            featuredId={heroRecommendation ? heroShow?.id : undefined}
+            featuredId={heroShows[0]?.id}
           />
         )}
       </div>
@@ -1349,11 +1353,11 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             <div className="mx-auto min-h-full w-full max-w-md bg-[#08070a] pb-12">
               <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#08070a]/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl">
                 <div className="flex items-center gap-2">
-                  <button onClick={closeSearch} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/72 active:scale-95" aria-label="Close search">
+                  <button onClick={closeSearch} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:scale-95" aria-label="Close search">
                     <ChevronLeft size={21} />
                   </button>
                   <div className="relative min-w-0 flex-1">
-                    <Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/36" />
+                    <Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/35" />
                     <input
                       autoFocus
                       type="text"
@@ -1363,10 +1367,10 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search animated titles"
-                      className="h-11 w-full rounded-full border border-white/[0.09] bg-white/[0.055] pl-10 pr-10 text-[15px] font-normal text-white outline-none placeholder:text-white/30 focus:border-[#f5c453]/48 focus:bg-white/[0.075]"
+                      className="h-11 w-full rounded-full border border-white/[0.09] bg-white/[0.055] pl-10 pr-10 text-[15px] font-normal text-white outline-none placeholder:text-white/30 focus:border-[#f5c453]/50 focus:bg-white/[0.075]"
                     />
                     {query && (
-                      <button onClick={() => setQuery('')} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center text-white/38 hover:text-white" aria-label="Clear search">
+                      <button onClick={() => setQuery('')} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center text-white/40 hover:text-white" aria-label="Clear search">
                         <X size={15} />
                       </button>
                     )}
@@ -1390,7 +1394,11 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
         )}
       </AnimatePresence>
 
-      <TodayTrailerModal trailer={selectedTodayTrailer} onClose={() => setSelectedTodayTrailer(null)} />
+      <TodayTrailerFeed
+        trailer={selectedTodayTrailer}
+        trailers={todayTrailers}
+        onClose={() => setSelectedTodayTrailer(null)}
+      />
 
       <AnimatePresence>
         {WATCH_DROP_ENABLED && watchDropOpen && (
@@ -1868,7 +1876,7 @@ function WatchDropPanel({
                 <button
                   onClick={() => void handleGo()}
                   disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/28 active:text-white/60 disabled:opacity-40"
+                  className="flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/30 active:text-white/60 disabled:opacity-40"
                 >
                   <RefreshCw size={12} />
                   Try Again
@@ -1952,7 +1960,7 @@ function EpisodeResultCard({ show, episode }: { show: Show; episode: EpisodeOpti
           {episode.name}
         </p>
         {episode.overview && (
-          <p className="mt-2 text-[14px] font-medium leading-[1.6] text-white/52">
+          <p className="mt-2 text-[14px] font-medium leading-[1.6] text-white/50">
             {episode.overview}
           </p>
         )}
@@ -2062,15 +2070,15 @@ function DiscoverResultCard({
           />
         )}
         {/* Gradient layers — bottom, left-side, top fade */}
-        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#060509] via-[#060509]/72 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/72 via-black/20 to-black/8" />
+        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#060509] via-[#060509]/70 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/20 to-black/8" />
         <div className="absolute inset-0 bg-gradient-to-b from-black/8 via-black/18 to-[#060509]" />
 
         {/* Back button */}
         <header className="relative z-10 flex items-center px-4 pt-4">
           <button
             onClick={onBack}
-            className="grid h-11 w-11 place-items-center rounded-full bg-black/34 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95"
+            className="grid h-11 w-11 place-items-center rounded-full bg-black/35 backdrop-blur-xl ring-1 ring-white/[0.08] active:scale-95"
           >
             <ChevronLeft size={21} />
           </button>
@@ -2088,7 +2096,7 @@ function DiscoverResultCard({
               {show.title}
             </h1>
           )}
-          <div className="mt-4 flex flex-wrap gap-x-3 text-[10px] font-black uppercase tracking-[0.2em] text-white/58">
+          <div className="mt-4 flex flex-wrap gap-x-3 text-[10px] font-black uppercase tracking-[0.2em] text-white/60">
             {meta.map((item) => <span key={item}>{item}</span>)}
           </div>
         </div>
@@ -2102,7 +2110,7 @@ function DiscoverResultCard({
           </p>
         )}
         {show.overview && (
-          <p className="text-[20px] font-semibold leading-[1.15] tracking-[-0.035em] text-white/84">
+          <p className="text-[20px] font-semibold leading-[1.15] tracking-[-0.035em] text-white/85">
             {show.overview}
           </p>
         )}
@@ -2134,7 +2142,7 @@ function DiscoverResultCard({
         <button
           onClick={onRetry}
           disabled={loading}
-          className="mt-4 flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/28 active:text-white/60 disabled:opacity-40"
+          className="mt-4 flex w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/30 active:text-white/60 disabled:opacity-40"
         >
           <RefreshCw size={12} />
           Try Again
@@ -2145,25 +2153,105 @@ function DiscoverResultCard({
 }
 
 
+function PortalHeroDeck({
+  shows,
+  recommendations,
+  trailers,
+  ownedIds,
+  watchlistIds,
+  onOpenShow,
+  onPlayTrailer,
+}: {
+  shows: LootShow[]
+  recommendations: Map<number, RecommendationContext>
+  trailers: AnimationTrailerFeature[]
+  ownedIds: Set<number>
+  watchlistIds: Set<number>
+  onOpenShow: (show: Show, context?: RecommendationContext) => void
+  onPlayTrailer: (trailer: AnimationTrailerFeature) => void
+}) {
+  const [activeIndex, setActiveIndex] = useState(0)
+  const railRef = useRef<HTMLDivElement | null>(null)
+
+  const updateActiveSlide = () => {
+    const rail = railRef.current
+    if (!rail) return
+    const slides = Array.from(rail.children) as HTMLElement[]
+    const next = slides.reduce((nearest, slide, index) => (
+      Math.abs(slide.offsetLeft - rail.scrollLeft) < Math.abs(slides[nearest].offsetLeft - rail.scrollLeft) ? index : nearest
+    ), 0)
+    setActiveIndex((current) => current === next ? current : next)
+  }
+
+  const showSlide = (index: number) => {
+    const rail = railRef.current
+    const slide = rail?.children[index] as HTMLElement | undefined
+    if (!rail || !slide) return
+    rail.scrollTo({ left: slide.offsetLeft - rail.offsetLeft, behavior: 'smooth' })
+    setActiveIndex(index)
+  }
+
+  return (
+    <section className="mb-8">
+      <div ref={railRef} onScroll={updateActiveSlide} className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 no-scrollbar">
+        {shows.map((show, index) => {
+          const recommendationContext = recommendations.get(show.id)
+          return (
+            <div key={`${show.mediaType}:${show.id}`} className="w-[calc(100vw-1.5rem)] max-w-[424px] shrink-0 snap-center" aria-label={`Featured title ${index + 1} of ${shows.length}`}>
+              <PortalHero
+                show={show}
+                recommendationContext={recommendationContext}
+                trailer={trailers.find((feature) => feature.show.id === show.id && feature.show.mediaType === show.mediaType)}
+                isOwned={ownedIds.has(show.id)}
+                isWatchlisted={watchlistIds.has(show.id)}
+                onOpenShow={onOpenShow}
+                onPlayTrailer={onPlayTrailer}
+              />
+            </div>
+          )
+        })}
+      </div>
+      {shows.length > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-1.5" aria-label={`Feature ${activeIndex + 1} of ${shows.length}`}>
+          {shows.map((show, index) => (
+            <button key={show.id} onClick={() => showSlide(index)} className="grid h-6 w-6 place-items-center" aria-label={`Show featured title ${index + 1}`} aria-current={activeIndex === index ? 'true' : undefined}>
+              <span className={cn(
+                'rounded-full transition-all',
+                activeIndex === index
+                  ? 'h-1.5 w-6 bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.18)]'
+                  : 'h-1.5 w-1.5 bg-white/30',
+              )} />
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function PortalHero({
   show,
-  reason,
   recommendationContext,
+  trailer,
   isOwned,
   isWatchlisted,
   onOpenShow,
+  onPlayTrailer,
 }: {
   show: LootShow
-  reason: string
-  recommendationContext: RecommendationContext
+  recommendationContext?: RecommendationContext
+  trailer?: AnimationTrailerFeature
   isOwned: boolean
   isWatchlisted: boolean
   onOpenShow: (show: Show, context?: RecommendationContext) => void
+  onPlayTrailer: (trailer: AnimationTrailerFeature) => void
 }) {
   const [shine, setShine] = useState(false)
   const [art, setArt] = useState<LandscapeArt | null>(() => landscapeArtCache.get(`${show.mediaType}:${show.id}`) ?? null)
-  const [portalAccent, setPortalAccent] = useState('#f5c453')
-  const [extraMeta, setExtraMeta] = useState<string[]>([])
+  const [portalAccent, setPortalAccent] = useState('#727985')
+  const [runtimeMeta, setRuntimeMeta] = useState<string | null>(null)
+  const [providerMeta, setProviderMeta] = useState<{ name: string; logoPath: string | null } | null>(null)
+  const imdbRating = useImdbRating(show.id)
   const heroRef = useRef<HTMLElement | null>(null)
   const reducedMotion = useReducedMotion()
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] })
@@ -2210,8 +2298,9 @@ function PortalHero({
         : detail?.number_of_seasons
           ? `${detail.number_of_seasons} season${detail.number_of_seasons === 1 ? '' : 's'}${detail.number_of_episodes ? ` · ${detail.number_of_episodes} eps` : ''}`
           : null
-      const provider = [...(providers?.flatrate ?? []), ...(providers?.free ?? []), ...(providers?.ads ?? [])][0]?.provider_name
-      setExtraMeta([runtime, provider ? `On ${provider}` : null].filter((item): item is string => Boolean(item)))
+      const provider = [...(providers?.flatrate ?? []), ...(providers?.free ?? []), ...(providers?.ads ?? [])][0]
+      setRuntimeMeta(runtime)
+      setProviderMeta(provider ? { name: provider.provider_name, logoPath: provider.logo_path } : null)
     })
     return () => { cancelled = true }
   }, [bg, show.id, show.mediaType])
@@ -2242,8 +2331,8 @@ function PortalHero({
       viewport={{ once: true, amount: 0.18 }}
       transition={{ duration: 0.52, ease: [0.22, 1, 0.36, 1] }}
       onClick={() => onOpenShow(lootToShow(show), recommendationContext)}
-      className="relative mx-3 mb-8 h-[430px] overflow-hidden rounded-[34px] bg-black shadow-[0_26px_80px_rgba(0,0,0,0.72)] loot-vignette"
-      style={{ boxShadow: `0 26px 80px rgba(0,0,0,0.72), 0 0 42px ${portalAccent}30` }}
+      className="relative h-[430px] w-full overflow-hidden rounded-[34px] bg-black shadow-[0_26px_80px_rgba(0,0,0,0.72)] loot-vignette"
+      style={{ boxShadow: `0 26px 80px rgba(0,0,0,0.72), 0 0 54px ${portalAccent}24` }}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
@@ -2251,55 +2340,79 @@ function PortalHero({
       }}
     >
       {bg && <motion.img src={bg} alt="" className="absolute -inset-y-12 left-0 h-[calc(100%+6rem)] w-full object-cover opacity-80" style={{ y: reducedMotion ? 0 : backdropY }} />}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/18 to-black/92" />
-      <div className="absolute inset-0 bg-gradient-to-r from-black/78 via-black/22 to-transparent" />
-      <motion.div
+      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/18 to-black/90" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/20 to-transparent" />
+      <div
         className="absolute -left-16 top-20 h-56 w-56 rounded-full blur-3xl"
         style={{ background: `${portalAccent}36` }}
-        animate={reducedMotion ? undefined : { scale: [1, 1.12, 1], opacity: [0.65, 0.92, 0.65] }}
-        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
       />
       <AnimatePresence>{shine && <ShineOverlay key="hero-shine" />}</AnimatePresence>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 p-6 pr-32">
-        <p className="mb-4 inline-flex max-w-[278px] items-center rounded-full bg-black/42 px-3 py-2 text-[9px] font-black uppercase tracking-[0.15em] text-white/76 ring-1 ring-white/[0.1] backdrop-blur-xl">
-          {reason}
-        </p>
-        {art?.logoPath ? (
-          <img
-            src={imgUrl(art.logoPath, 'w500')}
-            alt={show.title}
-            className="mb-5 max-h-[92px] max-w-[78%] object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]"
-          />
-        ) : (
-          <h2 className="mb-5 max-w-[80%] text-5xl font-black leading-[0.84] tracking-[-0.12em] text-balance drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]">
-            {show.title}
-          </h2>
-        )}
-        {copy && (
-          <p className="max-w-[275px] text-[16px] font-semibold leading-[1.12] text-white/82 text-balance">
-            {copy}
-          </p>
-        )}
-        <div className="mt-4 flex max-w-[300px] flex-wrap items-center gap-x-2.5 gap-y-2 text-[9px] font-black uppercase tracking-[0.13em] text-white/70">
-          <ImdbBadge showId={show.id} compact />
-          {show.year !== '—' && <span>{show.year}</span>}
-          {(getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)) && (
-            <span>{getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)}</span>
-          )}
-          {extraMeta.map((item) => <span key={item}>{item}</span>)}
-        </div>
-      </div>
+      {trailer && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation()
+            onPlayTrailer(trailer)
+          }}
+          className="absolute left-4 top-4 z-20 flex h-10 items-center gap-2 rounded-full bg-white px-3.5 text-[12px] font-semibold text-black shadow-xl active:scale-95"
+          aria-label={`Play trailer for ${show.title}`}
+        >
+          <Play size={14} fill="currentColor" /> Trailer
+        </button>
+      )}
 
-      <div className="absolute bottom-6 right-5 z-20">
+      <div className="absolute right-3 top-3 z-30">
         <FeedSaveActions
           isSeen={isOwned}
           isWatchlisted={isWatchlisted}
           onSeen={handleAdd}
           onWatchlist={handleWatchlist}
           onSuccess={handleSaveSuccess}
-          size="lg"
+          size="sm"
         />
+      </div>
+
+      <div className="absolute inset-x-0 bottom-0 z-10 p-6">
+        {art?.logoPath ? (
+          <img
+            src={imgUrl(art.logoPath, 'w500')}
+            alt={show.title}
+            className="mb-4 max-h-[100px] max-w-[82%] object-contain object-left drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]"
+          />
+        ) : (
+          <h2 className="mb-4 max-w-[88%] text-5xl font-black leading-[0.84] tracking-[-0.12em] text-balance drop-shadow-[0_10px_24px_rgba(0,0,0,0.9)]">
+            {show.title}
+          </h2>
+        )}
+        {copy && (
+          <p className="max-w-[320px] text-[18px] font-medium leading-[1.25] text-white/85 text-balance">
+            {copy}
+          </p>
+        )}
+        <div className="mt-5 flex items-end justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5 text-[13px] font-semibold text-white/75">
+              {imdbRating ? (
+                <ImdbBadge showId={show.id} compact />
+              ) : show.rating > 0 ? (
+                <span className="inline-flex h-6 items-center overflow-hidden rounded-[8px] bg-black/70 text-[10px] font-bold text-white ring-1 ring-white/10">
+                  <span className="grid h-full place-items-center bg-[#0d253f] px-1.5 text-[#90cea1]">TMDB</span>
+                  <span className="px-1.5 tabular-nums">{show.rating.toFixed(1)}</span>
+                </span>
+              ) : null}
+              {show.year !== '—' && <span>{show.year}</span>}
+              {runtimeMeta && <span>{runtimeMeta}</span>}
+            </div>
+            {(getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)) && (
+              <p className="mt-2 text-[12px] font-medium text-white/50">{getVibeTitle(show.vibeIds[0]) ?? getSecondaryAnimationGenre(show.rawGenres)}</p>
+            )}
+          </div>
+          {providerMeta?.logoPath && (
+            <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-black/55 shadow-[0_8px_20px_rgba(0,0,0,0.36)] ring-1 ring-white/[0.14]" title={`Streaming on ${providerMeta.name}`} aria-label={`Streaming on ${providerMeta.name}`}>
+              <img src={imgUrl(providerMeta.logoPath, 'w185')} alt="" className="h-full w-full object-cover" />
+            </span>
+          )}
+        </div>
       </div>
     </motion.section>
   )
@@ -2320,7 +2433,7 @@ function TodayPicks({
   return (
     <section className="mb-11">
       <div className="mb-3 flex items-center justify-between px-4">
-        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">In focus</h3>
+        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/90">In focus</h3>
       </div>
       <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 px-4 pb-3">
         {shows.slice(0, 3).map((show) => (
@@ -2378,17 +2491,17 @@ function CategoryGrid({
 
   return (
     <div className="px-4 pb-8" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <div className="sticky top-0 z-20 -mx-4 mb-4 bg-[#08070a]/72 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl">
+      <div className="sticky top-0 z-20 -mx-4 mb-4 bg-[#08070a]/70 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl">
         <div className="flex h-12 items-center gap-3 rounded-full bg-white/[0.065] px-2.5 shadow-[0_14px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.09]">
           <button
             onClick={onBack}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/28 text-white/80 active:scale-95"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/30 text-white/80 active:scale-95"
             aria-label="Back to Discover"
           >
             <ChevronLeft size={18} />
           </button>
           <h2 className="min-w-0 flex-1 truncate text-[17px] font-bold tracking-[-0.025em] text-white">{title}</h2>
-          <span className="shrink-0 rounded-full bg-black/28 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/48">
+          <span className="shrink-0 rounded-full bg-black/30 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/50">
             {loading && items.length === 0 ? '…' : items.length}
           </span>
         </div>
@@ -2447,10 +2560,10 @@ function SearchResults({
   if (!query.trim()) {
     return (
       <div className="flex flex-col items-center justify-center px-4 py-24 text-center">
-        <span className="grid h-14 w-14 place-items-center rounded-full bg-white/[0.045] text-white/24 ring-1 ring-white/[0.06]">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-white/[0.045] text-white/25 ring-1 ring-white/[0.06]">
           <Search size={23} />
         </span>
-        <p className="mt-4 text-[15px] font-medium text-white/46">Find any animated title</p>
+        <p className="mt-4 text-[15px] font-medium text-white/45">Find any animated title</p>
       </div>
     )
   }
@@ -2538,7 +2651,7 @@ function FeedRows({
   todayPulse,
   todayPulseLoading,
   todayPulseError,
-  todayTrailer,
+  todayTrailers,
   onRetryToday,
   onPlayTodayTrailer,
   feed,
@@ -2562,7 +2675,7 @@ function FeedRows({
   todayPulse: AnimationTodayPulse | null
   todayPulseLoading: boolean
   todayPulseError: string | null
-  todayTrailer: AnimationTrailerFeature | null
+  todayTrailers: AnimationTrailerFeature[]
   onRetryToday: () => void
   onPlayTodayTrailer: (trailer: AnimationTrailerFeature) => void
   feed: DiscoverFeed
@@ -2601,7 +2714,7 @@ function FeedRows({
       : personalized
     leadingRecommendations.forEach((show) => used.add(show.id))
 
-    FEED_KEYS.forEach((key, index) => {
+    HOME_FEED_KEYS.forEach((key, index) => {
       const preserveOrder = key === 'freshStudios' || key === 'newAnime' || key === 'newWestern'
       const fresh = personalizeShows(feed[key], tasteWeights, profileOwnedSet, {
         featuredId,
@@ -2630,7 +2743,7 @@ function FeedRows({
     const visibleRecommendations = packets.length
       ? packets.flatMap((packet) => packet.shows.slice(0, 4))
       : personalized.slice(0, 4)
-    const visibleSourceShows = FEED_KEYS.flatMap((key) => sourceRows[key].slice(0, 4))
+    const visibleSourceShows = HOME_FEED_KEYS.flatMap((key) => sourceRows[key].slice(0, 4))
     onImpressions([
       ...leadingIds,
       ...visibleRecommendations.map((show) => show.id),
@@ -2641,12 +2754,14 @@ function FeedRows({
   return (
     <>
       <section id="discover-today" className="scroll-mt-28">
-        <ChapterHeader title="Today in animation" />
+        {leadingContent}
         <TodayInAnimation
           pulse={todayPulse}
           loading={todayPulseLoading}
           error={todayPulseError}
-          trailer={todayTrailer}
+          trailers={todayTrailers}
+          ownedIds={ownedIds}
+          watchlistIds={watchlistIds}
           onRetry={onRetryToday}
           onOpenShow={onOpenShow}
           onPlayTrailer={onPlayTodayTrailer}
@@ -2655,9 +2770,8 @@ function FeedRows({
 
       <section id="discover-for-you" className="scroll-mt-28">
         <ChapterHeader title="For you" />
-        {leadingContent}
         {packets.length
-          ? packets.map((packet) => (
+          ? packets.slice(0, 2).map((packet) => (
               <TastePacketRow key={packet.anchor.id} packet={packet} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenShow={onOpenShow} />
             ))
           : <CarouselRow title="Picked for your taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
@@ -2666,11 +2780,8 @@ function FeedRows({
       <section id="discover-explore" className="scroll-mt-28">
         <ChapterHeader title="Explore animation" />
         <CarouselRow title="Recently released" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="New in Western animation" categoryKey="newWestern" shows={sourceRows.newWestern} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="Grown-up animation" categoryKey="adultAnimation" shows={sourceRows.adultAnimation} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="All ages & family" categoryKey="allAges" shows={sourceRows.allAges} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="Vibe crate" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title="Vibe crate" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="Animated films" categoryKey="animatedFilms" shows={sourceRows.animatedFilms} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <RankedList title="Top rated, all time" shows={sourceRows.topRated} onOpenCategory={() => onOpenCategory('topRated', 'Top rated, all time')} onOpenShow={onOpenShow} />
       </section>
@@ -2687,6 +2798,12 @@ function episodeCode(episode: AnimationScheduleDay['entries'][number]['episode']
   return `S${episode.season_number} E${episode.episode_number}`
 }
 
+function episodeName(episode: AnimationScheduleDay['entries'][number]['episode']) {
+  if (!episode?.name) return null
+  const generic = new RegExp(`^episode\\s*${episode.episode_number}$`, 'i')
+  return generic.test(episode.name.trim()) ? null : episode.name.trim()
+}
+
 function mergeScheduleDay(base: AnimationScheduleDay, enriched: AnimationScheduleDay) {
   const episodes = new Map(enriched.entries.map((entry) => [entry.show.id, entry.episode]))
   return {
@@ -2701,7 +2818,9 @@ function TodayInAnimation({
   pulse,
   loading,
   error,
-  trailer,
+  trailers,
+  ownedIds,
+  watchlistIds,
   onRetry,
   onOpenShow,
   onPlayTrailer,
@@ -2709,7 +2828,9 @@ function TodayInAnimation({
   pulse: AnimationTodayPulse | null
   loading: boolean
   error: string | null
-  trailer: AnimationTrailerFeature | null
+  trailers: AnimationTrailerFeature[]
+  ownedIds: number[]
+  watchlistIds: Set<number>
   onRetry: () => void
   onOpenShow: (show: Show) => void
   onPlayTrailer: (trailer: AnimationTrailerFeature) => void
@@ -2738,138 +2859,103 @@ function TodayInAnimation({
   if (loading && !pulse) return <TodayPulseSkeleton />
   if (!pulse) {
     return (
-      <div className="mx-4 mb-10 rounded-[20px] border border-white/[0.07] bg-white/[0.025] px-4 py-5 text-[14px] text-white/46">
+      <div className="mx-4 mb-10 rounded-[20px] border border-white/[0.07] bg-white/[0.025] px-4 py-5 text-[14px] text-white/45">
         <p>{error || 'Today’s animation schedule is temporarily unavailable.'}</p>
-        <button onClick={onRetry} className="mt-3 rounded-full bg-white/[0.08] px-4 py-2 text-[12px] font-semibold text-white/76 active:scale-95">Try again</button>
+        <button onClick={onRetry} className="mt-3 rounded-full bg-white/[0.08] px-4 py-2 text-[12px] font-semibold text-white/75 active:scale-95">Try again</button>
       </div>
     )
   }
 
   const today = episodeDays[pulse.days[0].date] ?? pulse.days[0]
   const weekAhead = pulse.days.slice(1).filter((day) => day.entries.length).map((day) => episodeDays[day.date] ?? day)
-  const trendingShows = pulse.trending.slice(0, 4)
+  const trendingShows = pulse.trending.slice(0, 10)
+  const relevantShowIds = new Set([...ownedIds, ...watchlistIds])
+  const relevantSchedule = [today, ...weekAhead]
+    .flatMap((day) => day.entries.map((entry) => ({ day, entry })))
+    .filter(({ entry }) => relevantShowIds.has(entry.show.id) && Boolean(entry.episode))
+    .slice(0, 2)
+  const featuredTrailer = trailers[0]
+  const featuredTrailerArt = featuredTrailer?.show.backdropPath
+    ? imgUrl(featuredTrailer.show.backdropPath, 'original')
+    : featuredTrailer
+      ? `https://i.ytimg.com/vi/${featuredTrailer.video.key}/maxresdefault.jpg`
+      : ''
 
   return (
     <div>
-      <section className="mb-9">
-        <div className="mb-3 flex items-end justify-between px-4">
-          <div>
-            <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-[#f5c453]/78">
-              <CalendarDays size={13} /> {scheduleDate(today.date, { weekday: 'long', month: 'short', day: 'numeric' })}
-            </p>
-            <h3 className="text-[20px] font-bold tracking-[-0.03em] text-white/94">Airing today</h3>
+      {trendingShows.length > 0 && (
+        <section className="mb-11">
+          <div className="mb-4 px-4">
+            <h3 className="text-[24px] font-semibold tracking-[-0.04em] text-white/95">Trending now</h3>
           </div>
-          <span className="text-[12px] font-medium tabular-nums text-white/34">{today.entries.length}</span>
-        </div>
-        {today.entries.length ? (
-          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 no-scrollbar">
-            {today.entries.map((entry) => (
-              <button
-                key={entry.show.id}
-                onClick={() => onOpenShow(lootToShow(entry.show))}
-                className="flex h-[122px] w-[82vw] max-w-[344px] shrink-0 snap-start overflow-hidden rounded-[18px] border border-white/[0.08] bg-white/[0.035] text-left active:scale-[0.985]"
-              >
-                <span className="h-full w-[118px] shrink-0 bg-white/[0.04]">
-                  {(entry.show.backdropPath || entry.show.posterPath) && (
-                    <img src={imgUrl(entry.show.backdropPath || entry.show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />
-                  )}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col justify-center px-3.5 py-3">
-                  <span className="line-clamp-2 text-[16px] font-bold leading-[1.15] tracking-[-0.02em] text-white/92">{entry.show.title}</span>
-                  {entry.episode ? (
-                    <>
-                      <span className="mt-2 block text-[11px] font-semibold text-[#f5c453]/80">{episodeCode(entry.episode)}</span>
-                      <span className="mt-0.5 line-clamp-1 text-[12px] font-medium text-white/54">{entry.episode.name || 'Untitled episode'}</span>
-                    </>
-                  ) : <span className="mt-2 text-[11px] font-medium text-white/34">Episode details pending</span>}
-                </span>
-              </button>
+          <div className="flex gap-3 overflow-x-auto px-4 pb-3 no-scrollbar snap-x snap-mandatory">
+            {trendingShows.map((show, index) => (
+              <LandscapeCard key={`${show.mediaType}:${show.id}`} show={show} rank={index + 1} isOwned={ownedIds.includes(show.id)} isWatchlisted={watchlistIds.has(show.id)} onOpenShow={onOpenShow} />
             ))}
           </div>
-        ) : (
-          <p className="mx-4 rounded-[18px] bg-white/[0.025] px-4 py-4 text-[14px] text-white/42 ring-1 ring-white/[0.055]">No animated episodes are currently listed for today.</p>
-        )}
-      </section>
-
-      {weekAhead.length > 0 && (
-        <section className="mb-9">
-          <div className="mb-3 px-4">
-            <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">Week ahead</h3>
-            <p className="mt-0.5 text-[12px] font-medium text-white/40">New episodes over the next seven days</p>
-          </div>
-          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 no-scrollbar">
-            {weekAhead.map((day) => {
-              const first = day.entries[0]
-              return (
-                <button
-                  key={day.date}
-                  onClick={() => setSelectedDay(day)}
-                  className="w-[172px] shrink-0 snap-start overflow-hidden rounded-[18px] border border-white/[0.075] bg-white/[0.03] text-left active:scale-[0.98]"
-                  aria-label={`Open schedule for ${scheduleDate(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}`}
-                >
-                  <span className="relative block aspect-[16/10] bg-white/[0.04]">
-                    {(first.show.backdropPath || first.show.posterPath) && <img src={imgUrl(first.show.backdropPath || first.show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />}
-                  </span>
-                  <span className="block px-3 py-2.5">
-                    <span className="block text-[11px] font-medium text-[#f5c453]/76">{scheduleDate(day.date, { weekday: 'short', day: 'numeric' })}</span>
-                    <span className="mt-1 line-clamp-2 block text-[14px] font-bold leading-[1.2] text-white/86">{first.show.title}</span>
-                    {first.episode ? (
-                      <>
-                        <span className="mt-2 block text-[11px] font-semibold text-white/52">{episodeCode(first.episode)}</span>
-                        <span className="mt-0.5 line-clamp-1 block text-[11px] text-white/38">{first.episode.name || 'Untitled episode'}</span>
-                      </>
-                    ) : <span className="mt-2 block text-[11px] text-white/28">Episode details pending</span>}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
         </section>
       )}
 
-      {trendingShows.length > 0 && (
-        <section className="mb-9 px-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Flame size={17} className="text-[#ff766d]" />
-            <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">Trending now</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {trendingShows.map((show, index) => {
-              const featured = trendingShows.length % 2 === 1 && index === 0
-              return (
-              <button key={`${show.mediaType}:${show.id}`} onClick={() => onOpenShow(lootToShow(show))} className={cn('group text-left active:scale-[0.98]', featured && 'col-span-2')}>
-                <span className={cn('relative block overflow-hidden rounded-[16px] bg-white/[0.04] ring-1 ring-white/[0.075]', featured ? 'aspect-[16/7]' : 'aspect-[4/3]')}>
-                  {(show.backdropPath || show.posterPath) && <img src={imgUrl(show.backdropPath || show.posterPath, 'w342')} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" loading="lazy" />}
-                  <span className="absolute left-2 top-2 grid h-7 min-w-7 place-items-center rounded-full bg-black/72 px-2 text-[12px] font-bold tabular-nums text-white">{index + 1}</span>
-                </span>
-                <span className="mt-2 line-clamp-2 block text-[14px] font-bold leading-[1.2] text-white/84">{show.title}</span>
-              </button>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {trailer && (
-        <section className="mb-11 px-4">
-          <div className="mb-3">
-            <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">Trailer spotlight</h3>
-            <p className="mt-0.5 text-[12px] font-medium text-white/40">Watch before you decide</p>
-          </div>
-          <button onClick={() => onPlayTrailer(trailer)} className="group relative aspect-video w-full overflow-hidden rounded-[22px] bg-black text-left ring-1 ring-white/[0.1] active:scale-[0.99]">
-            <img src={`https://i.ytimg.com/vi/${trailer.video.key}/hqdefault.jpg`} alt="" className="absolute inset-0 h-full w-full object-cover opacity-78 transition duration-500 group-hover:scale-[1.03] group-hover:opacity-90" loading="lazy" />
-            <span className="absolute inset-0 bg-gradient-to-t from-black via-black/8 to-black/12" />
-            <span className="absolute left-4 top-4 grid h-11 w-11 place-items-center rounded-full bg-white text-black shadow-xl"><Play size={16} fill="currentColor" /></span>
-            <span className="absolute inset-x-0 bottom-0 p-4">
-              <span className="block text-[17px] font-bold tracking-[-0.025em] text-white">{trailer.show.title}</span>
-              <span className="mt-1 line-clamp-1 block text-[12px] font-medium text-white/58">{trailer.video.name}</span>
+      {featuredTrailer && (
+        <section className="relative mb-11 overflow-hidden bg-black">
+          <button
+            onClick={() => onPlayTrailer(featuredTrailer)}
+            className="group relative block h-[590px] w-full overflow-hidden bg-black text-left active:opacity-90"
+            aria-label={`Open trailer feed, starting with ${featuredTrailer.show.title}`}
+          >
+            <img
+              src={featuredTrailerArt}
+              alt=""
+              className="absolute inset-0 h-full w-full scale-[1.04] object-cover opacity-82 transition ease-out group-hover:scale-[1.09]"
+              style={{ transitionDuration: '7000ms' }}
+              loading="lazy"
+            />
+            <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(0,0,0,0.08)_36%,rgba(0,0,0,0.32)_72%)]" />
+            <span className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/95" />
+            <span className="absolute inset-x-5 top-5 z-10 flex items-baseline justify-between gap-4">
+              <strong className="text-[22px] font-semibold tracking-[-0.035em] text-white">Trailers &amp; clips</strong>
+              <span className="text-[12px] font-medium tabular-nums text-white/70">{trailers.length} videos</span>
+            </span>
+            <span className="absolute left-1/2 top-[49%] z-10 grid h-[92px] w-[92px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/80 bg-black/40 text-white shadow-[0_0_0_10px_rgba(255,255,255,0.08),0_14px_44px_rgba(0,0,0,0.5),0_0_36px_rgba(78,234,255,0.2)] backdrop-blur-md transition-transform group-active:scale-90">
+              <Play size={30} fill="currentColor" className="translate-x-0.5" />
+            </span>
+            <span className="absolute inset-x-5 bottom-7 z-10">
+              <span className="line-clamp-2 block text-[32px] font-bold leading-none tracking-[-0.05em] text-white">{featuredTrailer.show.title}</span>
             </span>
           </button>
         </section>
       )}
 
+      {relevantSchedule.length > 0 ? (
+        <section className="mb-11">
+          <div className="mb-3 px-4">
+            <h3 className="text-[21px] font-semibold tracking-[-0.025em] text-white/90">Episodes from your shows</h3>
+          </div>
+          <div className="border-y border-white/[0.07] px-4">
+            {relevantSchedule.map(({ day, entry }) => (
+              <EpisodeAgendaRow key={`${day.date}:${entry.show.id}`} entry={entry} date={day.date} onClick={() => setSelectedDay(day)} />
+            ))}
+            <button onClick={() => setSelectedDay(today)} className="flex min-h-12 w-full items-center justify-between py-3 text-left text-[14px] font-medium text-white/60 active:opacity-60">
+              <span>Today’s full schedule</span>
+              <ChevronRight size={17} />
+            </button>
+          </div>
+        </section>
+      ) : (
+        <section className="mb-11 border-y border-white/[0.07] px-4">
+          <button onClick={() => setSelectedDay(today)} className="flex min-h-[76px] w-full items-center gap-3 py-3.5 text-left active:opacity-60">
+            <CalendarDays size={20} className="shrink-0 text-white/55" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[17px] font-semibold tracking-[-0.02em] text-white/90">Animation calendar</span>
+              <span className="mt-1 block text-[14px] text-white/40">{today.entries.length} episode{today.entries.length === 1 ? '' : 's'} airing today</span>
+            </span>
+            <ChevronRight size={17} className="shrink-0 text-white/25" />
+          </button>
+        </section>
+      )}
+
       {pulse.partial && (
-        <button onClick={onRetry} className="mx-4 mb-10 text-left text-[12px] font-medium text-white/34 underline decoration-white/15 underline-offset-4">
+        <button onClick={onRetry} className="mx-4 mb-10 text-left text-[12px] font-medium text-white/35 underline decoration-white/15 underline-offset-4">
           Some listings may be missing. Refresh
         </button>
       )}
@@ -2883,6 +2969,38 @@ function TodayInAnimation({
         }}
       />
     </div>
+  )
+}
+
+function EpisodeAgendaRow({
+  entry,
+  date,
+  onClick,
+}: {
+  entry: AnimationScheduleDay['entries'][number]
+  date?: string
+  onClick: () => void
+}) {
+  const name = episodeName(entry.episode)
+  return (
+    <button onClick={onClick} className="flex min-h-[76px] w-full items-center gap-3 border-b border-white/[0.06] py-3.5 text-left active:opacity-60">
+      {date && (
+        <span className="w-12 shrink-0 text-center">
+          <span className="block text-[12px] font-semibold uppercase tracking-[0.08em] text-white/50">{scheduleDate(date, { weekday: 'short' })}</span>
+          <span className="mt-0.5 block text-[17px] font-semibold tabular-nums text-white/75">{scheduleDate(date, { day: 'numeric' })}</span>
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-1 block text-[17px] font-semibold tracking-[-0.02em] text-white/90">{entry.show.title}</span>
+        {entry.episode ? (
+          <span className="mt-1 line-clamp-1 block text-[15px] leading-snug text-white/55">
+            <span className="font-medium text-white/70">{episodeCode(entry.episode)}</span>
+            {name && <span> · {name}</span>}
+          </span>
+        ) : <span className="mt-1 block text-[14px] text-white/35">Episode details pending</span>}
+      </span>
+      <ChevronRight size={17} className="shrink-0 text-white/25" />
+    </button>
   )
 }
 
@@ -2940,29 +3058,25 @@ function ScheduleDaySheet({
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 360, damping: 34 }} className="max-h-[78svh] w-full max-w-md overflow-hidden rounded-t-[28px] border-t border-white/[0.1] bg-[#0b0c0e] shadow-[0_-24px_80px_rgba(0,0,0,.55)]">
             <div className="flex items-center justify-between border-b border-white/[0.07] px-5 pb-4 pt-5">
               <div>
-                <p className="text-[11px] font-medium text-[#f5c453]/72">Week ahead</p>
-                <h3 className="mt-1 text-[21px] font-bold tracking-[-0.035em] text-white/92">{scheduleDate(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+                <p className="text-[13px] font-medium text-white/45">Episode schedule</p>
+                <h3 className="mt-1 text-[21px] font-bold tracking-[-0.035em] text-white/90">{scheduleDate(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
               </div>
-              <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.06] text-white/56" aria-label="Close schedule"><X size={17} /></button>
+              <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-white/[0.06] text-white/55" aria-label="Close schedule"><X size={17} /></button>
             </div>
-            <div className="max-h-[calc(78svh-88px)] overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 no-scrollbar">
-              {loading && <p className="px-1 py-3 text-[12px] font-medium text-white/36">Loading episode details…</p>}
+            <div className="max-h-[calc(78svh-88px)] overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 no-scrollbar">
+              {loading && <p className="py-3 text-[13px] font-medium text-white/35">Loading episode details…</p>}
               {(enrichedDay ?? day).entries.map((entry) => (
-                <button key={entry.show.id} onClick={() => onOpenShow(lootToShow(entry.show))} className="flex min-h-[116px] w-full items-start gap-3 border-b border-white/[0.055] py-4 text-left active:bg-white/[0.035]">
-                  <span className="mt-0.5 h-[72px] w-[108px] shrink-0 overflow-hidden rounded-[11px] bg-white/[0.04]">
-                    {(entry.episode?.still_path || entry.show.backdropPath || entry.show.posterPath) && <img src={imgUrl(entry.episode?.still_path || entry.show.backdropPath || entry.show.posterPath, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />}
-                  </span>
+                <button key={entry.show.id} onClick={() => onOpenShow(lootToShow(entry.show))} className="flex min-h-[108px] w-full items-start gap-3 border-b border-white/[0.06] py-4 text-left active:opacity-60">
                   <span className="min-w-0 flex-1">
-                    <span className="line-clamp-1 block text-[11px] font-medium text-white/38">{entry.show.title}</span>
+                    <span className="line-clamp-1 block text-[17px] font-semibold tracking-[-0.02em] text-white/90">{entry.show.title}</span>
                     {entry.episode ? (
                       <>
-                        <span className="mt-1 block text-[11px] font-semibold text-[#f5c453]/74">{episodeCode(entry.episode)}</span>
-                        <span className="mt-0.5 line-clamp-2 block text-[15px] font-bold leading-[1.2] text-white/88">{entry.episode.name || 'Untitled episode'}</span>
-                        {entry.episode.overview && <span className="mt-1.5 line-clamp-2 block text-[12px] leading-[1.35] text-white/42">{entry.episode.overview}</span>}
+                        <span className="mt-1 block text-[14px] font-medium text-white/70">{episodeCode(entry.episode)}{episodeName(entry.episode) ? ` · ${episodeName(entry.episode)}` : ''}</span>
+                        {entry.episode.overview && <span className="mt-2 line-clamp-3 block text-[14px] leading-[1.45] text-white/50">{entry.episode.overview}</span>}
                       </>
-                    ) : <span className="mt-2 block text-[13px] font-medium text-white/38">Episode details have not been published yet.</span>}
+                    ) : <span className="mt-2 block text-[14px] text-white/40">Episode details have not been published yet.</span>}
                   </span>
-                  <ChevronRight size={17} className="mt-7 shrink-0 text-white/24" />
+                  <ChevronRight size={17} className="mt-1 shrink-0 text-white/25" />
                 </button>
               ))}
             </div>
@@ -2977,23 +3091,59 @@ function ScheduleDaySheet({
 function TodayPulseSkeleton() {
   return (
     <div className="mb-10 animate-pulse px-4">
-      <div className="h-4 w-28 rounded bg-white/[0.06]" />
-      <div className="mt-2 h-6 w-40 rounded bg-white/[0.07]" />
-      <div className="mt-4 flex gap-3 overflow-hidden">
-        <div className="h-[104px] w-[78vw] max-w-[326px] shrink-0 rounded-[18px] bg-white/[0.055]" />
-        <div className="h-[104px] w-[78vw] max-w-[326px] shrink-0 rounded-[18px] bg-white/[0.04]" />
-      </div>
+      <div className="h-6 w-32 rounded bg-white/[0.07]" />
+      <div className="mt-4 aspect-[16/11] w-[88vw] max-w-[380px] rounded-[28px] bg-white/[0.055]" />
     </div>
   )
 }
 
-function TodayTrailerModal({ trailer, onClose }: { trailer: AnimationTrailerFeature | null; onClose: () => void }) {
+function TodayTrailerFeed({
+  trailer,
+  trailers,
+  onClose,
+}: {
+  trailer: AnimationTrailerFeature | null
+  trailers: AnimationTrailerFeature[]
+  onClose: () => void
+}) {
+  const feedRef = useRef<HTMLDivElement | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const orderedTrailers = useMemo(() => {
+    if (!trailer) return []
+    return [trailer, ...trailers.filter((candidate) => candidate.video.key !== trailer.video.key)]
+  }, [trailer, trailers])
+
   useEffect(() => {
     if (!trailer) return
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     document.addEventListener('keydown', closeOnEscape)
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose, trailer])
+
+  useEffect(() => {
+    if (!trailer) return
+    setActiveIndex(0)
+    window.requestAnimationFrame(() => feedRef.current?.scrollTo({ top: 0 }))
+  }, [trailer])
+
+  useEffect(() => {
+    if (!trailer || !feedRef.current) return
+    const root = feedRef.current
+    const slides = [...root.querySelectorAll<HTMLElement>('[data-trailer-slide]')]
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+        if (!visible) return
+        const index = Number((visible.target as HTMLElement).dataset.trailerSlide)
+        if (Number.isFinite(index)) setActiveIndex(index)
+      },
+      { root, threshold: [0.6, 0.82] },
+    )
+    slides.forEach((slide) => observer.observe(slide))
+    return () => observer.disconnect()
+  }, [orderedTrailers.length, trailer])
 
   return (
     <AnimatePresence>
@@ -3002,30 +3152,54 @@ function TodayTrailerModal({ trailer, onClose }: { trailer: AnimationTrailerFeat
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[90] grid place-items-center bg-black/88 p-4 backdrop-blur-xl"
+          className="fixed inset-0 z-[90] bg-black"
           role="dialog"
           aria-modal="true"
-          aria-label={trailer.video.name}
-          onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+          aria-label="Trailer feed"
         >
-          <motion.div initial={{ opacity: 0, scale: 0.96, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-3xl overflow-hidden rounded-[22px] bg-[#090b0d] shadow-[0_28px_100px_rgba(0,0,0,.72)] ring-1 ring-white/[0.12]">
-            <div className="aspect-video bg-black">
-              <iframe
-                src={`https://www.youtube.com/embed/${trailer.video.key}?autoplay=1&rel=0`}
-                title={trailer.video.name}
-                className="h-full w-full"
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
-            <div className="flex items-center justify-between gap-4 p-4">
-              <div className="min-w-0">
-                <p className="truncate text-[16px] font-bold text-white/92">{trailer.show.title}</p>
-                <p className="mt-1 line-clamp-1 text-[12px] text-white/46">{trailer.video.name}</p>
-              </div>
-              <button onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/70" aria-label="Close trailer"><X size={17} /></button>
-            </div>
-          </motion.div>
+          <button
+            onClick={onClose}
+            className="fixed left-4 top-[max(1rem,env(safe-area-inset-top))] z-[100] grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/45 text-white shadow-xl backdrop-blur-md active:scale-95"
+            aria-label="Close trailer feed"
+          >
+            <X size={19} />
+          </button>
+          <div ref={feedRef} className="h-[100svh] snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
+            {orderedTrailers.map((item, index) => (
+              <section
+                key={`${item.show.mediaType}:${item.show.id}:${item.video.key}`}
+                data-trailer-slide={index}
+                className="relative h-[100svh] snap-start snap-always overflow-hidden bg-black"
+              >
+                <img
+                  src={`https://i.ytimg.com/vi/${item.video.key}/maxresdefault.jpg`}
+                  alt=""
+                  className="absolute inset-0 h-full w-full scale-125 object-cover opacity-35 blur-2xl"
+                />
+                <span className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/18 to-black/90" />
+                <div className="absolute left-1/2 top-1/2 aspect-video w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-hidden bg-black shadow-[0_22px_90px_rgba(0,0,0,0.7)]">
+                  {activeIndex === index ? (
+                    <iframe
+                      src={`https://www.youtube.com/embed/${item.video.key}?autoplay=1&rel=0&playsinline=1`}
+                      title={item.video.name}
+                      className="h-full w-full"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <img src={`https://i.ytimg.com/vi/${item.video.key}/hqdefault.jpg`} alt="" className="h-full w-full object-cover opacity-72" loading="lazy" />
+                  )}
+                </div>
+                <span className="absolute right-5 top-[max(1.5rem,env(safe-area-inset-top))] text-[12px] font-medium tabular-nums text-white/60">
+                  {index + 1} / {orderedTrailers.length}
+                </span>
+                <div className="absolute inset-x-5 bottom-[max(1.75rem,env(safe-area-inset-bottom))]">
+                  <h3 className="text-[30px] font-bold leading-none tracking-[-0.05em] text-white">{item.show.title}</h3>
+                  <p className="mt-2 text-[14px] font-medium text-white/60">{item.video.type}</p>
+                </div>
+              </section>
+            ))}
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
@@ -3034,9 +3208,8 @@ function TodayTrailerModal({ trailer, onClose }: { trailer: AnimationTrailerFeat
 
 function ChapterHeader({ title }: { title: string }) {
   return (
-    <div className="mb-5 px-4 pt-2">
-      <h2 className="text-[27px] font-bold leading-none tracking-[-0.05em] text-white/96">{title}</h2>
-      <div className="mt-3 h-px bg-gradient-to-r from-white/[0.16] via-white/[0.05] to-transparent" />
+    <div className="mb-7 px-4 pt-5">
+      <h2 className="text-[30px] font-semibold leading-none tracking-[-0.055em] text-white">{title}</h2>
     </div>
   )
 }
@@ -3055,13 +3228,13 @@ function RankedList({
   if (!shows.length) return null
   return (
     <section className="mb-11 px-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">{title}</h3>
-        <button onClick={onOpenCategory} className="grid h-10 w-10 place-items-center rounded-full text-white/34 hover:text-white" aria-label={`Open ${title}`}>
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-[20px] font-semibold tracking-[-0.035em] text-white/95">{title}</h3>
+        <button onClick={onOpenCategory} className="grid h-10 w-10 place-items-center rounded-full text-white/35 hover:text-white" aria-label={`Open ${title}`}>
           <ChevronRight size={19} />
         </button>
       </div>
-      <div className="overflow-hidden rounded-[22px] border border-white/[0.075] bg-white/[0.025]">
+      <div className="overflow-hidden rounded-[22px] border border-white/[0.075] bg-gradient-to-br from-white/[0.045] to-white/[0.015]">
         {shows.slice(0, 5).map((show, index) => (
           <button
             key={show.id}
@@ -3071,13 +3244,23 @@ function RankedList({
               index > 0 && 'border-t border-white/[0.06]',
             )}
           >
-            <span className="w-7 shrink-0 text-center text-[19px] font-medium tabular-nums text-white/26">{index + 1}</span>
+            <span
+              aria-hidden
+              className="w-8 shrink-0 text-center text-[30px] italic leading-none tracking-[-0.08em] text-transparent"
+              style={{
+                fontFamily: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
+                WebkitTextStroke: '1.5px rgba(222,250,255,.9)',
+                textShadow: '0 0 9px rgba(57,216,255,.55), 2px 2px 0 rgba(16,17,55,.7)',
+              }}
+            >
+              {index + 1}
+            </span>
             <span className="h-14 w-10 shrink-0 overflow-hidden rounded-[8px] bg-white/[0.05] ring-1 ring-white/[0.07]">
               {show.posterPath && <img src={imgUrl(show.posterPath, 'w185')} alt="" className="h-full w-full object-cover" loading="lazy" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="line-clamp-2 block text-[15px] font-bold leading-[1.15] text-white/88">{show.title}</span>
-              <span className="mt-1 block truncate text-[11px] font-medium text-white/42">{show.cardDescriptor?.label ?? show.genre}</span>
+              <span className="line-clamp-2 block text-[15px] font-bold leading-[1.15] text-white/90">{show.title}</span>
+              <span className="mt-1 block truncate text-[11px] font-medium text-white/40">{show.cardDescriptor?.label ?? show.genre}</span>
             </span>
             <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
           </button>
@@ -3103,9 +3286,20 @@ function TastePacketRow({
 
   return (
     <section className="mb-9">
-      <div className="mb-3 px-4">
-        <h3 className="truncate text-[19px] font-bold tracking-[-0.025em] text-white/92">More like {packet.anchor.name}</h3>
-        <p className="mt-0.5 text-[12px] font-medium text-white/42">{context}</p>
+      <div className="mb-4 flex items-center gap-3 px-4">
+        {packet.tier && (
+          <span
+            aria-hidden
+            className="w-8 shrink-0 text-center text-[42px] italic leading-[0.78] tracking-[-0.09em] text-transparent"
+            style={rankGlyphStyle(packet.tier)}
+          >
+            {packet.tier}
+          </span>
+        )}
+        <div className="min-w-0">
+          <h3 className="truncate text-[20px] font-semibold tracking-[-0.035em] text-white/95">More like {packet.anchor.name}</h3>
+          {!packet.tier && <p className="mt-0.5 text-[12px] font-normal text-white/45">{context}</p>}
+        </div>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 px-4">
         {packet.shows.map((show) => (
@@ -3171,11 +3365,11 @@ function CarouselRow({
   if (shows.length === 0) return null
   return (
     <section className="mb-11">
-      <div className="mb-3 flex items-center justify-between px-4">
-        <h3 className="text-[19px] font-bold tracking-[-0.025em] text-white/92">{title}</h3>
+      <div className="mb-4 flex items-center justify-between px-4">
+        <h3 className="text-[20px] font-semibold tracking-[-0.035em] text-white/95">{title}</h3>
         <button
           onClick={() => onOpenCategory(categoryKey, title)}
-          className="grid h-10 w-10 place-items-center rounded-full text-white/34 transition-colors hover:text-white"
+          className="grid h-10 w-10 place-items-center rounded-full text-white/35 transition-colors hover:text-white"
           aria-label={`Open ${title}`}
         >
           <ChevronRight size={19} />
@@ -3227,14 +3421,8 @@ function lootToShow(show: LootShow): Show {
 }
 
 function DiscoveryReason({ show }: { show: LootShow }) {
-  if (!import.meta.env.DEV) return null
-  const vibeId = show.vibeIds[0]
-  const evidence = vibeId ? show.vibeEvidence[vibeId] ?? [] : []
-  return (
-    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 hidden truncate rounded-md bg-black/72 px-2 py-1 text-[8px] font-bold text-amber-200/80 backdrop-blur md:block" title={evidence.join(' · ')}>
-      Why: {getVibeTitle(vibeId) ?? getTraditionDisplayLabel(show.tradition)}{evidence.length ? ` · ${evidence.join(', ')}` : ''}
-    </div>
-  )
+  void show
+  return null
 }
 
 function TaxonomyLabel({
@@ -3247,7 +3435,7 @@ function TaxonomyLabel({
   const label = descriptor?.label
   if (!label) return null
   return (
-    <span className="mb-1.5 block max-w-full text-[11px] font-medium leading-tight tracking-[0.01em] text-white/52">
+    <span className="mb-2 block max-w-full text-[11px] font-medium leading-tight tracking-[0.035em] text-white/50">
       <span className="block truncate">{label}</span>
     </span>
   )
@@ -3298,7 +3486,7 @@ function FeedSaveActions({
   const hitAreaClass = size === 'lg' ? 'h-12 w-12' : 'h-11 w-11'
   const visualClass = size === 'lg' ? 'h-10 w-10' : 'h-9 w-9'
   const iconSize = size === 'lg' ? 19 : 17
-  const idleClass = 'border-white/20 bg-black/42 text-white/88'
+  const idleClass = 'border-white/20 bg-black/40 text-white/90'
   const selectedClass = 'border-[#f5c453]/45 bg-[#f5c453]/15 text-[#f5c453]'
 
   return (
@@ -3523,7 +3711,7 @@ function PortraitCard({
         <TaxonomyLabel show={show} descriptor={descriptor} />
         <h3 className="truncate text-[16px] font-bold leading-tight tracking-[-0.025em] text-white">{show.title}</h3>
         <div className="mt-2 flex min-h-6 items-center gap-2.5">
-          {show.year !== '—' && <span className="text-[10px] font-black tracking-[0.04em] text-white/76">{show.year}</span>}
+          {show.year !== '—' && <span className="text-[10px] font-black tracking-[0.04em] text-white/75">{show.year}</span>}
           <ImdbBadge showId={show.id} compact className="shadow-none" />
         </div>
       </ColorAwareRail>
@@ -3534,11 +3722,13 @@ function PortraitCard({
 
 function LandscapeCard({
   show,
+  rank,
   isOwned,
   isWatchlisted,
   onOpenShow,
 }: {
   show: LootShow
+  rank?: number
   isOwned: boolean
   isWatchlisted: boolean
   onOpenShow: (show: Show) => void
@@ -3612,43 +3802,62 @@ function LandscapeCard({
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') onOpenShow(lootToShow(show))
       }}
-      className="relative group w-[88vw] min-w-[336px] max-w-[380px] flex-shrink-0 snap-start cursor-pointer overflow-hidden rounded-[30px] bg-[#151117] shadow-[0_20px_52px_rgba(0,0,0,0.46)] ring-1 ring-white/[0.1] transition-transform duration-300 active:scale-[0.98]"
+      className="relative group w-[88vw] min-w-[336px] max-w-[380px] flex-shrink-0 snap-start cursor-pointer overflow-visible transition-transform duration-300 active:scale-[0.98]"
     >
-      <div className="relative aspect-[16/9] overflow-hidden bg-[#151117]">
-        <CollectibleMediaCard
-          id={show.id}
-          title={show.title}
-          imageUrl={bg}
-          motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
-          landscape
-          artScrim={false}
-          addSlot={(
-            <FeedSaveActions
-              isSeen={isOwned}
-              isWatchlisted={isWatchlisted}
-              onSeen={handleAdd}
-              onWatchlist={handleWatchlist}
-              onSuccess={handleSuccess}
-              size="sm"
-            />
+      {rank && (
+        <span
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute z-40 select-none italic leading-[0.72] tracking-[-0.09em] text-transparent',
+            rank >= 10 ? '-left-5 top-[54px] text-[112px]' : '-left-7 top-[58px] text-[148px]',
           )}
-          shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
-          className="rounded-none shadow-none"
+          style={{
+            fontFamily: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
+            WebkitTextStroke: '3px #e8fbff',
+            textShadow: '0 0 2px #fff, 0 0 9px #39d8ff, 0 0 24px rgba(30,172,255,.95), 7px 7px 0 rgba(16,17,55,.76)',
+            transform: 'rotate(-6deg)',
+          }}
         >
-          <span />
-        </CollectibleMediaCard>
-      </div>
-      <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[112px] px-4 py-3">
-        <TaxonomyLabel show={show} descriptor={descriptor} />
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <h3 className="min-w-0 flex-1 truncate text-[18px] font-bold leading-tight tracking-[-0.03em] text-white">{show.title}</h3>
-          <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
+          {rank}
+        </span>
+      )}
+      <div className="relative overflow-hidden rounded-[30px] bg-[#151117] shadow-[0_22px_58px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.09]">
+        <div className="relative aspect-[16/9] overflow-hidden bg-[#151117]">
+          <CollectibleMediaCard
+            id={show.id}
+            title={show.title}
+            imageUrl={bg}
+            motionKey={pickAnimationKey(show.rawGenres, show.tradition, show.vibeIds)}
+            landscape
+            artScrim={false}
+            addSlot={(
+              <FeedSaveActions
+                isSeen={isOwned}
+                isWatchlisted={isWatchlisted}
+                onSeen={handleAdd}
+                onWatchlist={handleWatchlist}
+                onSuccess={handleSuccess}
+                size="sm"
+              />
+            )}
+            shineSlot={<AnimatePresence>{shine && <ShineOverlay key="shine" />}</AnimatePresence>}
+            className="rounded-none shadow-none"
+          >
+            <span />
+          </CollectibleMediaCard>
         </div>
-        <p className="mt-1.5 line-clamp-2 max-w-[320px] text-[14px] font-medium leading-[1.4] text-white/78">
-          {landscapeDescription(show, art?.tagline)}
-        </p>
-      </ColorAwareRail>
-      <DiscoveryReason show={show} />
+        <ColorAwareRail imageSrc={bg} className="relative z-20 min-h-[126px] px-4 py-4">
+          <TaxonomyLabel show={show} descriptor={descriptor} />
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <h3 className="min-w-0 flex-1 truncate text-[20px] font-semibold leading-tight tracking-[-0.04em] text-white">{show.title}</h3>
+            <ImdbBadge showId={show.id} compact className="shrink-0 shadow-none" />
+          </div>
+          <p className="mt-2 line-clamp-2 max-w-[320px] text-[15px] font-normal leading-[1.42] text-white/75">
+            {landscapeDescription(show, art?.tagline)}
+          </p>
+        </ColorAwareRail>
+        <DiscoveryReason show={show} />
+      </div>
     </motion.div>
   )
 }
