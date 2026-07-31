@@ -12,6 +12,9 @@ import { WatchlistSearchSheet } from '../watchlist/WatchlistSearchSheet'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
+import { syncFranchiseDefinitionsForShows } from '../../data/queries'
+import type { FranchiseDefinition } from '../../types'
+import { FranchiseAchievementRail } from '../achievements/FranchiseAchievementRail'
 
 type TierFilter = 'All' | Tier | 'Unsorted'
 
@@ -48,6 +51,17 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const assignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
+  const franchiseDefinitions = useDexieQuery<FranchiseDefinition[]>(
+    ['franchiseDefinitions'],
+    () => db.franchiseDefinitions.toArray(),
+    [],
+    [],
+  )
+
+  useEffect(() => {
+    if (!shows.length) return
+    void syncFranchiseDefinitionsForShows(shows)
+  }, [shows])
 
   const tierByShowId = useMemo(() => {
     const map = new Map<number, Tier>()
@@ -281,6 +295,10 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
             </div>
           </button>
         </section>
+      )}
+
+      {view === 'collection' && (
+        <FranchiseAchievementRail definitions={franchiseDefinitions} shows={shows} />
       )}
 
       <div className={cn('relative z-10 px-4', view === 'watchlist' ? 'pt-[66px] pb-0' : 'py-1.5')}>

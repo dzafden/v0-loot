@@ -11,12 +11,43 @@ import type {
   WatchlistShelf,
   DiscoverFeedback,
 } from '../types'
-import { deriveTradition, getShowDetail, getShowKeywords, hasTmdbKey } from '../lib/tmdb'
+import { deriveTradition, getMovieCollection, getShowDetail, getShowKeywords, hasTmdbKey, type TmdbShowDetail } from '../lib/tmdb'
 import { buildVibeCandidate, scoreShowVibes } from '../lib/vibe-engine'
 import { selectCardDescriptor } from '../lib/card-descriptors'
+import { buildFranchiseDefinition } from '../lib/franchise-achievements'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
+const FRANCHISE_DEFINITION_TTL_MS = 7 * 24 * 60 * 60_000
+const franchiseDefinitionInflight = new Map<number, Promise<void>>()
+
+async function persistFranchiseDefinition(collectionId: number) {
+  const inflight = franchiseDefinitionInflight.get(collectionId)
+  if (inflight) return inflight
+  const request = getMovieCollection(collectionId)
+    .then((collection) => buildFranchiseDefinition(collection))
+    .then(async (definition) => {
+      if (definition) await db.franchiseDefinitions.put(definition)
+    })
+    .finally(() => franchiseDefinitionInflight.delete(collectionId))
+  franchiseDefinitionInflight.set(collectionId, request)
+  return request
+}
+
+async function persistMovieFranchiseMetadata(
+  show: Show,
+  target: 'shows' | 'watchlistShows',
+  detail: TmdbShowDetail,
+) {
+  if ((show.mediaType ?? 'tv') !== 'movie') return
+  const collection = detail.belongs_to_collection ?? null
+  await db[target].update(show.id, {
+    franchiseCollectionId: collection?.id ?? null,
+    franchiseCollectionName: collection?.name,
+    updatedAt: Date.now(),
+  })
+  if (collection?.id) await persistFranchiseDefinition(collection.id)
+}
 
 export const WATCHLIST_SHELF_SUGGESTIONS = [
   'Watch next',
@@ -67,8 +98,33 @@ async function classifyPersistedShow(show: Show, target: 'shows' | 'watchlistSho
       updatedAt: Date.now(),
     }
     await db[target].update(show.id, patch)
+    await persistMovieFranchiseMetadata(show, target, detail)
   } catch {
     // Taxonomy enrichment is best-effort and never blocks a save.
+  }
+}
+
+export async function syncFranchiseDefinitionsForShows(shows: Show[]) {
+  if (!hasTmdbKey()) return
+  const current = await db.franchiseDefinitions.toArray()
+  const byId = new Map(current.map((definition) => [definition.id, definition]))
+  const movies = shows.filter((show) => (show.mediaType ?? 'tv') === 'movie')
+
+  for (let index = 0; index < movies.length; index += 4) {
+    const batch = movies.slice(index, index + 4)
+    await Promise.allSettled(batch.map(async (show) => {
+      const collectionId = show.franchiseCollectionId
+      if (collectionId === null) return
+      if (typeof collectionId === 'number') {
+        const definition = byId.get(collectionId)
+        if (!definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS) {
+          await persistFranchiseDefinition(collectionId)
+        }
+        return
+      }
+      const detail = await getShowDetail(show.id, 'movie')
+      await persistMovieFranchiseMetadata(show, 'shows', detail)
+    }))
   }
 }
 

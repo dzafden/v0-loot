@@ -20,6 +20,7 @@ import {
   getTmdbKey,
   getShowRecommendations,
   getSimilarShows,
+  getMovieCollection,
   searchKeywords,
   discoverShowsByMood,
   hasTmdbKey,
@@ -47,6 +48,16 @@ import { getSecondaryAnimationGenre } from '../../lib/animation-taxonomy'
 import { dominantColor } from '../../lib/dominantColor'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { selectCardDescriptor } from '../../lib/card-descriptors'
+import {
+  dismissOnboardingFollowup,
+  loadOnboardingRelatedTitleGroups,
+  ONBOARDING_FOLLOWUP_EVENT,
+  ONBOARDING_FOLLOWUP_STORAGE_KEY,
+  rankOnboardingFollowupCandidates,
+  readOnboardingFollowup,
+  type OnboardingFollowupState,
+  type RelatedTitleGroup,
+} from '../onboarding/onboardingFollowup'
 
 interface Props {
   onOpenSettings: () => void
@@ -660,14 +671,23 @@ async function getTasteRecommendationPool(anchors: Show[], page = 1) {
   if (inflight) return inflight
 
   const request = Promise.all(
-    anchors.map((anchor) =>
-      getShowRecommendations(anchor.id, page, anchor.mediaType ?? 'tv')
-        .then((data) => ({
-          anchorId: anchor.id,
-          shows: uniqueShows(data.results.map(tmdbToLoot)).filter((show) => show.posterPath || show.backdropPath),
-        }))
-        .catch(() => ({ anchorId: anchor.id, shows: [] })),
-    ),
+    anchors.map(async (anchor) => {
+      const mediaType = anchor.mediaType ?? 'tv'
+      const [recommendations, similar, collection] = await Promise.all([
+        getShowRecommendations(anchor.id, page, mediaType).then((data) => data.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+        getSimilarShows(anchor.id, page, mediaType).then((data) => data.results.map(tmdbToLoot)).catch(() => [] as LootShow[]),
+        mediaType === 'movie'
+          ? getShowDetail(anchor.id, 'movie')
+              .then((detail) => detail.belongs_to_collection?.id ? getMovieCollection(detail.belongs_to_collection.id) : null)
+              .then((data) => data?.results.map(tmdbToLoot) ?? [])
+              .catch(() => [] as LootShow[])
+          : Promise.resolve([] as LootShow[]),
+      ])
+      return {
+        anchorId: anchor.id,
+        shows: uniqueShows([...collection, ...recommendations, ...similar]).filter((show) => show.posterPath || show.backdropPath),
+      }
+    }),
   ).then((data) => {
     tasteRecCache.set(cacheKey, { data, ts: Date.now() })
     return data
@@ -821,6 +841,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [impressions, setImpressions] = useState<DiscoverImpressions>(() => readDiscoverImpressions())
   const [discoverRotation, setDiscoverRotation] = useState(readDiscoverRotation)
   const [librarySnapshot, setLibrarySnapshot] = useState<DiscoverLibrarySnapshot | null>(() => readLibrarySnapshot())
+  const [onboardingFollowup, setOnboardingFollowup] = useState<OnboardingFollowupState | null>(() => readOnboardingFollowup())
+  const [onboardingRelatedGroups, setOnboardingRelatedGroups] = useState<RelatedTitleGroup[]>([])
   const [watchDropOpen, setWatchDropOpen] = useState(false)
   const pullStartY = useRef<number | null>(null)
   const lastScrollY = useRef(0)
@@ -839,8 +861,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
   const liveWatchlistSet = useMemo(() => new Set(watchlistShows.map((show) => show.id)), [watchlistShows])
-  const profileShows = librarySnapshot?.ownedShows ?? []
-  const profileTierAssignments = librarySnapshot?.tierAssignments ?? []
+  const profileShows = useMemo(() => librarySnapshot?.ownedShows ?? [], [librarySnapshot])
+  const profileTierAssignments = useMemo(() => librarySnapshot?.tierAssignments ?? [], [librarySnapshot])
   const profileOwnedIds = useMemo(() => profileShows.map((s) => s.id), [profileShows])
   const profileOwnedSet = useMemo(() => new Set(profileOwnedIds), [profileOwnedIds])
   const tasteWeights = useMemo(() => buildTasteWeights(profileShows, profileTierAssignments), [profileShows, profileTierAssignments])
@@ -879,6 +901,61 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     })),
     [hiddenIds, tasteRecommendationGroups],
   )
+  const onboardingFollowupCandidates = useMemo(() => {
+    if (!onboardingFollowup) return []
+    const anchorIds = new Set(onboardingFollowup.anchorIds)
+    return rankOnboardingFollowupCandidates(
+      onboardingRelatedGroups.filter((group) => anchorIds.has(group.anchorId)),
+      profileShows.filter((show) => anchorIds.has(show.id)),
+      profileOwnedSet,
+    )
+  }, [onboardingFollowup, onboardingRelatedGroups, profileOwnedSet, profileShows])
+
+  useEffect(() => {
+    const refreshFollowup = () => setOnboardingFollowup(readOnboardingFollowup())
+    const refreshFromStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === ONBOARDING_FOLLOWUP_STORAGE_KEY) refreshFollowup()
+    }
+    window.addEventListener(ONBOARDING_FOLLOWUP_EVENT, refreshFollowup)
+    window.addEventListener('storage', refreshFromStorage)
+    return () => {
+      window.removeEventListener(ONBOARDING_FOLLOWUP_EVENT, refreshFollowup)
+      window.removeEventListener('storage', refreshFromStorage)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!onboardingFollowup || !ownedShows.length) return
+    const anchorSet = new Set(onboardingFollowup.anchorIds)
+    const snapshotHasAnchors = librarySnapshot && onboardingFollowup.anchorIds.every((id) => librarySnapshot.ownedShows.some((show) => show.id === id))
+    if (snapshotHasAnchors) return
+    const availableAnchors = ownedShows.filter((show) => anchorSet.has(show.id))
+    if (!availableAnchors.length) return
+    const timer = window.setTimeout(() => {
+      const snapshot = createLibrarySnapshot(ownedShows, tierAssignments)
+      writeLibrarySnapshot(snapshot)
+      setLibrarySnapshot(snapshot)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [librarySnapshot, onboardingFollowup, ownedShows, tierAssignments])
+
+  useEffect(() => {
+    if (!onboardingFollowup) return
+    const anchorSet = new Set(onboardingFollowup.anchorIds)
+    const anchors = profileShows.filter((show) => anchorSet.has(show.id))
+    if (!anchors.length) return
+    let cancelled = false
+    loadOnboardingRelatedTitleGroups(anchors)
+      .then((groups) => {
+        if (!cancelled) setOnboardingRelatedGroups(groups)
+      })
+      .catch(() => {
+        if (!cancelled) setOnboardingRelatedGroups([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [onboardingFollowup, profileShows])
 
   useEffect(() => {
     if (librarySnapshot) return
@@ -1329,6 +1406,12 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             profileTierAssignments={profileTierAssignments}
             tasteRecommendations={visibleTasteRecommendations}
             tasteRecommendationGroups={visibleTasteRecommendationGroups}
+            onboardingFollowupCandidates={onboardingFollowupCandidates}
+            showOnboardingFollowup={Boolean(onboardingFollowup)}
+            onDismissOnboardingFollowup={() => {
+              dismissOnboardingFollowup()
+              setOnboardingFollowup(null)
+            }}
             recommendationBoost={recommendationBoost}
             impressions={impressions}
             discoverSeed={discoverSeed}
@@ -2662,6 +2745,9 @@ function FeedRows({
   profileTierAssignments,
   tasteRecommendations,
   tasteRecommendationGroups,
+  onboardingFollowupCandidates,
+  showOnboardingFollowup,
+  onDismissOnboardingFollowup,
   recommendationBoost,
   impressions,
   discoverSeed,
@@ -2686,6 +2772,9 @@ function FeedRows({
   profileTierAssignments: TierAssignment[]
   tasteRecommendations: LootShow[]
   tasteRecommendationGroups: TasteRecommendationGroup[]
+  onboardingFollowupCandidates: LootShow[]
+  showOnboardingFollowup: boolean
+  onDismissOnboardingFollowup: () => void
   recommendationBoost: Map<number, number>
   impressions: DiscoverImpressions
   discoverSeed: number
@@ -2755,6 +2844,17 @@ function FeedRows({
     <>
       <section id="discover-today" className="scroll-mt-28">
         {leadingContent}
+        <AnimatePresence initial={false}>
+          {showOnboardingFollowup && onboardingFollowupCandidates.length > 0 && (
+            <OnboardingFollowupRail
+              shows={onboardingFollowupCandidates}
+              ownedIds={ownedIds}
+              watchlistIds={watchlistIds}
+              onDismiss={onDismissOnboardingFollowup}
+              onOpenShow={onOpenShow}
+            />
+          )}
+        </AnimatePresence>
         <TodayInAnimation
           pulse={todayPulse}
           loading={todayPulseLoading}
@@ -2786,6 +2886,81 @@ function FeedRows({
         <RankedList title="Top rated, all time" shows={sourceRows.topRated} onOpenCategory={() => onOpenCategory('topRated', 'Top rated, all time')} onOpenShow={onOpenShow} />
       </section>
     </>
+  )
+}
+
+function OnboardingFollowupRail({
+  shows,
+  ownedIds,
+  watchlistIds,
+  onDismiss,
+  onOpenShow,
+}: {
+  shows: LootShow[]
+  ownedIds: number[]
+  watchlistIds: Set<number>
+  onDismiss: () => void
+  onOpenShow: (show: Show) => void
+}) {
+  const reducedMotion = useReducedMotion()
+  const ownedSet = useMemo(() => new Set(ownedIds), [ownedIds])
+  const atmosphere = shows.find((show) => show.backdropPath || show.posterPath)
+
+  return (
+    <motion.section
+      initial={reducedMotion ? false : { opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={reducedMotion ? undefined : { opacity: 0, height: 0, marginTop: 0 }}
+      transition={{ duration: reducedMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
+      className="relative mt-8 overflow-hidden bg-[#0b0c0e] py-6"
+      aria-labelledby="onboarding-followup-title"
+    >
+      {atmosphere && (
+        <img
+          src={imgUrl(atmosphere.backdropPath || atmosphere.posterPath, 'w500')}
+          alt=""
+          className="pointer-events-none absolute inset-[-30px] h-[calc(100%+60px)] w-[calc(100%+60px)] max-w-none object-cover opacity-[0.13] blur-3xl saturate-150"
+          aria-hidden
+        />
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0b0c0e]/72 via-[#0b0c0e]/88 to-[#0b0c0e]" />
+
+      <div className="relative mb-5 flex items-start justify-between gap-4 px-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/42">One quick follow-up</p>
+          <h2 id="onboarding-followup-title" className="mt-1 text-[27px] font-black leading-[0.95] tracking-[-0.06em] text-white">Have you watched these?</h2>
+          <p className="mt-2 max-w-[290px] text-[13px] leading-relaxed text-white/48">Connected to the titles you picked.</p>
+        </div>
+        <button onClick={onDismiss} className="grid h-11 shrink-0 place-items-center px-2 text-[12px] font-semibold text-white/48 hover:text-white active:scale-95" aria-label="Finish onboarding follow-up">
+          Done
+        </button>
+      </div>
+
+      <div className="relative flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 no-scrollbar">
+        {shows.map((show) => {
+          return (
+            <article key={show.id} className="w-[124px] shrink-0 snap-start">
+              <div className="relative aspect-[2/3] w-full">
+                <button onClick={() => onOpenShow(lootToShow(show))} className="group relative block h-full w-full overflow-hidden rounded-[17px] bg-white/[0.055] text-left shadow-[0_16px_36px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.09] active:scale-[0.98]" aria-label={`Open ${show.title}`}>
+                  {show.posterPath || show.backdropPath ? <img src={imgUrl(show.posterPath || show.backdropPath, 'w342')} alt={show.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.025]" loading="lazy" /> : null}
+                  <span className="absolute inset-0 bg-gradient-to-t from-black/66 via-transparent to-black/5" />
+                </button>
+                <div className="absolute right-0.5 top-0.5 z-20">
+                  <FeedSaveActions
+                    isSeen={ownedSet.has(show.id)}
+                    isWatchlisted={watchlistIds.has(show.id)}
+                    onSeen={() => persistShow(show)}
+                    onWatchlist={() => persistToDefaultWatchlist(show)}
+                    size="sm"
+                  />
+                </div>
+              </div>
+              <h3 className="mt-2 line-clamp-2 min-h-9 text-[13px] font-semibold leading-[1.25] text-white/84">{show.title}</h3>
+            </article>
+          )
+        })}
+      </div>
+    </motion.section>
   )
 }
 

@@ -50,6 +50,9 @@ export interface Show {
   seasonCount?: number
   episodeCount?: number
   status?: string
+  /** Canonical TMDB movie collection membership, when one exists. */
+  franchiseCollectionId?: number | null
+  franchiseCollectionName?: string
   addedAt: number
   updatedAt: number
   // customization
@@ -57,6 +60,25 @@ export interface Show {
   overlay?: OverlayKind
   // top 8
   top8Position?: number | null
+}
+
+export interface FranchiseMember {
+  id: number
+  name: string
+  posterPath?: string | null
+  backdropPath?: string | null
+  releaseDate: string
+}
+
+export interface FranchiseDefinition {
+  id: number
+  name: string
+  posterPath?: string | null
+  backdropPath?: string | null
+  memberIds: number[]
+  members: FranchiseMember[]
+  source: 'tmdb-collection'
+  updatedAt: number
 }
 
 export interface Collection {

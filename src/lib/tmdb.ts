@@ -81,6 +81,7 @@ export interface LootShow {
   posterPath: string | null
   backdropPath: string | null
   year: string
+  releaseDate?: string
   genre: string
   rating: number
   overview: string
@@ -186,6 +187,7 @@ export function tmdbToLoot(raw: TmdbSearchResult): LootShow {
     posterPath: raw.poster_path ?? null,
     backdropPath: raw.backdrop_path ?? null,
     year: raw.first_air_date?.slice(0, 4) ?? '—',
+    releaseDate: raw.first_air_date,
     genre: rawGenres.find((genre) => genre !== 'Animation') ?? rawGenres[0] ?? 'Animation',
     rating: raw.vote_average ?? 0,
     overview: raw.overview ?? '',
@@ -755,6 +757,12 @@ export interface TmdbShowDetail extends TmdbSearchResult {
   release_date?: string
   next_episode_to_air?: TmdbEpisodeSummary | null
   last_episode_to_air?: TmdbEpisodeSummary | null
+  belongs_to_collection?: {
+    id: number
+    name: string
+    poster_path?: string | null
+    backdrop_path?: string | null
+  } | null
 }
 
 export interface TmdbCreator {
@@ -932,6 +940,33 @@ export async function getSimilarShows(showId: number, page = 1, mediaType: Media
   return {
     results: data.results
       .map((result) => normalizeListItem(result, mediaType))
+      .filter((result) => result.genre_ids?.includes(ANIMATION_GENRE_ID)),
+  }
+}
+
+export interface TmdbMovieCollection {
+  id: number
+  name: string
+  posterPath: string | null
+  backdropPath: string | null
+  results: TmdbSearchResult[]
+}
+
+export async function getMovieCollection(collectionId: number): Promise<TmdbMovieCollection> {
+  const data = await tmdb<{
+    id?: number
+    name?: string
+    poster_path?: string | null
+    backdrop_path?: string | null
+    parts?: RawTmdbListItem[]
+  }>(`/collection/${collectionId}`)
+  return {
+    id: data.id ?? collectionId,
+    name: data.name ?? 'Untitled collection',
+    posterPath: data.poster_path ?? null,
+    backdropPath: data.backdrop_path ?? null,
+    results: (data.parts ?? [])
+      .map((result) => normalizeListItem(result, 'movie'))
       .filter((result) => result.genre_ids?.includes(ANIMATION_GENRE_ID)),
   }
 }

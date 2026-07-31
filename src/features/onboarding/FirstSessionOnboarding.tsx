@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
 import { db } from '../../data/db'
 import { getDiscoverCategoryPage, hasTmdbKey, imgUrl, type LootShow } from '../../lib/tmdb'
 import type { Show, Tier } from '../../types'
+import { beginOnboardingFollowup } from './onboardingFollowup'
 
 export const ONBOARDING_STORAGE_KEY = 'loot:onboarding:cinematic-v1'
 
@@ -227,6 +228,7 @@ export function FirstSessionOnboarding({ onComplete }: { onComplete: () => void 
 
   const enterLoot = () => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, 'complete')
+    beginOnboardingFollowup(selectedIds)
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     onComplete()
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
