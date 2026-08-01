@@ -15,6 +15,7 @@ import { deriveTradition, getMovieCollection, getShowDetail, getShowKeywords, ha
 import { buildVibeCandidate, scoreShowVibes } from '../lib/vibe-engine'
 import { selectCardDescriptor } from '../lib/card-descriptors'
 import { buildFranchiseDefinition } from '../lib/franchise-achievements'
+import { newlyEarnedFranchiseAchievements } from '../lib/franchise-achievements'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
@@ -126,6 +127,20 @@ export async function syncFranchiseDefinitionsForShows(shows: Show[]) {
       await persistMovieFranchiseMetadata(show, 'shows', detail)
     }))
   }
+}
+
+export async function syncEarnedFranchiseAchievements(shows: Show[]) {
+  const [definitions, earned] = await Promise.all([
+    db.franchiseDefinitions.toArray(),
+    db.earnedFranchiseAchievements.toArray(),
+  ])
+  const additions = newlyEarnedFranchiseAchievements(
+    definitions,
+    new Set(shows.map((show) => show.id)),
+    new Set(earned.map((achievement) => achievement.id)),
+  )
+  if (additions.length) await db.earnedFranchiseAchievements.bulkPut(additions)
+  return additions
 }
 
 export async function upsertShow(show: Show) {

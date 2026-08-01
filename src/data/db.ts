@@ -10,6 +10,7 @@ import type {
   WatchlistShelf,
   DiscoverFeedback,
   FranchiseDefinition,
+  EarnedFranchiseAchievement,
 } from '../types'
 
 export class LootDB extends Dexie {
@@ -24,6 +25,7 @@ export class LootDB extends Dexie {
   watchlistShelves!: Table<WatchlistShelf, string>
   discoverFeedback!: Table<DiscoverFeedback, number>
   franchiseDefinitions!: Table<FranchiseDefinition, number>
+  earnedFranchiseAchievements!: Table<EarnedFranchiseAchievement, string>
 
   constructor() {
     super('loot')
@@ -116,6 +118,20 @@ export class LootDB extends Dexie {
       watchlistShelves: 'id, name, createdAt, updatedAt',
       discoverFeedback: 'showId, hiddenUntil, updatedAt',
       franchiseDefinitions: 'id, name, updatedAt',
+    })
+    this.version(8).stores({
+      shows: 'id, name, addedAt, updatedAt, top8Position, tradition',
+      collections: 'id, name, createdAt',
+      emojiCategories: 'id, emoji, createdAt',
+      tierAssignments: 'showId, tier, updatedAt',
+      episodeProgress: 'key, showId, [showId+seasonNumber], watched, watchedAt',
+      seasonCache: 'key, showId, fetchedAt',
+      castRoles: 'id, showId, roleName, createdAt',
+      watchlistShows: 'id, name, addedAt, updatedAt, tradition',
+      watchlistShelves: 'id, name, createdAt, updatedAt',
+      discoverFeedback: 'showId, hiddenUntil, updatedAt',
+      franchiseDefinitions: 'id, name, updatedAt',
+      earnedFranchiseAchievements: 'id, definitionId, earnedAt',
     })
   }
 }

@@ -202,6 +202,25 @@ Avoid using bold uppercase for every label. Weight, casing, size, and spacing mu
 - Utility controls should recede until needed and become expressive only when active.
 - Do not create a separate container for information that can be grouped through alignment and spacing.
 
+### Generated achievement collectibles
+
+- Achievement cards are generated from achievement data, not individually art-directed by default.
+- Use literal, immediately understandable names such as “Cartoon Network” and “Shōnen anime.” Do not invent collectible nicknames that obscure what the user earned.
+- Keep the completion number, content noun, and completion state in one achievement cluster. Reserve one consistent top-right classifier position across studio, genre, and series cards so the card anatomy remains recognizable.
+- A logo is optional supporting data. It must never be required for the composition to work, overlap the completion number, or force a different information hierarchy.
+- Generate cards from a stable anatomy: classifier identity + completion number + literal achievement + source artwork. Variation must come from those inputs rather than additional labels or decorative chrome.
+- Support three classifier families: studio, genre, and series. Studio cards behave like catalogue retrospectives, genre cards share a semantic visual energy, and series cards present their installments as one continuous world.
+- Treat a recognizable studio or series logo as the classifier name. Never repeat the same identity as an equally prominent text label beside or beneath its logo. When no logo exists, render the literal classifier name in the same reserved classifier position.
+- Series cards must not use installment posters when their embedded titles would repeat the series classifier. Prefer logo-free stills, character art, or environmental key art composed as one shared world, with the franchise logo appearing exactly once in the classifier position.
+- Keep the achievement—not the classifier—as the primary textual message. A card should read directly as a number plus a content noun and earned state, such as “10 shows completed” or “4 films completed.”
+- Give completion numerals a solid, colored core with a protected dark edge. Foil, shine, texture, glow, and extrusion may reinforce the earned object but must not make the glyph transparent, clipped, or ambiguous.
+- Use no more than one visible outer card edge. Do not stack decorative outlines, frames, or information containers.
+- Adapt the artwork composition to the number of source shows: dense mosaic for many, directional slices for a medium set, and full-bleed panels for a small set.
+- Preserve a consistent information hierarchy across generated cards even when artwork composition changes.
+- Begin series achievement progress as soon as the user watches one required installment. Keep incomplete achievements visible by default, without dismissal, so unfinished collections remain a useful invitation rather than a transient recommendation.
+- Treat achievement cards as navigable collection summaries. Activating a card must reveal its required titles, current watched/total progress, direct title navigation, and the canonical Seen and Watchlist actions.
+- Reserve celebratory gold material for earned history. Incomplete achievements use neutral progress treatment; if a completed collection later gains a new installment, preserve the earned card and identify the new chapter without revoking the original achievement.
+
 ## Motion and Feedback
 
 ### Motion purposes

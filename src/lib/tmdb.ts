@@ -840,6 +840,18 @@ export async function getShowDetail(id: number, mediaType: MediaType = 'tv') {
   }
 }
 
+/** Resolve one known TMDB ID into the display model used by discovery rails. */
+export async function getLootShow(id: number, mediaType: MediaType): Promise<LootShow | null> {
+  const detail = await getShowDetail(id, mediaType)
+  const genreIds = detail.genres.map((genre) => genre.id)
+  if (!genreIds.includes(ANIMATION_GENRE_ID)) return null
+  return tmdbToLoot({
+    ...detail,
+    genre_ids: genreIds,
+    mediaType,
+  })
+}
+
 export async function getShowKeywords(showId: number, mediaType: MediaType = 'tv') {
   const data = await tmdb<{
     results?: { id: number; name: string }[]

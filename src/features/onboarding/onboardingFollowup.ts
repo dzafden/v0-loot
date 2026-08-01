@@ -1,5 +1,6 @@
 import {
   getMovieCollection,
+  getLootShow,
   getShowDetail,
   getShowRecommendations,
   getSimilarShows,
@@ -7,6 +8,7 @@ import {
   type LootShow,
 } from '../../lib/tmdb'
 import type { Show } from '../../types'
+import type { FranchiseRegistryKind } from '../../lib/franchise-registry'
 
 export const ONBOARDING_FOLLOWUP_STORAGE_KEY = 'loot:onboarding-followup:v1'
 export const ONBOARDING_FOLLOWUP_EVENT = 'loot:onboarding-followup'
@@ -24,7 +26,7 @@ export type OnboardingFollowupState = {
 
 export type RelatedTitleGroup = {
   anchorId: number
-  kind: 'collection' | 'recommendation' | 'similar'
+  kind: 'collection' | 'registry-collection' | 'registry-sequence' | 'registry-spin-off' | 'registry-franchise' | 'registry-universe' | 'recommendation' | 'similar'
   shows: LootShow[]
 }
 
@@ -37,6 +39,12 @@ type ScoredCandidate = {
 const RELATED_CACHE_MS = 24 * 60 * 60_000
 const relatedAnchorCache = new Map<string, { groups: RelatedTitleGroup[]; at: number }>()
 const relatedAnchorInflight = new Map<string, Promise<RelatedTitleGroup[]>>()
+const registryTitleCache = new Map<string, Promise<LootShow | null>>()
+const REGISTRY_CANDIDATES_PER_ANCHOR = 4
+const ANCHOR_RELATIONSHIP_CONCURRENCY = 2
+const REGISTRY_HYDRATION_CONCURRENCY = 3
+let activeRegistryHydrations = 0
+const registryHydrationQueue: Array<() => void> = []
 
 export function beginOnboardingFollowup(anchorIds: number[], at = Date.now()) {
   const state: OnboardingFollowupState = {
@@ -92,6 +100,55 @@ function hasTitleContinuity(anchor: Show, candidate: LootShow) {
   return [...titleTokens(candidate.title)].some((token) => anchorTokens.has(token))
 }
 
+function runNextRegistryHydration() {
+  while (activeRegistryHydrations < REGISTRY_HYDRATION_CONCURRENCY && registryHydrationQueue.length) {
+    activeRegistryHydrations += 1
+    registryHydrationQueue.shift()?.()
+  }
+}
+
+function scheduleRegistryHydration<T>(task: () => Promise<T>) {
+  return new Promise<T>((resolve, reject) => {
+    registryHydrationQueue.push(() => {
+      task().then(resolve, reject).finally(() => {
+        activeRegistryHydrations -= 1
+        runNextRegistryHydration()
+      })
+    })
+    runNextRegistryHydration()
+  })
+}
+
+function hydrateRegistryTitle(id: number, mediaType: 'movie' | 'tv') {
+  const key = `${mediaType}:${id}`
+  const cached = registryTitleCache.get(key)
+  if (cached) return cached
+  const request = scheduleRegistryHydration(() => getLootShow(id, mediaType)).catch(() => null)
+  registryTitleCache.set(key, request)
+  return request
+}
+
+async function loadRegistryRelationships(anchor: Show) {
+  const { getFranchiseRegistryCandidates } = await import('../../lib/franchise-registry')
+  const references = getFranchiseRegistryCandidates(anchor).slice(0, REGISTRY_CANDIDATES_PER_ANCHOR)
+  const hydrated = await Promise.all(references.map(async (reference) => ({
+    reference,
+    show: await hydrateRegistryTitle(reference.id, reference.mediaType),
+  })))
+  const byKind = new Map<FranchiseRegistryKind, LootShow[]>([
+    ['collection', []], ['sequence', []], ['spin-off', []], ['franchise', []], ['universe', []],
+  ])
+  for (const item of hydrated) {
+    if (!item.show) continue
+    byKind.get(item.reference.kind)?.push(item.show)
+  }
+  return ([...byKind.entries()].map(([kind, shows]) => ({
+    anchorId: anchor.id,
+    kind: `registry-${kind}` as Extract<RelatedTitleGroup['kind'], `registry-${string}`>,
+    shows,
+  })))
+}
+
 async function loadAnchorRelationships(anchor: Show) {
   const mediaType = anchor.mediaType ?? 'tv'
   const cacheKey = `${mediaType}:${anchor.id}`
@@ -100,22 +157,29 @@ async function loadAnchorRelationships(anchor: Show) {
   const inflight = relatedAnchorInflight.get(cacheKey)
   if (inflight) return inflight
 
-  const request = Promise.all([
-    mediaType === 'movie'
+  const request = loadRegistryRelationships(anchor).then(async (registryGroups) => {
+    const registryCount = registryGroups.reduce((count, group) => count + group.shows.length, 0)
+    const collection = mediaType === 'movie' && registryCount === 0
       ? getShowDetail(anchor.id, 'movie')
           .then((detail) => detail.belongs_to_collection?.id ? getMovieCollection(detail.belongs_to_collection.id) : null)
           .then((data) => data?.results.map(tmdbToLoot) ?? [])
           .catch(() => [] as LootShow[])
-      : Promise.resolve([] as LootShow[]),
-    getShowRecommendations(anchor.id, 1, mediaType)
-      .then((data) => data.results.map(tmdbToLoot))
-      .catch(() => [] as LootShow[]),
-    getSimilarShows(anchor.id, 1, mediaType)
-      .then((data) => data.results.map(tmdbToLoot))
-      .catch(() => [] as LootShow[]),
-  ]).then(([collection, recommendations, similar]) => {
+      : Promise.resolve([] as LootShow[])
+    const exactCollection = await collection
+    const exactCount = registryCount + exactCollection.length
+    const [recommendations, similar] = exactCount >= 2
+      ? [[], []] as LootShow[][]
+      : await Promise.all([
+          getShowRecommendations(anchor.id, 1, mediaType)
+            .then((data) => data.results.map(tmdbToLoot))
+            .catch(() => [] as LootShow[]),
+          getSimilarShows(anchor.id, 1, mediaType)
+            .then((data) => data.results.map(tmdbToLoot))
+            .catch(() => [] as LootShow[]),
+        ])
     const groups: RelatedTitleGroup[] = [
-      { anchorId: anchor.id, kind: 'collection', shows: collection },
+      ...registryGroups,
+      { anchorId: anchor.id, kind: 'collection', shows: exactCollection },
       { anchorId: anchor.id, kind: 'recommendation', shows: recommendations },
       { anchorId: anchor.id, kind: 'similar', shows: similar },
     ]
@@ -132,7 +196,12 @@ async function loadAnchorRelationships(anchor: Show) {
 }
 
 export async function loadOnboardingRelatedTitleGroups(anchors: Show[]) {
-  const groups = await Promise.all(anchors.map(loadAnchorRelationships))
+  const groups: RelatedTitleGroup[][] = []
+  for (let index = 0; index < anchors.length; index += ANCHOR_RELATIONSHIP_CONCURRENCY) {
+    groups.push(...await Promise.all(
+      anchors.slice(index, index + ANCHOR_RELATIONSHIP_CONCURRENCY).map(loadAnchorRelationships),
+    ))
+  }
   return groups.flat()
 }
 
@@ -157,6 +226,11 @@ export function rankOnboardingFollowupCandidates(
   )
   const signalWeight: Record<RelatedTitleGroup['kind'], number> = {
     collection: 280,
+    'registry-collection': 300,
+    'registry-sequence': 290,
+    'registry-spin-off': 250,
+    'registry-franchise': 230,
+    'registry-universe': 205,
     recommendation: 92,
     similar: 54,
   }
@@ -168,7 +242,8 @@ export function rankOnboardingFollowupCandidates(
       if (!usable(show, anchor.id)) return
       const existing = candidates.get(show.id) ?? { show, score: 0, anchorIds: new Set<number>() }
       existing.anchorIds.add(anchor.id)
-      existing.score += Math.max(12, signalWeight[group.kind] - index * (group.kind === 'collection' ? 8 : 4))
+      const isExplicit = group.kind === 'collection' || group.kind.startsWith('registry-')
+      existing.score += Math.max(12, signalWeight[group.kind] - index * (isExplicit ? 8 : 4))
       if (hasTitleContinuity(anchor, show)) existing.score += 28
       existing.score += Math.min(10, show.rating) * 1.2
       existing.score += Math.min(8, Math.log10(Math.max(1, show.popularity)) * 2)
@@ -194,33 +269,22 @@ export function rankOnboardingFollowupCandidates(
     perAnchor.set(anchorId, (perAnchor.get(anchorId) ?? 0) + 1)
   }
 
-  // First pass: one explicit franchise title for every anchor that has one.
+  const explicitKinds = new Set<RelatedTitleGroup['kind']>(['collection', 'registry-collection', 'registry-franchise'])
+
+  // First pass: one explicit relationship for every anchor that has one.
   for (const anchor of anchors) {
     const direct = groups
-      .filter((group) => group.anchorId === anchor.id && group.kind === 'collection')
+      .filter((group) => group.anchorId === anchor.id && explicitKinds.has(group.kind))
       .flatMap((group) => group.shows)
       .find((show) => usable(show, anchor.id) && !selectedIds.has(show.id))
     addForAnchor(direct, anchor.id)
     if (selected.length >= limit) return selected
   }
 
-  // Some TMDB titles are not assigned to a collection yet. Reserve a fallback
-  // for those anchors, preferring sequel-like title continuity when available.
-  for (const anchor of anchors) {
-    if ((perAnchor.get(anchor.id) ?? 0) > 0) continue
-    const related = groups
-      .filter((group) => group.anchorId === anchor.id && group.kind !== 'collection')
-      .flatMap((group) => group.shows)
-      .filter((show, index, list) => usable(show, anchor.id) && !selectedIds.has(show.id) && list.findIndex((candidate) => candidate.id === show.id) === index)
-    const fallback = related.find((show) => hasTitleContinuity(anchor, show)) ?? related[0]
-    addForAnchor(fallback, anchor.id)
-    if (selected.length >= limit) return selected
-  }
-
-  // Second franchise pass fills remaining space with additional sequels.
+  // Second explicit pass fills remaining space with additional installments.
   for (const anchor of anchors) {
     const direct = groups
-      .filter((group) => group.anchorId === anchor.id && group.kind === 'collection')
+      .filter((group) => group.anchorId === anchor.id && explicitKinds.has(group.kind))
       .flatMap((group) => group.shows)
       .find((show) => usable(show, anchor.id) && !selectedIds.has(show.id))
     addForAnchor(direct, anchor.id)
@@ -228,6 +292,7 @@ export function rankOnboardingFollowupCandidates(
   }
 
   for (const candidate of ranked) {
+    if (candidate.score < 118) continue
     if (selectedIds.has(candidate.show.id)) continue
     const availableAnchor = [...candidate.anchorIds]
       .sort((a, b) => (perAnchor.get(a) ?? 0) - (perAnchor.get(b) ?? 0))
@@ -240,6 +305,7 @@ export function rankOnboardingFollowupCandidates(
   }
 
   for (const candidate of ranked) {
+    if (candidate.score < 118) continue
     if (selectedIds.has(candidate.show.id)) continue
     selected.push(candidate.show)
     if (selected.length >= limit) break

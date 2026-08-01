@@ -12,8 +12,8 @@ import { WatchlistSearchSheet } from '../watchlist/WatchlistSearchSheet'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
-import { syncFranchiseDefinitionsForShows } from '../../data/queries'
-import type { FranchiseDefinition } from '../../types'
+import { syncEarnedFranchiseAchievements, syncFranchiseDefinitionsForShows } from '../../data/queries'
+import type { EarnedFranchiseAchievement, FranchiseDefinition } from '../../types'
 import { FranchiseAchievementRail } from '../achievements/FranchiseAchievementRail'
 
 type TierFilter = 'All' | Tier | 'Unsorted'
@@ -49,6 +49,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
   const reduceMotion = useReducedMotion()
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
+  const watchlistShows = useDexieQuery(['watchlistShows'], () => db.watchlistShows.toArray(), [], [])
   const assignments = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
   const emojiCategories = useDexieQuery(['emojiCategories'], () => db.emojiCategories.toArray(), [], [])
   const franchiseDefinitions = useDexieQuery<FranchiseDefinition[]>(
@@ -57,11 +58,17 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
     [],
     [],
   )
+  const earnedFranchiseAchievements = useDexieQuery<EarnedFranchiseAchievement[]>(
+    ['earnedFranchiseAchievements'],
+    () => db.earnedFranchiseAchievements.toArray(),
+    [],
+    [],
+  )
 
   useEffect(() => {
     if (!shows.length) return
-    void syncFranchiseDefinitionsForShows(shows)
-  }, [shows])
+    void syncFranchiseDefinitionsForShows(shows).then(() => syncEarnedFranchiseAchievements(shows))
+  }, [franchiseDefinitions.length, shows])
 
   const tierByShowId = useMemo(() => {
     const map = new Map<number, Tier>()
@@ -298,7 +305,13 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
       )}
 
       {view === 'collection' && (
-        <FranchiseAchievementRail definitions={franchiseDefinitions} shows={shows} />
+        <FranchiseAchievementRail
+          definitions={franchiseDefinitions}
+          earnedAchievements={earnedFranchiseAchievements}
+          shows={shows}
+          watchlistShows={watchlistShows}
+          onOpenShow={onOpenShow}
+        />
       )}
 
       <div className={cn('relative z-10 px-4', view === 'watchlist' ? 'pt-[66px] pb-0' : 'py-1.5')}>

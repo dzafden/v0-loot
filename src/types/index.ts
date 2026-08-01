@@ -81,6 +81,14 @@ export interface FranchiseDefinition {
   updatedAt: number
 }
 
+export interface EarnedFranchiseAchievement {
+  id: string
+  definitionId: number
+  criteriaVersion: string
+  earnedAt: number
+  definition: FranchiseDefinition
+}
+
 export interface Collection {
   id: string
   name: string
