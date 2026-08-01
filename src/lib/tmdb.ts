@@ -4,6 +4,7 @@ import type { AnimationTradition, CardDescriptor, MediaType } from '../types'
 import { scoreShowVibes } from './vibe-engine'
 import { isSafeGrownUpAnimation } from './animation-taxonomy'
 import { selectCardDescriptor } from './card-descriptors'
+import { STUDIO_FILTER } from './studios'
 
 const TMDB_BASE = 'https://api.themoviedb.org/3'
 export const TMDB_IMG = 'https://image.tmdb.org/t/p'
@@ -312,6 +313,54 @@ export const getCompanyShows = (companyId: number) =>
     sort_by: 'popularity.desc',
     'vote_count.gte': '5',
   })
+
+export interface StudioCatalogue {
+  results: TmdbSearchResult[]
+  truncated: boolean
+}
+
+async function getStudioCataloguePage(
+  companyId: number,
+  mediaType: MediaType,
+  page: number,
+) {
+  const filters: Record<string, string> = { ...STUDIO_FILTER[mediaType] }
+  const data = await tmdb<{ results: RawTmdbListItem[]; total_pages?: number }>(
+    `/discover/${mediaType}`,
+    withAnimationGenre({
+      with_companies: String(companyId),
+      sort_by: 'popularity.desc',
+      ...filters,
+      page: String(page),
+    }),
+  )
+  return {
+    results: data.results.map((result) => normalizeListItem(result, mediaType)),
+    totalPages: Math.max(1, data.total_pages ?? 1),
+  }
+}
+
+/** Curated-studio membership derived from TMDB with the plan's vote/runtime floors. */
+export async function getStudioCatalogue(companyId: number, maxPages = 8): Promise<StudioCatalogue> {
+  const firstPages = await Promise.all([
+    getStudioCataloguePage(companyId, 'tv', 1),
+    getStudioCataloguePage(companyId, 'movie', 1),
+  ])
+  const requests: Promise<{ results: TmdbSearchResult[]; totalPages: number }>[] = []
+  ;(['tv', 'movie'] as const).forEach((mediaType, index) => {
+    const totalPages = Math.min(firstPages[index].totalPages, maxPages)
+    for (let page = 2; page <= totalPages; page++) {
+      requests.push(getStudioCataloguePage(companyId, mediaType, page))
+    }
+  })
+  const remaining = await Promise.all(requests)
+  const combined = [...firstPages.flatMap((page) => page.results), ...remaining.flatMap((page) => page.results)]
+  const unique = Array.from(new Map(combined.map((show) => [`${show.mediaType}:${show.id}`, show])).values())
+  return {
+    results: unique,
+    truncated: firstPages.some((page) => page.totalPages > maxPages),
+  }
+}
 
 // ── Discover feed (combined fetch + module-level TTL cache) ────────────────
 

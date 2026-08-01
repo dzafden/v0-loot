@@ -11,6 +11,7 @@ import type {
   DiscoverFeedback,
   FranchiseDefinition,
   EarnedFranchiseAchievement,
+  DismissedCollection,
 } from '../types'
 
 export class LootDB extends Dexie {
@@ -26,6 +27,7 @@ export class LootDB extends Dexie {
   discoverFeedback!: Table<DiscoverFeedback, number>
   franchiseDefinitions!: Table<FranchiseDefinition, number>
   earnedFranchiseAchievements!: Table<EarnedFranchiseAchievement, string>
+  dismissedCollections!: Table<DismissedCollection, string>
 
   constructor() {
     super('loot')
@@ -132,6 +134,21 @@ export class LootDB extends Dexie {
       discoverFeedback: 'showId, hiddenUntil, updatedAt',
       franchiseDefinitions: 'id, name, updatedAt',
       earnedFranchiseAchievements: 'id, definitionId, earnedAt',
+    })
+    this.version(9).stores({
+      shows: 'id, name, addedAt, updatedAt, top8Position, tradition, *studioIds',
+      collections: 'id, name, createdAt',
+      emojiCategories: 'id, emoji, createdAt',
+      tierAssignments: 'showId, tier, updatedAt',
+      episodeProgress: 'key, showId, [showId+seasonNumber], watched, watchedAt',
+      seasonCache: 'key, showId, fetchedAt',
+      castRoles: 'id, showId, roleName, createdAt',
+      watchlistShows: 'id, name, addedAt, updatedAt, tradition, *studioIds',
+      watchlistShelves: 'id, name, createdAt, updatedAt',
+      discoverFeedback: 'showId, hiddenUntil, updatedAt',
+      franchiseDefinitions: 'id, name, source, sourceId, updatedAt',
+      earnedFranchiseAchievements: 'id, definitionId, earnedAt',
+      dismissedCollections: 'id, definitionId, source, dismissedAt, updatedAt',
     })
   }
 }

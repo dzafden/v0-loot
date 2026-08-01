@@ -3,6 +3,63 @@ import type { TmdbMovieCollection } from './tmdb'
 
 export type FranchiseAchievement = FranchiseDefinition
 
+/**
+ * A set of two completes the instant you watch both. If hundreds of pairs can complete,
+ * completion becomes an everyday event and stops meaning anything — rank value varies
+ * inversely with the frequency of the event (Douglas & Isherwood). Three is the floor at
+ * which a set reads as a body of work rather than a pair.
+ */
+export const MIN_COLLECTION_SIZE = 3
+
+/** Studios only: proportion seen before a partial collection is worth surfacing. */
+export const MIN_RATIO = 0.25
+/** Studios only: always surface when this close to done, whatever the ratio. */
+export const NEAR_DONE = 3
+
+/**
+ * 'franchise' — membership is self-evident. Nobody needs to be taught that Toy Story is a
+ *               series, so one title is enough to surface it. Volume is controlled by the
+ *               proximity sort and the rail cap, not by a threshold.
+ * 'studio'    — the recognition *is* the payload. "Bob's Burgers is by Bento Box" is a fact;
+ *               "Bob's Burgers, Hazbin Hotel and Grimsburg are all Bento Box" is a pattern.
+ *               One title teaches nothing, so two is the floor.
+ */
+export type CollectionFamily = 'franchise' | 'studio'
+export type CollectionFrequencyTreatment = 'everyday' | 'sunday' | 'heirloom'
+
+export function collectionFamily(definition: FranchiseDefinition): CollectionFamily {
+  return definition.source === 'tmdb-collection' ? 'franchise' : 'studio'
+}
+
+/**
+ * Whether a partially-watched collection should be surfaced at all.
+ * Earned collections bypass this entirely — see `franchiseAchievementProgress`.
+ */
+export function isCollectionVisible(seen: number, total: number, family: CollectionFamily) {
+  if (total < MIN_COLLECTION_SIZE) return false
+  if (seen < 1) return false
+  if (family === 'franchise') return true
+  if (seen < 2) return false
+  return seen / total >= MIN_RATIO || total - seen <= NEAR_DONE
+}
+
+/** Visual intensity follows how rarely a completion of this scope occurs, not a rarity label. */
+export function collectionFrequencyTreatment(total: number): CollectionFrequencyTreatment {
+  if (total <= 5) return 'everyday'
+  if (total <= 15) return 'sunday'
+  return 'heirloom'
+}
+
+export function shouldAutoRestoreDismissal(
+  definition: FranchiseDefinition,
+  ownedIds: Set<number>,
+  watchedCountAtDismissal: number,
+) {
+  const watchedCount = definition.memberIds.filter((id) => ownedIds.has(id)).length
+  return watchedCount > watchedCountAtDismissal
+    || (definition.memberIds.length >= MIN_COLLECTION_SIZE && watchedCount === definition.memberIds.length)
+}
+
 export interface FranchiseAchievementProgress {
   definition: FranchiseDefinition
   earnedAchievement?: EarnedFranchiseAchievement
@@ -13,6 +70,30 @@ export interface FranchiseAchievementProgress {
   isComplete: boolean
   hasBeenEarned: boolean
   hasNewChapter: boolean
+}
+
+export function collectionProgressForDefinition(
+  definition: FranchiseDefinition,
+  earnedAchievement: EarnedFranchiseAchievement | undefined,
+  ownedIds: Set<number>,
+): FranchiseAchievementProgress {
+  const watchedIds = definition.memberIds.filter((id) => ownedIds.has(id))
+  const watchedCount = watchedIds.length
+  const totalCount = definition.memberIds.length
+  const hasBeenEarned = Boolean(earnedAchievement)
+  const isComplete = totalCount >= MIN_COLLECTION_SIZE && watchedCount === totalCount
+  const earnedMemberCount = earnedAchievement?.definition.memberIds.length ?? 0
+  return {
+    definition,
+    earnedAchievement,
+    watchedIds,
+    watchedCount,
+    totalCount,
+    remainingCount: Math.max(0, totalCount - watchedCount),
+    isComplete,
+    hasBeenEarned,
+    hasNewChapter: hasBeenEarned && totalCount > earnedMemberCount && !isComplete,
+  }
 }
 
 export function buildFranchiseDefinition(
@@ -50,7 +131,7 @@ export function completedFranchiseAchievements(
   ownedIds: Set<number>,
 ): FranchiseAchievement[] {
   return definitions
-    .filter((definition) => definition.memberIds.length >= 2)
+    .filter((definition) => definition.memberIds.length >= MIN_COLLECTION_SIZE)
     .filter((definition) => definition.memberIds.every((id) => ownedIds.has(id)))
     .map((definition) => ({ ...definition }))
     .sort((a, b) => b.memberIds.length - a.memberIds.length || a.name.localeCompare(b.name))
@@ -60,8 +141,16 @@ export function franchiseAchievementId(definitionId: number) {
   return `tmdb-collection:${definitionId}`
 }
 
+export function collectionAchievementId(definition: FranchiseDefinition) {
+  return `${definition.source}:${definition.sourceId ?? definition.id}`
+}
+
+export function dismissedCollectionId(definition: FranchiseDefinition) {
+  return collectionAchievementId(definition)
+}
+
 export function franchiseCriteriaVersion(definition: FranchiseDefinition) {
-  return `tmdb:${definition.id}:${[...definition.memberIds].sort((a, b) => a - b).join(',')}`
+  return `${collectionAchievementId(definition)}:${[...definition.memberIds].sort((a, b) => a - b).join(',')}`
 }
 
 export function newlyEarnedFranchiseAchievements(
@@ -71,9 +160,9 @@ export function newlyEarnedFranchiseAchievements(
   at = Date.now(),
 ): EarnedFranchiseAchievement[] {
   return completedFranchiseAchievements(definitions, ownedIds)
-    .filter((definition) => !existingIds.has(franchiseAchievementId(definition.id)))
+    .filter((definition) => !existingIds.has(collectionAchievementId(definition)))
     .map((definition) => ({
-      id: franchiseAchievementId(definition.id),
+      id: collectionAchievementId(definition),
       definitionId: definition.id,
       criteriaVersion: franchiseCriteriaVersion(definition),
       earnedAt: at,
@@ -85,6 +174,12 @@ export function franchiseAchievementProgress(
   definitions: FranchiseDefinition[],
   earnedAchievements: EarnedFranchiseAchievement[],
   ownedIds: Set<number>,
+  /**
+   * Collections the user has explicitly dismissed ("not for me"). Hidden, never deleted:
+   * tracking continues silently, a dismissed collection still earns if completed, and it
+   * returns automatically once new progress arrives (handled by the caller re-including it).
+   */
+  dismissedIds: Set<number> = new Set(),
 ): FranchiseAchievementProgress[] {
   const liveById = new Map(definitions.map((definition) => [definition.id, definition]))
   const earnedByDefinitionId = new Map(
@@ -102,23 +197,16 @@ export function franchiseAchievementProgress(
     const earnedAchievement = earnedByDefinitionId.get(definitionId)
     const definition = liveById.get(definitionId) ?? earnedAchievement?.definition
     if (!definition) continue
-    const watchedIds = definition.memberIds.filter((id) => ownedIds.has(id))
-    const watchedCount = watchedIds.length
-    const totalCount = definition.memberIds.length
-    const hasBeenEarned = Boolean(earnedAchievement)
-    const isComplete = totalCount >= 2 && watchedCount === totalCount
-    const earnedMemberCount = earnedAchievement?.definition.memberIds.length ?? 0
-    progressItems.push({
-      definition,
-      earnedAchievement,
-      watchedIds,
-      watchedCount,
-      totalCount,
-      remainingCount: Math.max(0, totalCount - watchedCount),
-      isComplete,
-      hasBeenEarned,
-      hasNewChapter: hasBeenEarned && totalCount > earnedMemberCount && !isComplete,
-    })
+    const progress = collectionProgressForDefinition(definition, earnedAchievement, ownedIds)
+
+    // Earned collections are always visible. Everything else must clear the visibility rule,
+    // and a dismissed collection stays hidden until it is earned.
+    if (!progress.hasBeenEarned) {
+      if (dismissedIds.has(definitionId)) continue
+      if (!isCollectionVisible(progress.watchedCount, progress.totalCount, collectionFamily(definition))) continue
+    }
+
+    progressItems.push(progress)
   }
 
   return progressItems.sort((a, b) => {

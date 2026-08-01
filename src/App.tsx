@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BottomNav, type Tab } from './components/ui/BottomNav'
 import { Collection } from './features/library/Collection'
 import { Rankings } from './features/tier-game/Rankings'
@@ -12,10 +12,12 @@ import { SettingsSheet } from './features/settings/SettingsSheet'
 import { IOSInstallBanner } from './components/ui/IOSInstallBanner'
 import { db } from './data/db'
 import { useDexieQuery } from './hooks/useDexieQuery'
-import type { RecommendationContext, Show } from './types'
+import type { EarnedFranchiseAchievement, RecommendationContext, Show } from './types'
 import { AnimatePresence } from 'framer-motion'
 import { FirstSessionOnboarding, ONBOARDING_STORAGE_KEY } from './features/onboarding/FirstSessionOnboarding'
 import { hasTmdbKey } from './lib/tmdb'
+import { syncDismissedCollections, syncEarnedFranchiseAchievements, syncFranchiseDefinitionsForShows } from './data/queries'
+import { CollectionCompletionReveal } from './features/achievements/CollectionCompletionReveal'
 
 type CastingTarget = {
   show: Show
@@ -50,16 +52,37 @@ export default function App() {
   const [tracking, setTracking] = useState<Show | null>(null)
   const [castingFor, setCastingFor] = useState<CastingTarget | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [achievementQueue, setAchievementQueue] = useState<EarnedFranchiseAchievement[]>([])
+  const collectionSync = useRef<Promise<void>>(Promise.resolve())
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(() => {
     try { return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'complete' ? false : null } catch { return null }
   })
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
   const tiers = useDexieQuery(['tierAssignments'], () => db.tierAssignments.toArray(), [], [])
+  const collectionSyncSignature = useMemo(
+    () => shows.map((show) => `${show.mediaType ?? 'tv'}:${show.id}`).sort().join('|'),
+    [shows],
+  )
   const unsortedCount = useMemo(() => {
     const sorted = new Set(tiers.map((t) => t.showId))
     return shows.filter((s) => !sorted.has(s.id)).length
   }, [shows, tiers])
+
+  useEffect(() => {
+    if (!collectionSyncSignature) return
+    collectionSync.current = collectionSync.current.then(async () => {
+      const snapshot = await db.shows.toArray()
+      await syncFranchiseDefinitionsForShows(snapshot)
+      await syncDismissedCollections(snapshot)
+      const additions = await syncEarnedFranchiseAchievements(snapshot)
+      if (!additions.length) return
+      setAchievementQueue((current) => {
+        const queuedIds = new Set(current.map((achievement) => achievement.id))
+        return [...current, ...additions.filter((achievement) => !queuedIds.has(achievement.id))]
+      })
+    }).catch(() => undefined)
+  }, [collectionSyncSignature])
 
   useEffect(() => {
     if (showOnboarding !== null) return
@@ -114,6 +137,10 @@ export default function App() {
     setDetail(null)
     setTab(nextTab)
   }, [detail, tab])
+
+  const dismissAchievementReveal = useCallback(() => {
+    setAchievementQueue((current) => current.slice(1))
+  }, [])
 
   // Inject keyframes for shine animation (used by LootCard).
   useEffect(() => {
@@ -187,6 +214,10 @@ export default function App() {
         <AnimatePresence>
           {showOnboarding && <FirstSessionOnboarding onComplete={() => { navigateTab(hasTmdbKey() ? 'discover' : 'collection'); setShowOnboarding(false) }} />}
         </AnimatePresence>
+        <CollectionCompletionReveal
+          achievement={showOnboarding === false ? achievementQueue[0] ?? null : null}
+          onDismiss={dismissAchievementReveal}
+        />
       </div>
     </div>
   )

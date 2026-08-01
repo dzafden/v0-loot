@@ -36,7 +36,7 @@ import {
 import { activeDiscoverFeedback, cacheSeason, upsertShow, addToWatchlistShelf, ensureDefaultWatchlistShelves } from '../../data/queries'
 import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
-import type { CardDescriptor, Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
+import type { CardDescriptor, DismissedCollection, FranchiseDefinition, Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
 import { CollectibleMediaCard, rankGlyphStyle } from '../../components/show/CollectibleMediaCard'
 import { FeedSaveActions } from '../../components/show/FeedSaveActions'
@@ -858,7 +858,17 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const watchlistShows = useDexieQuery(['watchlistShows'], () => db.watchlistShows.toArray(), [], [])
   const watchlistShelves = useDexieQuery(['watchlistShelves'], () => db.watchlistShelves.toArray(), [], [])
   const hiddenFeedback = useDexieQuery(['discoverFeedback'], activeDiscoverFeedback, [], [])
-  const hiddenIds = useMemo(() => new Set(hiddenFeedback.map((feedback) => feedback.showId)), [hiddenFeedback])
+  const dismissedCollections = useDexieQuery<DismissedCollection[]>(['dismissedCollections'], () => db.dismissedCollections.toArray(), [], [])
+  const collectionDefinitions = useDexieQuery<FranchiseDefinition[]>(['franchiseDefinitions'], () => db.franchiseDefinitions.toArray(), [], [])
+  const hiddenIds = useMemo(() => {
+    const ids = new Set(hiddenFeedback.map((feedback) => feedback.showId))
+    const dismissedDefinitionIds = new Set(dismissedCollections.map((collection) => collection.definitionId))
+    for (const definition of collectionDefinitions) {
+      if (!dismissedDefinitionIds.has(definition.id)) continue
+      for (const memberId of definition.memberIds) ids.add(memberId)
+    }
+    return ids
+  }, [collectionDefinitions, dismissedCollections, hiddenFeedback])
   const liveOwnedIds = useMemo(() => ownedShows.map((s) => s.id), [ownedShows])
   const liveOwnedSet = useMemo(() => new Set(liveOwnedIds), [liveOwnedIds])
   const liveWatchlistSet = useMemo(() => new Set(watchlistShows.map((show) => show.id)), [watchlistShows])
@@ -909,9 +919,9 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       onboardingRelatedGroups.filter((group) => anchorIds.has(group.anchorId)),
       profileShows.filter((show) => anchorIds.has(show.id)),
       profileOwnedSet,
-    )
+    ).filter((show) => !hiddenIds.has(show.id))
     return candidates.length >= 2 ? candidates : []
-  }, [onboardingFollowup, onboardingRelatedGroups, profileOwnedSet, profileShows])
+  }, [hiddenIds, onboardingFollowup, onboardingRelatedGroups, profileOwnedSet, profileShows])
 
   useEffect(() => {
     const refreshFollowup = () => setOnboardingFollowup(readOnboardingFollowup())

@@ -9,8 +9,11 @@ import {
   setTmdbKey,
   setWatchRegion,
 } from '../../lib/tmdb'
-import { activeDiscoverFeedback, restoreDiscoverTitle } from '../../data/queries'
+import { activeDiscoverFeedback, restoreDiscoverTitle, restoreDismissedCollection } from '../../data/queries'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
+import { db } from '../../data/db'
+import type { DismissedCollection } from '../../types'
+import { franchiseDisplayName } from '../../lib/franchise-achievements'
 
 type RegionOption = { iso_3166_1: string; english_name: string; native_name?: string }
 
@@ -31,6 +34,12 @@ export function SettingsSheet({ open, onClose }: Props) {
   const [region, setRegion] = useState(getWatchRegion())
   const [regions, setRegions] = useState<RegionOption[]>(FALLBACK_REGIONS)
   const hiddenTitles = useDexieQuery(['discoverFeedback'], activeDiscoverFeedback, [], [])
+  const dismissedCollections = useDexieQuery<DismissedCollection[]>(
+    ['dismissedCollections'],
+    () => db.dismissedCollections.orderBy('dismissedAt').reverse().toArray(),
+    [],
+    [],
+  )
 
   useEffect(() => {
     if (!open || !getTmdbKey()) return
@@ -150,6 +159,21 @@ export function SettingsSheet({ open, onClose }: Props) {
                       </div>
                       <span className="min-w-0 flex-1 truncate text-sm font-bold text-white/78">{title.name}</span>
                       <button onClick={() => void restoreDiscoverTitle(title.showId)} className="h-9 rounded-full bg-white/[0.08] px-3 text-[10px] font-black uppercase tracking-[0.12em] text-white/64 active:scale-95">Restore</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {dismissedCollections.length > 0 && (
+              <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <h3 className="font-black uppercase tracking-tight">Hidden collections</h3>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-500">These still track quietly and return automatically if you watch another title.</p>
+                <div className="mt-3 flex flex-col gap-2">
+                  {dismissedCollections.map((collection) => (
+                    <div key={collection.id} className="flex min-h-12 items-center gap-3 rounded-[16px] bg-black/24 px-3 py-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-bold text-white/78">{franchiseDisplayName(collection.name)}</span>
+                      <button onClick={() => void restoreDismissedCollection(collection.id)} className="h-9 rounded-full bg-white/[0.08] px-3 text-[10px] font-black uppercase tracking-[0.12em] text-white/64 active:scale-95">Restore</button>
                     </div>
                   ))}
                 </div>

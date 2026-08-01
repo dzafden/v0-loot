@@ -10,17 +10,21 @@ import type {
   TierAssignment,
   WatchlistShelf,
   DiscoverFeedback,
+  DismissedCollection,
+  FranchiseDefinition,
 } from '../types'
-import { deriveTradition, getMovieCollection, getShowDetail, getShowKeywords, hasTmdbKey, type TmdbShowDetail } from '../lib/tmdb'
+import { deriveTradition, getMovieCollection, getShowDetail, getShowKeywords, getStudioCatalogue, hasTmdbKey, type TmdbShowDetail } from '../lib/tmdb'
 import { buildVibeCandidate, scoreShowVibes } from '../lib/vibe-engine'
 import { selectCardDescriptor } from '../lib/card-descriptors'
-import { buildFranchiseDefinition } from '../lib/franchise-achievements'
-import { newlyEarnedFranchiseAchievements } from '../lib/franchise-achievements'
+import { buildFranchiseDefinition, dismissedCollectionId, newlyEarnedFranchiseAchievements, shouldAutoRestoreDismissal } from '../lib/franchise-achievements'
+import { buildStudioCollectionDefinition } from '../lib/studio-collections'
+import { getStudio, resolveStudios } from '../lib/studios'
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
 const FRANCHISE_DEFINITION_TTL_MS = 7 * 24 * 60 * 60_000
 const franchiseDefinitionInflight = new Map<number, Promise<void>>()
+const studioDefinitionInflight = new Map<number, Promise<FranchiseDefinition | null>>()
 
 async function persistFranchiseDefinition(collectionId: number) {
   const inflight = franchiseDefinitionInflight.get(collectionId)
@@ -48,6 +52,22 @@ async function persistMovieFranchiseMetadata(
     updatedAt: Date.now(),
   })
   if (collection?.id) await persistFranchiseDefinition(collection.id)
+}
+
+export async function getOrPersistStudioDefinition(studioId: number) {
+  const inflight = studioDefinitionInflight.get(studioId)
+  if (inflight) return inflight
+  const studio = getStudio(studioId)
+  if (!studio) return null
+  const request = getStudioCatalogue(studioId)
+    .then(({ results }) => buildStudioCollectionDefinition(studio, results))
+    .then(async (definition) => {
+      if (definition?.collectible) await db.franchiseDefinitions.put(definition)
+      return definition
+    })
+    .finally(() => studioDefinitionInflight.delete(studioId))
+  studioDefinitionInflight.set(studioId, request)
+  return request
 }
 
 export const WATCHLIST_SHELF_SUGGESTIONS = [
@@ -96,6 +116,7 @@ async function classifyPersistedShow(show: Show, target: 'shows' | 'watchlistSho
         genreNames: detail.genres.map((genre) => genre.name),
         tradition: show.tradition ?? deriveTradition(detail.origin_country, detail.original_language),
       }),
+      studioIds: resolveStudios(detail.production_companies).map((studio) => studio.id),
       updatedAt: Date.now(),
     }
     await db[target].update(show.id, patch)
@@ -109,23 +130,41 @@ export async function syncFranchiseDefinitionsForShows(shows: Show[]) {
   if (!hasTmdbKey()) return
   const current = await db.franchiseDefinitions.toArray()
   const byId = new Map(current.map((definition) => [definition.id, definition]))
-  const movies = shows.filter((show) => (show.mediaType ?? 'tv') === 'movie')
+  const studioIds = new Set<number>()
 
-  for (let index = 0; index < movies.length; index += 4) {
-    const batch = movies.slice(index, index + 4)
+  for (let index = 0; index < shows.length; index += 4) {
+    const batch = shows.slice(index, index + 4)
     await Promise.allSettled(batch.map(async (show) => {
-      const collectionId = show.franchiseCollectionId
-      if (collectionId === null) return
-      if (typeof collectionId === 'number') {
-        const definition = byId.get(collectionId)
-        if (!definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS) {
-          await persistFranchiseDefinition(collectionId)
-        }
-        return
+      const mediaType = show.mediaType ?? 'tv'
+      for (const studioId of show.studioIds ?? []) studioIds.add(studioId)
+      const needsStudioMetadata = show.studioIds === undefined
+      const needsFranchiseMetadata = mediaType === 'movie' && show.franchiseCollectionId === undefined
+
+      if (needsStudioMetadata || needsFranchiseMetadata) {
+        const detail = await getShowDetail(show.id, mediaType)
+        const resolvedStudioIds = resolveStudios(detail.production_companies).map((studio) => studio.id)
+        for (const studioId of resolvedStudioIds) studioIds.add(studioId)
+        await db.shows.update(show.id, { studioIds: resolvedStudioIds, updatedAt: Date.now() })
+        await persistMovieFranchiseMetadata(show, 'shows', detail)
       }
-      const detail = await getShowDetail(show.id, 'movie')
-      await persistMovieFranchiseMetadata(show, 'shows', detail)
+
+      if (mediaType === 'movie' && typeof show.franchiseCollectionId === 'number') {
+        const definition = byId.get(show.franchiseCollectionId)
+        if (!definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS) {
+          await persistFranchiseDefinition(show.franchiseCollectionId)
+        }
+      }
     }))
+  }
+
+  const studiosToSync = Array.from(studioIds).filter((studioId) => {
+    const studio = getStudio(studioId)
+    if (!studio?.collectible) return false
+    const definition = byId.get(-Math.abs(studioId))
+    return !definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS
+  })
+  for (let index = 0; index < studiosToSync.length; index += 3) {
+    await Promise.allSettled(studiosToSync.slice(index, index + 3).map(getOrPersistStudioDefinition))
   }
 }
 
@@ -141,6 +180,46 @@ export async function syncEarnedFranchiseAchievements(shows: Show[]) {
   )
   if (additions.length) await db.earnedFranchiseAchievements.bulkPut(additions)
   return additions
+}
+
+export async function dismissCollection(
+  definition: FranchiseDefinition,
+  watchedCountAtDismissal: number,
+  at = Date.now(),
+) {
+  const dismissed: DismissedCollection = {
+    id: dismissedCollectionId(definition),
+    definitionId: definition.id,
+    source: definition.source,
+    name: definition.name,
+    watchedCountAtDismissal,
+    dismissedAt: at,
+    updatedAt: at,
+  }
+  await db.dismissedCollections.put(dismissed)
+  return dismissed
+}
+
+export async function restoreDismissedCollection(id: string) {
+  await db.dismissedCollections.delete(id)
+}
+
+export async function syncDismissedCollections(shows: Show[]) {
+  const [dismissed, definitions] = await Promise.all([
+    db.dismissedCollections.toArray(),
+    db.franchiseDefinitions.toArray(),
+  ])
+  const ownedIds = new Set(shows.map((show) => show.id))
+  const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]))
+  const restoreIds = dismissed
+    .filter((item) => {
+      const definition = definitionsById.get(item.definitionId)
+      if (!definition) return false
+      return shouldAutoRestoreDismissal(definition, ownedIds, item.watchedCountAtDismissal)
+    })
+    .map((item) => item.id)
+  if (restoreIds.length) await db.dismissedCollections.bulkDelete(restoreIds)
+  return restoreIds
 }
 
 export async function upsertShow(show: Show) {

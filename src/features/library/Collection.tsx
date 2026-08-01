@@ -12,8 +12,7 @@ import { WatchlistSearchSheet } from '../watchlist/WatchlistSearchSheet'
 import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
-import { syncEarnedFranchiseAchievements, syncFranchiseDefinitionsForShows } from '../../data/queries'
-import type { EarnedFranchiseAchievement, FranchiseDefinition } from '../../types'
+import type { DismissedCollection, EarnedFranchiseAchievement, FranchiseDefinition } from '../../types'
 import { FranchiseAchievementRail } from '../achievements/FranchiseAchievementRail'
 
 type TierFilter = 'All' | Tier | 'Unsorted'
@@ -46,6 +45,7 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
   const [watchlistSearchOpen, setWatchlistSearchOpen] = useState(false)
   const [watchlistSearchShelfId, setWatchlistSearchShelfId] = useState<string | null>(null)
   const [newShelfSignal, setNewShelfSignal] = useState(0)
+  const [collectionRecordsOpen, setCollectionRecordsOpen] = useState(false)
   const reduceMotion = useReducedMotion()
 
   const shows = useDexieQuery(['shows'], () => db.shows.toArray(), [], [])
@@ -64,11 +64,12 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
     [],
     [],
   )
-
-  useEffect(() => {
-    if (!shows.length) return
-    void syncFranchiseDefinitionsForShows(shows).then(() => syncEarnedFranchiseAchievements(shows))
-  }, [franchiseDefinitions.length, shows])
+  const dismissedCollections = useDexieQuery<DismissedCollection[]>(
+    ['dismissedCollections'],
+    () => db.dismissedCollections.toArray(),
+    [],
+    [],
+  )
 
   const tierByShowId = useMemo(() => {
     const map = new Map<number, Tier>()
@@ -308,9 +309,13 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
         <FranchiseAchievementRail
           definitions={franchiseDefinitions}
           earnedAchievements={earnedFranchiseAchievements}
+          dismissedCollections={dismissedCollections}
           shows={shows}
           watchlistShows={watchlistShows}
           onOpenShow={onOpenShow}
+          mode={collectionRecordsOpen ? 'screen' : 'rails'}
+          onOpenAll={() => setCollectionRecordsOpen(true)}
+          onBack={() => setCollectionRecordsOpen(false)}
         />
       )}
 

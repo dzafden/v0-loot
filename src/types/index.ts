@@ -53,6 +53,8 @@ export interface Show {
   /** Canonical TMDB movie collection membership, when one exists. */
   franchiseCollectionId?: number | null
   franchiseCollectionName?: string
+  /** Verified authoring studios from Loot's curated TMDB company allowlist. */
+  studioIds?: number[]
   addedAt: number
   updatedAt: number
   // customization
@@ -68,6 +70,7 @@ export interface FranchiseMember {
   posterPath?: string | null
   backdropPath?: string | null
   releaseDate: string
+  mediaType?: MediaType
 }
 
 export interface FranchiseDefinition {
@@ -77,7 +80,11 @@ export interface FranchiseDefinition {
   backdropPath?: string | null
   memberIds: number[]
   members: FranchiseMember[]
-  source: 'tmdb-collection'
+  source: 'tmdb-collection' | 'tmdb-studio'
+  /** Provider id when `id` is namespaced for local persistence. */
+  sourceId?: number
+  tradition?: AnimationTradition
+  collectible?: boolean
   updatedAt: number
 }
 
@@ -87,6 +94,16 @@ export interface EarnedFranchiseAchievement {
   criteriaVersion: string
   earnedAt: number
   definition: FranchiseDefinition
+}
+
+export interface DismissedCollection {
+  id: string
+  definitionId: number
+  source: FranchiseDefinition['source']
+  name: string
+  watchedCountAtDismissal: number
+  dismissedAt: number
+  updatedAt: number
 }
 
 export interface Collection {

@@ -220,6 +220,12 @@ Avoid using bold uppercase for every label. Weight, casing, size, and spacing mu
 - Begin series achievement progress as soon as the user watches one required installment. Keep incomplete achievements visible by default, without dismissal, so unfinished collections remain a useful invitation rather than a transient recommendation.
 - Treat achievement cards as navigable collection summaries. Activating a card must reveal its required titles, current watched/total progress, direct title navigation, and the canonical Seen and Watchlist actions.
 - Reserve celebratory gold material for earned history. Incomplete achievements use neutral progress treatment; if a completed collection later gains a new installment, preserve the earned card and identify the new chapter without revoking the original achievement.
+- Treat completion as recognition, not victory. The full-screen moment may be loud and physical, but its copy states a truth about the user; never use “unlocked,” score, XP, confetti, or congratulatory fanfare.
+- Scale completion treatment by how rarely an event of that scope occurs: small everyday sets stay plain, medium bodies receive a fuller cover moment, and substantial canons receive the strongest placement. Do not expose these as rarity labels.
+- Below half-complete, frame a collection as a capture prompt (“Seen the others?”), not a debt or progress chore. Detailed views may show the factual record, but low-progress rail cards should not lead with a remaining-work bar.
+- Use one coherent hero composition for collection covers: collection or member backdrop, artwork-derived colour field, and title as a type layer. Use a multi-poster split only when no suitable hero image exists.
+- Dismissal means “not for me,” not deletion. Keep it behind detail or long-press, restore it when new watching contradicts the dismissal, and provide a reversible list in Settings.
+- Studio pages are discovery infrastructure available independently of progress. Personal studio records materialize only after at least two watched titles form a meaningful pattern and the studio visibility rule is satisfied.
 
 ## Motion and Feedback
 
