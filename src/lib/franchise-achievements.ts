@@ -1,4 +1,4 @@
-import type { EarnedFranchiseAchievement, FranchiseDefinition } from '../types'
+import type { DismissedCollection, EarnedFranchiseAchievement, FranchiseDefinition, FranchiseMember, Show } from '../types'
 import type { TmdbMovieCollection } from './tmdb'
 
 export type FranchiseAchievement = FranchiseDefinition
@@ -27,8 +27,20 @@ export const NEAR_DONE = 3
 export type CollectionFamily = 'franchise' | 'studio'
 export type CollectionFrequencyTreatment = 'everyday' | 'sunday' | 'heirloom'
 
+export function franchiseMemberKey(member: Pick<FranchiseMember, 'id' | 'mediaType'>) {
+  return `${member.mediaType ?? 'movie'}:${member.id}`
+}
+
+export function franchiseShowKey(show: Pick<Show, 'id' | 'mediaType'>) {
+  return `${show.mediaType ?? 'tv'}:${show.id}`
+}
+
+export function ownedFranchiseKeys(shows: Array<Pick<Show, 'id' | 'mediaType'>>) {
+  return new Set(shows.map(franchiseShowKey))
+}
+
 export function collectionFamily(definition: FranchiseDefinition): CollectionFamily {
-  return definition.source === 'tmdb-collection' ? 'franchise' : 'studio'
+  return definition.source === 'tmdb-studio' ? 'studio' : 'franchise'
 }
 
 /**
@@ -52,18 +64,18 @@ export function collectionFrequencyTreatment(total: number): CollectionFrequency
 
 export function shouldAutoRestoreDismissal(
   definition: FranchiseDefinition,
-  ownedIds: Set<number>,
+  ownedKeys: Set<string>,
   watchedCountAtDismissal: number,
 ) {
-  const watchedCount = definition.memberIds.filter((id) => ownedIds.has(id)).length
+  const watchedCount = definition.members.filter((member) => ownedKeys.has(franchiseMemberKey(member))).length
   return watchedCount > watchedCountAtDismissal
-    || (definition.memberIds.length >= MIN_COLLECTION_SIZE && watchedCount === definition.memberIds.length)
+    || (definition.members.length >= MIN_COLLECTION_SIZE && watchedCount === definition.members.length)
 }
 
 export interface FranchiseAchievementProgress {
   definition: FranchiseDefinition
   earnedAchievement?: EarnedFranchiseAchievement
-  watchedIds: number[]
+  watchedKeys: string[]
   watchedCount: number
   totalCount: number
   remainingCount: number
@@ -75,18 +87,20 @@ export interface FranchiseAchievementProgress {
 export function collectionProgressForDefinition(
   definition: FranchiseDefinition,
   earnedAchievement: EarnedFranchiseAchievement | undefined,
-  ownedIds: Set<number>,
+  ownedKeys: Set<string>,
 ): FranchiseAchievementProgress {
-  const watchedIds = definition.memberIds.filter((id) => ownedIds.has(id))
-  const watchedCount = watchedIds.length
-  const totalCount = definition.memberIds.length
+  const watchedKeys = definition.members
+    .filter((member) => ownedKeys.has(franchiseMemberKey(member)))
+    .map(franchiseMemberKey)
+  const watchedCount = watchedKeys.length
+  const totalCount = definition.members.length
   const hasBeenEarned = Boolean(earnedAchievement)
   const isComplete = totalCount >= MIN_COLLECTION_SIZE && watchedCount === totalCount
-  const earnedMemberCount = earnedAchievement?.definition.memberIds.length ?? 0
+  const earnedMemberCount = earnedAchievement?.definition.members.length ?? 0
   return {
     definition,
     earnedAchievement,
-    watchedIds,
+    watchedKeys,
     watchedCount,
     totalCount,
     remainingCount: Math.max(0, totalCount - watchedCount),
@@ -128,11 +142,11 @@ export function buildFranchiseDefinition(
 
 export function completedFranchiseAchievements(
   definitions: FranchiseDefinition[],
-  ownedIds: Set<number>,
+  ownedKeys: Set<string>,
 ): FranchiseAchievement[] {
   return definitions
-    .filter((definition) => definition.memberIds.length >= MIN_COLLECTION_SIZE)
-    .filter((definition) => definition.memberIds.every((id) => ownedIds.has(id)))
+    .filter((definition) => definition.members.length >= MIN_COLLECTION_SIZE)
+    .filter((definition) => definition.members.every((member) => ownedKeys.has(franchiseMemberKey(member))))
     .map((definition) => ({ ...definition }))
     .sort((a, b) => b.memberIds.length - a.memberIds.length || a.name.localeCompare(b.name))
 }
@@ -142,7 +156,7 @@ export function franchiseAchievementId(definitionId: number) {
 }
 
 export function collectionAchievementId(definition: FranchiseDefinition) {
-  return `${definition.source}:${definition.sourceId ?? definition.id}`
+  return `${definition.source}:${definition.sourceKey ?? definition.sourceId ?? definition.id}`
 }
 
 export function dismissedCollectionId(definition: FranchiseDefinition) {
@@ -150,16 +164,52 @@ export function dismissedCollectionId(definition: FranchiseDefinition) {
 }
 
 export function franchiseCriteriaVersion(definition: FranchiseDefinition) {
-  return `${collectionAchievementId(definition)}:${[...definition.memberIds].sort((a, b) => a - b).join(',')}`
+  return `${collectionAchievementId(definition)}:${definition.members.map(franchiseMemberKey).sort().join(',')}`
+}
+
+export function rebindEarnedFranchiseAchievement(
+  achievement: EarnedFranchiseAchievement,
+  definition: FranchiseDefinition,
+): EarnedFranchiseAchievement {
+  const snapshot: FranchiseDefinition = {
+    ...achievement.definition,
+    id: definition.id,
+    name: definition.name,
+    posterPath: definition.posterPath ?? achievement.definition.posterPath ?? null,
+    backdropPath: definition.backdropPath ?? achievement.definition.backdropPath ?? null,
+    source: definition.source,
+    sourceId: definition.sourceId,
+    sourceKey: definition.sourceKey,
+  }
+  return {
+    ...achievement,
+    id: collectionAchievementId(definition),
+    definitionId: definition.id,
+    criteriaVersion: franchiseCriteriaVersion(snapshot),
+    definition: snapshot,
+  }
+}
+
+export function rebindDismissedCollection(
+  dismissed: DismissedCollection,
+  definition: FranchiseDefinition,
+): DismissedCollection {
+  return {
+    ...dismissed,
+    id: dismissedCollectionId(definition),
+    definitionId: definition.id,
+    source: definition.source,
+    name: definition.name,
+  }
 }
 
 export function newlyEarnedFranchiseAchievements(
   definitions: FranchiseDefinition[],
-  ownedIds: Set<number>,
+  ownedKeys: Set<string>,
   existingIds: Set<string>,
   at = Date.now(),
 ): EarnedFranchiseAchievement[] {
-  return completedFranchiseAchievements(definitions, ownedIds)
+  return completedFranchiseAchievements(definitions, ownedKeys)
     .filter((definition) => !existingIds.has(collectionAchievementId(definition)))
     .map((definition) => ({
       id: collectionAchievementId(definition),
@@ -173,7 +223,7 @@ export function newlyEarnedFranchiseAchievements(
 export function franchiseAchievementProgress(
   definitions: FranchiseDefinition[],
   earnedAchievements: EarnedFranchiseAchievement[],
-  ownedIds: Set<number>,
+  ownedKeys: Set<string>,
   /**
    * Collections the user has explicitly dismissed ("not for me"). Hidden, never deleted:
    * tracking continues silently, a dismissed collection still earns if completed, and it
@@ -187,7 +237,7 @@ export function franchiseAchievementProgress(
   )
   const definitionIds = new Set([
     ...definitions
-      .filter((definition) => definition.memberIds.some((id) => ownedIds.has(id)))
+      .filter((definition) => definition.members.some((member) => ownedKeys.has(franchiseMemberKey(member))))
       .map((definition) => definition.id),
     ...earnedAchievements.map((achievement) => achievement.definitionId),
   ])
@@ -197,7 +247,7 @@ export function franchiseAchievementProgress(
     const earnedAchievement = earnedByDefinitionId.get(definitionId)
     const definition = liveById.get(definitionId) ?? earnedAchievement?.definition
     if (!definition) continue
-    const progress = collectionProgressForDefinition(definition, earnedAchievement, ownedIds)
+    const progress = collectionProgressForDefinition(definition, earnedAchievement, ownedKeys)
 
     // Earned collections are always visible. Everything else must clear the visibility rule,
     // and a dismissed collection stays hidden until it is earned.

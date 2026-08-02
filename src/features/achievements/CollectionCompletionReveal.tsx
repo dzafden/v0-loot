@@ -62,7 +62,7 @@ export function CollectionCompletionReveal({
 
   const title = definition ? franchiseDisplayName(definition.name) : ''
   const allMovies = definition?.members.every((member) => (member.mediaType ?? 'movie') === 'movie') ?? true
-  const noun = definition?.source === 'tmdb-studio' && !allMovies ? 'title' : 'film'
+  const noun = allMovies ? 'film' : 'title'
   const count = definition?.memberIds.length ?? 0
   const intensity = collectionFrequencyTreatment(count)
 

@@ -85,7 +85,7 @@ export async function createCollectionShareFile(
   const padding = 76
   const title = franchiseDisplayName(definition.name)
   const allMovies = definition.members.every((member) => (member.mediaType ?? 'movie') === 'movie')
-  const noun = definition.source === 'tmdb-studio' && !allMovies ? 'titles' : 'films'
+  const noun = allMovies ? 'films' : 'titles'
   ctx.fillStyle = '#ffffff'
   ctx.font = '900 112px Arial, sans-serif'
   ctx.textBaseline = 'top'

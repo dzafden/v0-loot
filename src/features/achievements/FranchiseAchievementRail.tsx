@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronLeft, ChevronRight, EyeOff, Factory, Layers3, X } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, EyeOff, Layers3, X } from 'lucide-react'
 import type { DismissedCollection, EarnedFranchiseAchievement, FranchiseDefinition, FranchiseMember, Show } from '../../types'
 import {
-  collectionProgressForDefinition,
   collectionFrequencyTreatment,
+  franchiseMemberKey,
   franchiseAchievementProgress,
   franchiseDisplayName,
+  franchiseShowKey,
+  ownedFranchiseKeys,
   type FranchiseAchievementProgress,
 } from '../../lib/franchise-achievements'
-import { hasTmdbKey, imgUrl } from '../../lib/tmdb'
+import { imgUrl } from '../../lib/tmdb'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { cn } from '../../lib/utils'
 import { FeedSaveActions } from '../../components/show/FeedSaveActions'
-import { addToWatchlistShelf, dismissCollection, ensureDefaultWatchlistShelves, getOrPersistStudioDefinition, upsertShow } from '../../data/queries'
+import { addToWatchlistShelf, dismissCollection, ensureDefaultWatchlistShelves, upsertShow } from '../../data/queries'
 import { dominantColor } from '../../lib/dominantColor'
-import { STUDIOS, type StudioDefinition } from '../../lib/studios'
 
 interface Props {
   definitions: FranchiseDefinition[]
@@ -53,16 +54,16 @@ function memberAsShow(member: FranchiseMember, definition: FranchiseDefinition, 
   }
 }
 
-function heroPathFor(definition: FranchiseDefinition, showsById: Map<number, Show>) {
+function heroPathFor(definition: FranchiseDefinition, showsById: Map<string, Show>) {
   return definition.backdropPath
-    ?? definition.members.map((member) => showsById.get(member.id)?.backdropPath).find(Boolean)
+    ?? definition.members.map((member) => showsById.get(franchiseMemberKey(member))?.backdropPath).find(Boolean)
     ?? definition.members.map((member) => member.backdropPath).find(Boolean)
     ?? null
 }
 
-function fallbackArtworkFor(definition: FranchiseDefinition, showsById: Map<number, Show>) {
+function fallbackArtworkFor(definition: FranchiseDefinition, showsById: Map<string, Show>) {
   const art = definition.members
-    .map((member) => showsById.get(member.id)?.posterPath ?? member.posterPath)
+    .map((member) => showsById.get(franchiseMemberKey(member))?.posterPath ?? member.posterPath)
     .filter((path): path is string => Boolean(path))
     .slice(0, 3)
   if (!art.length && definition.posterPath) art.push(definition.posterPath)
@@ -109,26 +110,18 @@ export function FranchiseAchievementRail({
   const reducedMotion = useReducedMotion()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dismissCandidate, setDismissCandidate] = useState<FranchiseAchievementProgress | null>(null)
-  const [studioDirectoryOpen, setStudioDirectoryOpen] = useState(false)
-  const [browsedStudio, setBrowsedStudio] = useState<FranchiseDefinition | null>(null)
-  const [studioLoadingId, setStudioLoadingId] = useState<number | null>(null)
-  const [studioError, setStudioError] = useState('')
   const [recordsFilter, setRecordsFilter] = useState<RecordsFilter>('all')
   const longPressTimer = useRef<number | null>(null)
   const longPressed = useRef(false)
-  const showsById = useMemo(() => new Map(shows.map((show) => [show.id, show])), [shows])
-  const watchlistById = useMemo(() => new Map(watchlistShows.map((show) => [show.id, show])), [watchlistShows])
-  const ownedIds = useMemo(() => new Set(shows.map((show) => show.id)), [shows])
-  const earnedByDefinitionId = useMemo(
-    () => new Map(earnedAchievements.map((achievement) => [achievement.definitionId, achievement])),
-    [earnedAchievements],
-  )
+  const showsById = useMemo(() => new Map(shows.map((show) => [franchiseShowKey(show), show])), [shows])
+  const watchlistById = useMemo(() => new Map(watchlistShows.map((show) => [franchiseShowKey(show), show])), [watchlistShows])
+  const ownedKeys = useMemo(() => ownedFranchiseKeys(shows), [shows])
   const dismissedIds = useMemo(() => new Set(dismissedCollections.map((item) => item.definitionId)), [dismissedCollections])
   const progressItems = useMemo(
-    () => franchiseAchievementProgress(definitions, earnedAchievements, ownedIds, dismissedIds),
-    [definitions, dismissedIds, earnedAchievements, ownedIds],
+    () => franchiseAchievementProgress(definitions, earnedAchievements, ownedKeys, dismissedIds),
+    [definitions, dismissedIds, earnedAchievements, ownedKeys],
   )
-  const franchiseProgress = progressItems.filter((progress) => progress.definition.source === 'tmdb-collection')
+  const franchiseProgress = progressItems.filter((progress) => progress.definition.source !== 'tmdb-studio')
   const studioProgress = progressItems.filter((progress) => progress.definition.source === 'tmdb-studio')
   const visibleRecords = progressItems.filter((progress) => {
     if (recordsFilter === 'open') return !progress.isComplete
@@ -136,19 +129,13 @@ export function FranchiseAchievementRail({
     return true
   })
   const selected = progressItems.find((progress) => progress.definition.id === selectedId) ?? null
-  const browsedProgress = browsedStudio
-    ? collectionProgressForDefinition(browsedStudio, earnedByDefinitionId.get(browsedStudio.id), ownedIds)
-    : null
-
   useEffect(() => {
-    if (mode !== 'screen' && selectedId === null && !studioDirectoryOpen && !dismissCandidate) return
+    if (mode !== 'screen' && selectedId === null && !dismissCandidate) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (dismissCandidate) setDismissCandidate(null)
-      else if (browsedStudio) setBrowsedStudio(null)
-      else if (studioDirectoryOpen) setStudioDirectoryOpen(false)
       else if (selectedId !== null) setSelectedId(null)
       else if (mode === 'screen') onBack?.()
     }
@@ -157,7 +144,7 @@ export function FranchiseAchievementRail({
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [browsedStudio, dismissCandidate, mode, onBack, selectedId, studioDirectoryOpen])
+  }, [dismissCandidate, mode, onBack, selectedId])
 
   const addToDefaultWatchlist = async (show: Show) => {
     const shelves = await ensureDefaultWatchlistShelves()
@@ -167,8 +154,6 @@ export function FranchiseAchievementRail({
 
   const openMember = (show: Show) => {
     setSelectedId(null)
-    setBrowsedStudio(null)
-    setStudioDirectoryOpen(false)
     onOpenShow(show)
   }
 
@@ -188,25 +173,6 @@ export function FranchiseAchievementRail({
     longPressTimer.current = null
   }
 
-  const browseStudio = async (studio: StudioDefinition) => {
-    if (studioLoadingId !== null) return
-    if (!hasTmdbKey()) {
-      setStudioError('Add your TMDB key in Settings to load studio catalogues.')
-      return
-    }
-    setStudioLoadingId(studio.id)
-    setStudioError('')
-    try {
-      const definition = await getOrPersistStudioDefinition(studio.id)
-      if (definition) setBrowsedStudio(definition)
-      else setStudioError('No eligible animated titles found for this studio.')
-    } catch {
-      setStudioError('Could not load this studio right now.')
-    } finally {
-      setStudioLoadingId(null)
-    }
-  }
-
   const dismissProgress = async (progress: FranchiseAchievementProgress) => {
     setSelectedId(null)
     setDismissCandidate(null)
@@ -224,7 +190,6 @@ export function FranchiseAchievementRail({
           activeFilter={recordsFilter}
           onFilterChange={setRecordsFilter}
           onBack={onBack}
-          onBrowseStudios={() => setStudioDirectoryOpen(true)}
           onOpen={(progress) => {
             if (longPressed.current) {
               longPressed.current = false
@@ -277,7 +242,6 @@ export function FranchiseAchievementRail({
             />
           )}
 
-          <StudioDirectoryEntry onOpen={() => setStudioDirectoryOpen(true)} />
         </>
       )}
 
@@ -303,40 +267,6 @@ export function FranchiseAchievementRail({
 
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
-          {studioDirectoryOpen && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[86] overflow-y-auto overscroll-contain bg-[#07080a] text-white" role="dialog" aria-modal="true" aria-labelledby="studio-directory-title">
-              <div className="mx-auto min-h-full w-full max-w-md pb-10">
-                {browsedProgress ? (
-                  <CollectionProgressDetail
-                    progress={browsedProgress}
-                    showsById={showsById}
-                    watchlistById={watchlistById}
-                    reducedMotion={reducedMotion}
-                    onClose={() => setBrowsedStudio(null)}
-                    closeLabel="Back to studios"
-                    closeIcon="back"
-                    onOpenShow={openMember}
-                    onSeen={upsertShow}
-                    onWatchlist={addToDefaultWatchlist}
-                  />
-                ) : (
-                  <StudioDirectory
-                    loadingId={studioLoadingId}
-                    error={studioError}
-                    reducedMotion={reducedMotion}
-                    onClose={() => setStudioDirectoryOpen(false)}
-                    onOpen={browseStudio}
-                  />
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body,
-      )}
-
-      {typeof document !== 'undefined' && createPortal(
-        <AnimatePresence>
           {dismissCandidate && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[96] bg-black/68 backdrop-blur-md" onClick={() => setDismissCandidate(null)}>
               <motion.div initial={reducedMotion ? false : { y: 36, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 24, opacity: 0 }} onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-[34px] border-t border-white/[0.09] bg-[#0b0c0f] p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
@@ -355,22 +285,6 @@ export function FranchiseAchievementRail({
   )
 }
 
-function StudioDirectoryEntry({ onOpen }: { onOpen: () => void }) {
-  return (
-    <section className="relative z-10 mb-5 mt-4 px-4" aria-labelledby="studio-directory-entry-title">
-      <button onClick={onOpen} className="group relative flex min-h-[104px] w-full items-center gap-4 overflow-hidden rounded-[28px] bg-white/[0.045] p-4 text-left ring-1 ring-white/[0.07] active:scale-[0.99]">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-[20px] bg-white/[0.07] text-white/72"><Factory size={24} /></span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-white/38">Animation authorship</span>
-          <span id="studio-directory-entry-title" className="mt-1 block text-[21px] font-black leading-none tracking-[-0.045em] text-white">Browse studios</span>
-          <span className="mt-2 block text-[12px] leading-snug text-white/42">Explore the people and houses behind what you watch.</span>
-        </span>
-        <ChevronRight size={19} className="shrink-0 text-white/42 transition-transform group-active:translate-x-0.5" />
-      </button>
-    </section>
-  )
-}
-
 function CollectionRecordsOverview({
   progressItems,
   allProgressItems,
@@ -379,19 +293,17 @@ function CollectionRecordsOverview({
   activeFilter,
   onFilterChange,
   onBack,
-  onBrowseStudios,
   onOpen,
   onLongPress,
   onLongPressEnd,
 }: {
   progressItems: FranchiseAchievementProgress[]
   allProgressItems: FranchiseAchievementProgress[]
-  showsById: Map<number, Show>
+  showsById: Map<string, Show>
   reducedMotion: boolean
   activeFilter: RecordsFilter
   onFilterChange: (filter: RecordsFilter) => void
   onBack?: () => void
-  onBrowseStudios: () => void
   onOpen: (progress: FranchiseAchievementProgress) => void
   onLongPress: (progress: FranchiseAchievementProgress) => void
   onLongPressEnd: () => void
@@ -448,14 +360,9 @@ function CollectionRecordsOverview({
         </header>
 
         <main className="px-4 pt-5">
-          <div className="mb-4 flex items-end justify-between gap-4 px-1">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-white/36">{activeFilter === 'all' ? 'Everything in view' : activeFilter === 'open' ? 'Still taking shape' : 'Part of your record'}</p>
-              <p className="mt-1 text-[17px] font-black tracking-[-0.04em] text-white/88">{progressItems.length} collection{progressItems.length === 1 ? '' : 's'}</p>
-            </div>
-            <button onClick={onBrowseStudios} className="flex h-10 items-center gap-2 rounded-full bg-white/[0.055] px-3 text-[10px] font-black text-white/56 ring-1 ring-white/[0.07] active:scale-95">
-              <Factory size={14} /> Browse studios
-            </button>
+          <div className="mb-4 px-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-white/36">{activeFilter === 'all' ? 'Everything in view' : activeFilter === 'open' ? 'Still taking shape' : 'Part of your record'}</p>
+            <p className="mt-1 text-[17px] font-black tracking-[-0.04em] text-white/88">{progressItems.length} collection{progressItems.length === 1 ? '' : 's'}</p>
           </div>
 
           {progressItems.length > 0 ? (
@@ -501,7 +408,7 @@ function CollectionRecordGridCard({
   onContextMenu,
 }: {
   progress: FranchiseAchievementProgress
-  showsById: Map<number, Show>
+  showsById: Map<string, Show>
   reducedMotion: boolean
   index: number
   onOpen: () => void
@@ -584,7 +491,7 @@ function CollectionRailSection({
   eyebrow: string
   title: string
   progressItems: FranchiseAchievementProgress[]
-  showsById: Map<number, Show>
+  showsById: Map<string, Show>
   reducedMotion: boolean
   onOpenAll?: () => void
   onOpen: (progress: FranchiseAchievementProgress) => void
@@ -644,7 +551,7 @@ function CollectionProgressCard({
   onContextMenu,
 }: {
   progress: FranchiseAchievementProgress
-  showsById: Map<number, Show>
+  showsById: Map<string, Show>
   reducedMotion: boolean
   index: number
   onOpen: () => void
@@ -735,8 +642,8 @@ export function CollectionProgressDetail({
   onDismiss,
 }: {
   progress: FranchiseAchievementProgress
-  showsById: Map<number, Show>
-  watchlistById: Map<number, Show>
+  showsById: Map<string, Show>
+  watchlistById: Map<string, Show>
   reducedMotion: boolean
   onClose: () => void
   closeLabel?: string
@@ -781,15 +688,16 @@ export function CollectionProgressDetail({
         <div className="mb-3 flex items-baseline justify-between gap-3 px-1"><h3 className="text-[18px] font-black tracking-[-0.04em]">{definition.source === 'tmdb-studio' ? 'The studio catalogue' : 'The collection'}</h3><p className="text-[11px] font-semibold text-white/36">Tap a title for details</p></div>
         <div className="space-y-2.5">
           {definition.members.map((member, index) => {
-            const owned = showsById.get(member.id)
-            const watchlisted = watchlistById.get(member.id)
+            const memberKey = franchiseMemberKey(member)
+            const owned = showsById.get(memberKey)
+            const watchlisted = watchlistById.get(memberKey)
             const show = memberAsShow(member, definition, owned ?? watchlisted)
             const artwork = member.posterPath ?? show.posterPath ?? member.backdropPath ?? show.backdropPath
             return (
               <motion.article key={`${member.mediaType ?? 'movie'}:${member.id}`} initial={reducedMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reducedMotion ? 0 : Math.min(index * 0.035, 0.2), duration: reducedMotion ? 0 : 0.24 }} className="flex min-h-[116px] items-center gap-3 overflow-hidden rounded-[24px] bg-white/[0.055] p-2.5 ring-1 ring-white/[0.07]">
                 <button onClick={() => onOpenShow(show)} className="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-80" aria-label={`Open ${member.name}`}>
                   <span className="relative h-[94px] w-[64px] shrink-0 overflow-hidden rounded-[14px] bg-white/[0.06]">{artwork && <img src={imgUrl(artwork, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />}{owned && <span className="absolute bottom-1.5 left-1.5 grid h-6 w-6 place-items-center rounded-full bg-[#f5c453] text-black shadow-lg"><Check size={13} strokeWidth={3.4} /></span>}</span>
-                  <span className="min-w-0 py-1"><span className="line-clamp-2 text-[16px] font-black leading-[1.05] tracking-[-0.035em] text-white">{member.name}</span><span className="mt-2 block text-[11px] font-semibold text-white/38">{member.releaseDate.slice(0, 4)} · {(member.mediaType ?? 'movie') === 'tv' ? 'Series' : 'Film'}</span><span className={cn('mt-1 block text-[10px] font-black uppercase tracking-[0.12em]', owned ? 'text-[#f5c453]' : 'text-white/38')}>{owned ? 'Watched' : watchlisted ? 'In watchlist' : 'Not watched'}</span></span>
+                  <span className="min-w-0 py-1"><span className="line-clamp-2 text-[16px] font-black leading-[1.05] tracking-[-0.035em] text-white">{member.name}</span><span className="mt-2 block text-[11px] font-semibold text-white/38">{member.releaseDate.slice(0, 4) || 'Year unknown'} · {(member.mediaType ?? 'movie') === 'tv' ? 'Series' : 'Film'}</span><span className={cn('mt-1 block text-[10px] font-black uppercase tracking-[0.12em]', owned ? 'text-[#f5c453]' : 'text-white/38')}>{owned ? 'Watched' : watchlisted ? 'In watchlist' : 'Not watched'}</span></span>
                 </button>
                 <div className="shrink-0"><FeedSaveActions isSeen={Boolean(owned)} isWatchlisted={Boolean(watchlisted)} onSeen={() => onSeen(show)} onWatchlist={() => onWatchlist(show)} size="sm" /></div>
               </motion.article>
@@ -797,38 +705,6 @@ export function CollectionProgressDetail({
           })}
         </div>
         {onDismiss && <button onClick={onDismiss} className="mt-5 flex h-12 w-full items-center justify-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-white/42 active:text-white/70"><EyeOff size={15} /> Not for me</button>}
-      </main>
-    </>
-  )
-}
-
-function StudioDirectory({
-  loadingId,
-  error,
-  reducedMotion,
-  onClose,
-  onOpen,
-}: {
-  loadingId: number | null
-  error: string
-  reducedMotion: boolean
-  onClose: () => void
-  onOpen: (studio: StudioDefinition) => void
-}) {
-  return (
-    <>
-      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#07080a]/92 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-2xl">
-        <div className="flex items-center gap-3"><button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.07] text-white/72 active:scale-95" aria-label="Close studio directory"><X size={19} /></button><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/38">Animation authorship</p><h2 id="studio-directory-title" className="mt-1 text-[28px] font-black leading-none tracking-[-0.06em]">Studios</h2></div></div>
-        <p className="mt-4 max-w-[340px] text-[13px] leading-relaxed text-white/46">Browse the verified studios behind animation. Personal studio records appear only after your history reveals a real pattern.</p>
-        {error && <p className="mt-3 rounded-[16px] bg-rose-500/12 px-3 py-2 text-[12px] font-semibold text-rose-200">{error}</p>}
-      </header>
-      <main className="space-y-2 px-4 py-4">
-        {STUDIOS.map((studio, index) => (
-          <motion.button key={studio.id} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reducedMotion ? 0 : Math.min(index * 0.018, 0.2) }} onClick={() => onOpen(studio)} disabled={loadingId !== null} className="flex min-h-[76px] w-full items-center justify-between gap-3 rounded-[24px] bg-white/[0.045] px-4 text-left ring-1 ring-white/[0.065] active:scale-[0.99] disabled:opacity-55">
-            <span className="min-w-0"><span className="block truncate text-[18px] font-black tracking-[-0.04em]">{studio.name}</span><span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-white/34">{studio.collectible ? 'Studio page · personal record' : 'Studio page'} · about {studio.approxCount} titles</span></span>
-            {loadingId === studio.id ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" /> : <ChevronRight size={18} className="shrink-0 text-white/36" />}
-          </motion.button>
-        ))}
       </main>
     </>
   )

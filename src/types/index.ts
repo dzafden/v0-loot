@@ -81,9 +81,11 @@ export interface FranchiseDefinition {
   backdropPath?: string | null
   memberIds: number[]
   members: FranchiseMember[]
-  source: 'tmdb-collection' | 'tmdb-studio'
+  source: 'tmdb-collection' | 'tmdb-studio' | 'wikidata' | 'anilist'
   /** Provider id when `id` is namespaced for local persistence. */
   sourceId?: number
+  /** Stable non-numeric provider key when the local numeric id is derived. */
+  sourceKey?: string
   tradition?: AnimationTradition
   collectible?: boolean
   updatedAt: number

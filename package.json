@@ -10,7 +10,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "data:imdb": "node scripts/build-imdb-ratings.mjs",
-    "data:franchises": "node scripts/build-franchise-registry.mjs"
+    "build:franchises": "node scripts/build-franchise-registry.mjs && node scripts/build-anime-franchise-overrides.mjs",
+    "data:franchises": "npm run build:franchises"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -141,7 +141,7 @@ function buildRegistry(rows) {
     groups.set(key, group)
   }
 
-  return [...groups.values()]
+  const materialised = [...groups.values()]
     .map((group) => ({ ...group, members: [...group.members.values()] }))
     .filter((group) => group.members.length >= 2)
     .filter((group) => !isCatalogueLabel(group.name))
@@ -153,6 +153,116 @@ function buildRegistry(rows) {
       )),
     }))
     .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
+
+  return applyEligibility(materialised)
+}
+
+/**
+ * Decides which groups may become achievements. Everything was previously emitted with
+ * `achievementEligible: false`, so the registry was inert.
+ *
+ * Three gates, in order:
+ *
+ * 1. SIZE — mirrors MIN_COLLECTION_SIZE / COLLECTIBLE_MAX in src/lib/franchise-achievements.ts
+ *    and src/lib/studios.ts. A pair completes the instant you watch both, so it is not a body
+ *    of work; above ~30 it is a catalogue you browse, not a set you finish.
+ *
+ * 2. DEDUPE — Wikidata routinely models one franchise three ways. "Ice Age" exists as a
+ *    collection, a franchise AND a universe with byte-identical members; 21 such collisions
+ *    exist in the current harvest. Without this, the same collection surfaces three times.
+ *    Groups sharing an identical member set collapse to one, preferring the kind with the most
+ *    natural user-facing label — "Ice Age" (franchise) beats "Ice Age universe" (universe).
+ *
+ * 3. LABEL — a group whose name reads as a catalogue rather than a franchise is already
+ *    filtered upstream by isCatalogueLabel().
+ */
+const MIN_MEMBERS = 3
+const MAX_MEMBERS = 30
+const KIND_RANK = { franchise: 0, collection: 1, universe: 2 }
+
+/** "Ice Age universe", "Scooby-Doo film series", "Batman in film" → "ice age", "scooby-doo", "batman". */
+function normaliseGroupName(name) {
+  // Strip repeatedly: "Masters of the Universe universe" must reduce to the same stem as
+  // "Masters of the Universe", or the pair survives as a visible duplicate.
+  let value = name.toLowerCase()
+  const suffix = /\s+(universe|franchise|collection|films?|film series|in film|movie series)$/
+  while (suffix.test(value)) value = value.replace(suffix, '')
+  return value.replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function preferred(a, b) {
+  if (!b) return true
+  // Fullest set first — when two records describe the same franchise, the one with more
+  // members is the better collection (DC Animated Movie Universe: 18 beats 16, keeping the
+  // two Constantine titles). Kind only breaks ties, where it buys a cleaner label
+  // ("Ice Age" over "Ice Age universe").
+  if (a.members.length !== b.members.length) return a.members.length > b.members.length
+  const rankA = KIND_RANK[a.kind] ?? 99
+  const rankB = KIND_RANK[b.kind] ?? 99
+  if (rankA !== rankB) return rankA < rankB
+  return a.name.length < b.name.length
+}
+
+/**
+ * Wikidata items without an English label fall back to their raw QID, so a group can ship
+ * named "Q55589906" containing "Q1503003", "Q1439777", "Q2025869". Unlabelled entities are
+ * also a decent proxy for "too obscure to belong in a collection" — the affected groups are
+ * uniformly regional shorts nobody in the audience will encounter.
+ */
+const UNRESOLVED_LABEL = /^Q\d+$/
+
+function hasResolvedLabels(group) {
+  if (UNRESOLVED_LABEL.test(group.name)) return false
+  return group.members.every((member) => !UNRESOLVED_LABEL.test(member.name))
+}
+
+function applyEligibility(groups) {
+  const sized = groups.filter((group) =>
+    group.members.length >= MIN_MEMBERS
+    && group.members.length <= MAX_MEMBERS
+    && hasResolvedLabels(group))
+
+  // Pass 1 — exact member-set collisions (Ice Age modelled three ways).
+  // Pass 2 — same franchise modelled under a decorated name ("Naruto" vs "Naruto universe").
+  const winners = new Map()
+  for (const group of sized) {
+    const keys = [
+      `set:${group.members.map((member) => member.key).sort().join('|')}`,
+      `name:${normaliseGroupName(group.name)}`,
+    ]
+    for (const key of keys) {
+      if (preferred(group, winners.get(key))) winners.set(key, group)
+    }
+  }
+
+  // A group survives only if it wins on BOTH axes — otherwise a decorated near-duplicate
+  // could win on member-set while losing on name, and both would ship.
+  let canonical = sized.filter((group) => {
+    const setKey = `set:${group.members.map((member) => member.key).sort().join('|')}`
+    const nameKey = `name:${normaliseGroupName(group.name)}`
+    return winners.get(setKey) === group && winners.get(nameKey) === group
+  })
+
+  // Pass 3 — heavy overlap under different names (DC Animated Movie Universe as a
+  // universe of 18 and a collection of 16 → jaccard 0.89). Keep the fuller set.
+  const dropped = new Set()
+  for (let i = 0; i < canonical.length; i += 1) {
+    for (let j = i + 1; j < canonical.length; j += 1) {
+      const a = canonical[i]
+      const b = canonical[j]
+      if (dropped.has(a) || dropped.has(b)) continue
+      const setA = new Set(a.members.map((member) => member.key))
+      const setB = new Set(b.members.map((member) => member.key))
+      let shared = 0
+      for (const key of setA) if (setB.has(key)) shared += 1
+      const jaccard = shared / (setA.size + setB.size - shared)
+      if (jaccard >= 0.8) dropped.add(preferred(a, b) ? b : a)
+    }
+  }
+  canonical = canonical.filter((group) => !dropped.has(group))
+
+  const eligible = new Set(canonical)
+  return groups.map((group) => ({ ...group, achievementEligible: eligible.has(group) }))
 }
 
 function buildRelationships(rows) {

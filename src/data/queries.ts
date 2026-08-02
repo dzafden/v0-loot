@@ -16,7 +16,15 @@ import type {
 import { deriveTradition, getMovieCollection, getShowDetail, getShowKeywords, getStudioCatalogue, hasTmdbKey, type TmdbShowDetail } from '../lib/tmdb'
 import { buildVibeCandidate, scoreShowVibes } from '../lib/vibe-engine'
 import { selectCardDescriptor } from '../lib/card-descriptors'
-import { buildFranchiseDefinition, dismissedCollectionId, newlyEarnedFranchiseAchievements, shouldAutoRestoreDismissal } from '../lib/franchise-achievements'
+import {
+  buildFranchiseDefinition,
+  dismissedCollectionId,
+  newlyEarnedFranchiseAchievements,
+  ownedFranchiseKeys,
+  rebindDismissedCollection,
+  rebindEarnedFranchiseAchievement,
+  shouldAutoRestoreDismissal,
+} from '../lib/franchise-achievements'
 import { buildStudioCollectionDefinition } from '../lib/studio-collections'
 import { getStudio, resolveStudios } from '../lib/studios'
 
@@ -127,45 +135,88 @@ async function classifyPersistedShow(show: Show, target: 'shows' | 'watchlistSho
 }
 
 export async function syncFranchiseDefinitionsForShows(shows: Show[]) {
-  if (!hasTmdbKey()) return
-  const current = await db.franchiseDefinitions.toArray()
-  const byId = new Map(current.map((definition) => [definition.id, definition]))
-  const studioIds = new Set<number>()
+  if (hasTmdbKey()) {
+    const current = await db.franchiseDefinitions.toArray()
+    const byId = new Map(current.map((definition) => [definition.id, definition]))
+    const studioIds = new Set<number>()
 
-  for (let index = 0; index < shows.length; index += 4) {
-    const batch = shows.slice(index, index + 4)
-    await Promise.allSettled(batch.map(async (show) => {
-      const mediaType = show.mediaType ?? 'tv'
-      for (const studioId of show.studioIds ?? []) studioIds.add(studioId)
-      const needsStudioMetadata = show.studioIds === undefined
-      const needsFranchiseMetadata = mediaType === 'movie' && show.franchiseCollectionId === undefined
+    for (let index = 0; index < shows.length; index += 4) {
+      const batch = shows.slice(index, index + 4)
+      await Promise.allSettled(batch.map(async (show) => {
+        const mediaType = show.mediaType ?? 'tv'
+        for (const studioId of show.studioIds ?? []) studioIds.add(studioId)
+        const needsStudioMetadata = show.studioIds === undefined
+        const needsFranchiseMetadata = mediaType === 'movie' && show.franchiseCollectionId === undefined
 
-      if (needsStudioMetadata || needsFranchiseMetadata) {
-        const detail = await getShowDetail(show.id, mediaType)
-        const resolvedStudioIds = resolveStudios(detail.production_companies).map((studio) => studio.id)
-        for (const studioId of resolvedStudioIds) studioIds.add(studioId)
-        await db.shows.update(show.id, { studioIds: resolvedStudioIds, updatedAt: Date.now() })
-        await persistMovieFranchiseMetadata(show, 'shows', detail)
-      }
-
-      if (mediaType === 'movie' && typeof show.franchiseCollectionId === 'number') {
-        const definition = byId.get(show.franchiseCollectionId)
-        if (!definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS) {
-          await persistFranchiseDefinition(show.franchiseCollectionId)
+        if (needsStudioMetadata || needsFranchiseMetadata) {
+          const detail = await getShowDetail(show.id, mediaType)
+          const resolvedStudioIds = resolveStudios(detail.production_companies).map((studio) => studio.id)
+          for (const studioId of resolvedStudioIds) studioIds.add(studioId)
+          await db.shows.update(show.id, { studioIds: resolvedStudioIds, updatedAt: Date.now() })
+          await persistMovieFranchiseMetadata(show, 'shows', detail)
         }
-      }
-    }))
+
+        if (mediaType === 'movie' && typeof show.franchiseCollectionId === 'number') {
+          const definition = byId.get(show.franchiseCollectionId)
+          if (!definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS) {
+            await persistFranchiseDefinition(show.franchiseCollectionId)
+          }
+        }
+      }))
+    }
+
+    const studiosToSync = Array.from(studioIds).filter((studioId) => {
+      const studio = getStudio(studioId)
+      if (!studio?.collectible) return false
+      const definition = byId.get(-Math.abs(studioId))
+      return !definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS
+    })
+    for (let index = 0; index < studiosToSync.length; index += 3) {
+      await Promise.allSettled(studiosToSync.slice(index, index + 3).map(getOrPersistStudioDefinition))
+    }
   }
 
-  const studiosToSync = Array.from(studioIds).filter((studioId) => {
-    const studio = getStudio(studioId)
-    if (!studio?.collectible) return false
-    const definition = byId.get(-Math.abs(studioId))
-    return !definition || Date.now() - definition.updatedAt >= FRANCHISE_DEFINITION_TTL_MS
-  })
-  for (let index = 0; index < studiosToSync.length; index += 3) {
-    await Promise.allSettled(studiosToSync.slice(index, index + 3).map(getOrPersistStudioDefinition))
-  }
+  // Static registry definitions do not need a TMDB key. Materialise them after the live
+  // pipelines so name-based dedupe can preserve canonical TMDB ids and artwork.
+  const { buildRegistryDefinitionsForShows } = await import('../lib/franchise-registry')
+  const liveDefinitions = await db.franchiseDefinitions.toArray()
+  const registrySync = buildRegistryDefinitionsForShows(shows, liveDefinitions)
+  if (!registrySync.definitions.length && !registrySync.supersededIds.length) return
+  const replacementsById = new Map(
+    registrySync.replacements.map((replacement) => [replacement.previousId, replacement.definition]),
+  )
+  await db.transaction(
+    'rw',
+    [db.franchiseDefinitions, db.earnedFranchiseAchievements, db.dismissedCollections],
+    async () => {
+      const [earnedToMigrate, dismissedToMigrate] = registrySync.supersededIds.length
+        ? await Promise.all([
+            db.earnedFranchiseAchievements.where('definitionId').anyOf(registrySync.supersededIds).toArray(),
+            db.dismissedCollections.where('definitionId').anyOf(registrySync.supersededIds).toArray(),
+          ])
+        : [[], []]
+
+      const migratedEarned = earnedToMigrate.flatMap((achievement) => {
+        const definition = replacementsById.get(achievement.definitionId)
+        return definition ? [rebindEarnedFranchiseAchievement(achievement, definition)] : []
+      })
+      const migratedDismissed = dismissedToMigrate.flatMap((dismissed) => {
+        const definition = replacementsById.get(dismissed.definitionId)
+        return definition ? [rebindDismissedCollection(dismissed, definition)] : []
+      })
+
+      if (earnedToMigrate.length) {
+        await db.earnedFranchiseAchievements.bulkDelete(earnedToMigrate.map((achievement) => achievement.id))
+      }
+      if (dismissedToMigrate.length) {
+        await db.dismissedCollections.bulkDelete(dismissedToMigrate.map((dismissed) => dismissed.id))
+      }
+      if (registrySync.supersededIds.length) await db.franchiseDefinitions.bulkDelete(registrySync.supersededIds)
+      if (registrySync.definitions.length) await db.franchiseDefinitions.bulkPut(registrySync.definitions)
+      if (migratedEarned.length) await db.earnedFranchiseAchievements.bulkPut(migratedEarned)
+      if (migratedDismissed.length) await db.dismissedCollections.bulkPut(migratedDismissed)
+    },
+  )
 }
 
 export async function syncEarnedFranchiseAchievements(shows: Show[]) {
@@ -175,7 +226,7 @@ export async function syncEarnedFranchiseAchievements(shows: Show[]) {
   ])
   const additions = newlyEarnedFranchiseAchievements(
     definitions,
-    new Set(shows.map((show) => show.id)),
+    ownedFranchiseKeys(shows),
     new Set(earned.map((achievement) => achievement.id)),
   )
   if (additions.length) await db.earnedFranchiseAchievements.bulkPut(additions)
@@ -209,13 +260,13 @@ export async function syncDismissedCollections(shows: Show[]) {
     db.dismissedCollections.toArray(),
     db.franchiseDefinitions.toArray(),
   ])
-  const ownedIds = new Set(shows.map((show) => show.id))
+  const ownedKeys = ownedFranchiseKeys(shows)
   const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]))
   const restoreIds = dismissed
     .filter((item) => {
       const definition = definitionsById.get(item.definitionId)
       if (!definition) return false
-      return shouldAutoRestoreDismissal(definition, ownedIds, item.watchedCountAtDismissal)
+      return shouldAutoRestoreDismissal(definition, ownedKeys, item.watchedCountAtDismissal)
     })
     .map((item) => item.id)
   if (restoreIds.length) await db.dismissedCollections.bulkDelete(restoreIds)
