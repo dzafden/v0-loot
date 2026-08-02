@@ -69,6 +69,7 @@ export interface FranchiseMember {
   name: string
   posterPath?: string | null
   backdropPath?: string | null
+  overview?: string
   releaseDate: string
   mediaType?: MediaType
 }
