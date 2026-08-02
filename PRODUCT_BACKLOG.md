@@ -6,6 +6,18 @@ Owner: Product
 ## North Star
 Become the most trusted place to discover, collect, rank, inspect, and express an animation identity across anime, adult animation, Western cartoons, and animated films. No live action, ever.
 
+## Audience (decided 2026-07-22)
+
+The **animation omnivore**, roughly **15–25** — the person whose taste spans Arcane, Ghibli, Invincible, Bob's Burgers and a stack of anime, and who has nowhere that treats that as one identity. **Not a kids' app.**
+
+Loot collects **works, not feeds.** A work has boundaries — a season, a film — so it can be finished, ranked and collected. A feed is endless and cannot. This is why YouTube/TikTok consumption sits outside the catalogue without being a rejection of it.
+
+> **Retired:** *"Wow a 10-year-old Fortnite/Minecraft player in the first 15 seconds…"*
+>
+> It contradicted the research it was based on. Xandria's own segments put the relevant behaviour older — Anime/Media Archivist *"strongest around 13-16 and older"*, Prestige Curator *"extends into Gen Z and young adults"* — and its positioning doc already named Anime/Media Archivist the beachhead. External data agrees: anime viewership concentrates in older Gen Z / younger millennials, while Gen Alpha's animation consumption is overwhelmingly YouTube short-form and creator-led. The 8–10 band is further gated by "permission architecture" (whose device, whose account, whose supervision), which a catalogue app cannot design around.
+>
+> **Gen Alpha is a tailwind, not a target.** The oldest are ~16 and age into this audience on their own. Two live bridges make that migration natural rather than hopeful: indie animation genuinely graduates from YouTube to platforms (Hazbin Hotel, The Amazing Digital Circus, Murder Drones — several already in the TMDB catalogue), and studio literacy is something Loot *teaches* rather than requires. Design for the omnivore who exists today.
+
 ## Workflow
 Status values:
 - idea
