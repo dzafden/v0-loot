@@ -13,7 +13,7 @@ const studio: StudioDefinition = {
 }
 
 function title(id: number, mediaType: 'tv' | 'movie', date: string, popularity: number): TmdbSearchResult {
-  return { id, name: `Title ${id}`, mediaType, first_air_date: date, backdrop_path: `/b${id}.jpg`, poster_path: `/p${id}.jpg`, popularity }
+  return { id, name: `Title ${id}`, mediaType, first_air_date: date, backdrop_path: `/b${id}.jpg`, poster_path: `/p${id}.jpg`, overview: `Overview ${id}`, popularity }
 }
 
 describe('studio collections', () => {
@@ -26,6 +26,7 @@ describe('studio collections', () => {
     expect(definition.id).toBe(studioDefinitionId(studio.id))
     expect(definition.source).toBe('tmdb-studio')
     expect(definition.members.map((member) => member.mediaType)).toEqual(['movie', 'tv'])
+    expect(definition.members.map((member) => member.overview)).toEqual(['Overview 1', 'Overview 2'])
     expect(definition.backdropPath).toBe('/b2.jpg')
   })
 })

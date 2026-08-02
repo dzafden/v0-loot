@@ -30,6 +30,7 @@ export function buildStudioCollectionDefinition(
       name: show.name,
       posterPath: show.poster_path ?? null,
       backdropPath: show.backdrop_path ?? null,
+      overview: show.overview,
       releaseDate: show.first_air_date!,
       mediaType: show.mediaType ?? 'tv',
     }))

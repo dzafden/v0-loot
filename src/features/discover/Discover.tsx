@@ -9,6 +9,7 @@ import {
   getDiscoverCategoryPage,
   getAnimationTodayPulse,
   getAnimationTodayTrailers,
+  getAnimationTrailerFeedBatch,
   getAnimationScheduleDayEpisodes,
   getCachedAnimationTodayPulse,
   getCachedAnimationTodayTrailers,
@@ -38,12 +39,12 @@ import { db } from '../../data/db'
 import { useDexieQuery } from '../../hooks/useDexieQuery'
 import type { CardDescriptor, DismissedCollection, FranchiseDefinition, Genre, RecommendationContext, SeasonCache, Show, Tier, TierAssignment } from '../../types'
 import { cn } from '../../lib/utils'
-import { CollectibleMediaCard, rankGlyphStyle } from '../../components/show/CollectibleMediaCard'
+import { CollectibleMediaCard } from '../../components/show/CollectibleMediaCard'
 import { FeedSaveActions } from '../../components/show/FeedSaveActions'
 import { ImdbBadge } from '../../components/ui/ImdbBadge'
 import { useImdbRating } from '../../lib/imdbRatings'
 import { ColorAwareRail } from '../../components/ui/ColorAwareRail'
-import { getVibeTitle } from '../../lib/vibe-engine'
+import { getVibeSubtitle, getVibeTitle } from '../../lib/vibe-engine'
 import { pickAnimationKey } from '../../engine/genre-animations'
 import { getSecondaryAnimationGenre } from '../../lib/animation-taxonomy'
 import { dominantColor } from '../../lib/dominantColor'
@@ -59,6 +60,8 @@ import {
   type OnboardingFollowupState,
   type RelatedTitleGroup,
 } from '../onboarding/onboardingFollowup'
+import { StudioDirectoryBrowser } from '../studios/StudioDirectoryBrowser'
+import { StudioFeedRail } from '../studios/StudioFeedRail'
 
 interface Props {
   onOpenSettings: () => void
@@ -77,6 +80,15 @@ const DISCOVER_ROTATION_KEY = 'loot:discover-rotation:v1'
 const DISCOVER_FRESHNESS_WINDOW_MS = 6 * 60 * 60_000
 const WATCH_DROP_ENABLED = false
 const cardDescriptorEnrichmentCache = new Map<string, Promise<CardDescriptor | undefined>>()
+
+function isStudioDirectoryHistoryState(value: unknown) {
+  return Boolean(value && typeof value === 'object' && 'lootStudioDirectory' in value && value.lootStudioDirectory === true)
+}
+
+function studioDirectoryTargetFromHistory(value: unknown) {
+  if (!value || typeof value !== 'object' || !('lootStudioDirectory' in value) || value.lootStudioDirectory !== true || !('lootStudioId' in value)) return null
+  return typeof value.lootStudioId === 'number' ? value.lootStudioId : null
+}
 
 function enrichCardDescriptor(show: LootShow): Promise<CardDescriptor | undefined> {
   const key = `${show.mediaType}:${show.id}`
@@ -192,14 +204,6 @@ type DiscoverLibrarySnapshot = {
   signature: string
   createdAt: number
 }
-
-type DiscoverChapter = 'today' | 'for-you' | 'explore'
-
-const DISCOVER_CHAPTERS: { id: DiscoverChapter; label: string }[] = [
-  { id: 'today', label: 'Now' },
-  { id: 'for-you', label: 'For you' },
-  { id: 'explore', label: 'Explore' },
-]
 
 type MoodKey = 'happy' | 'action' | 'slow' | 'love' | 'dark' | 'comfort' | 'funny' | 'tense' | 'sad' | 'weird'
 type EpisodeModifier = 'sweet' | 'messy' | 'breakup' | 'violence' | 'betrayal' | 'family' | 'friendship' | 'party' | 'case' | 'work'
@@ -585,6 +589,15 @@ function uniqueShows(shows: LootShow[]) {
   })
 }
 
+function uniqueTrailerFeatures(features: AnimationTrailerFeature[]) {
+  const seen = new Set<string>()
+  return features.filter((feature) => {
+    if (seen.has(feature.video.key)) return false
+    seen.add(feature.video.key)
+    return true
+  })
+}
+
 function personalizeShows(
   shows: LootShow[],
   tasteWeights: Map<string, number>,
@@ -817,7 +830,6 @@ function pickEpisode(
 export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [activeChapter, setActiveChapter] = useState<DiscoverChapter>('today')
   const [headerVisible, setHeaderVisible] = useState(true)
   const [debouncedQ, setDebouncedQ] = useState('')
   const [results, setResults] = useState<LootShow[]>([])
@@ -833,6 +845,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const [todayTrailers, setTodayTrailers] = useState<AnimationTrailerFeature[]>(() => getCachedAnimationTodayTrailers())
   const [selectedTodayTrailer, setSelectedTodayTrailer] = useState<AnimationTrailerFeature | null>(null)
   const [activeCategory, setActiveCategory] = useState<null | { key: DiscoverCategoryKey; title: string }>(null)
+  const [studioDirectoryOpen, setStudioDirectoryOpen] = useState(() => isStudioDirectoryHistoryState(window.history.state))
+  const [studioDirectoryTargetId, setStudioDirectoryTargetId] = useState<number | null>(() => studioDirectoryTargetFromHistory(window.history.state))
   const [categoryItems, setCategoryItems] = useState<LootShow[]>([])
   const [categoryPage, setCategoryPage] = useState(1)
   const [categoryTotalPages, setCategoryTotalPages] = useState(1)
@@ -849,7 +863,6 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   const lastScrollY = useRef(0)
   const scrollTravel = useRef(0)
   const scrollDirection = useRef<-1 | 0 | 1>(0)
-  const headerPinnedUntil = useRef(0)
 
   const keyOk = hasTmdbKey()
 
@@ -1147,22 +1160,6 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
   }, [activeCategory, categoryLoading, categoryPage, categoryTotalPages])
 
   useEffect(() => {
-    if (activeCategory || searchOpen || feedLoading || !visibleFeed) return
-    const updateActiveChapter = () => {
-      const marker = 150
-      let next: DiscoverChapter = 'today'
-      for (const chapter of DISCOVER_CHAPTERS) {
-        const section = document.getElementById(`discover-${chapter.id}`)
-        if (section && section.getBoundingClientRect().top <= marker) next = chapter.id
-      }
-      setActiveChapter((current) => current === next ? current : next)
-    }
-    updateActiveChapter()
-    window.addEventListener('scroll', updateActiveChapter, { passive: true })
-    return () => window.removeEventListener('scroll', updateActiveChapter)
-  }, [activeCategory, feedLoading, searchOpen, visibleFeed])
-
-  useEffect(() => {
     if (activeCategory || searchOpen) return
     lastScrollY.current = Math.max(window.scrollY, 0)
     scrollTravel.current = 0
@@ -1177,12 +1174,6 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
         scrollTravel.current = 0
         scrollDirection.current = 0
         setHeaderVisible(true)
-        return
-      }
-
-      if (performance.now() < headerPinnedUntil.current) {
-        scrollTravel.current = 0
-        scrollDirection.current = 0
         return
       }
 
@@ -1258,16 +1249,6 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     setCategoryTotalPages(1)
   }
 
-  const scrollToChapter = (chapter: DiscoverChapter) => {
-    const section = document.getElementById(`discover-${chapter}`)
-    if (!section) return
-    headerPinnedUntil.current = performance.now() + 800
-    setHeaderVisible(true)
-    setActiveChapter(chapter)
-    const top = section.getBoundingClientRect().top + window.scrollY - 112
-    window.scrollTo({ top, behavior: 'smooth' })
-  }
-
   const closeSearch = () => {
     setSearchOpen(false)
     setQuery('')
@@ -1295,6 +1276,36 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
     if (endY - pullStartY.current > 76) setWatchDropOpen(true)
     pullStartY.current = null
   }
+
+  useEffect(() => {
+    const syncStudioDirectoryFromHistory = (event: PopStateEvent) => {
+      setStudioDirectoryOpen(isStudioDirectoryHistoryState(event.state))
+      setStudioDirectoryTargetId(studioDirectoryTargetFromHistory(event.state))
+    }
+    window.addEventListener('popstate', syncStudioDirectoryFromHistory)
+    return () => window.removeEventListener('popstate', syncStudioDirectoryFromHistory)
+  }, [])
+
+  const openStudioDirectory = useCallback((studioId: number | null = null) => {
+    if (!isStudioDirectoryHistoryState(window.history.state)) {
+      const current = window.history.state && typeof window.history.state === 'object' ? window.history.state : {}
+      window.history.pushState({ ...current, lootStudioDirectory: true, lootStudioId: studioId }, '')
+    } else {
+      window.history.replaceState({ ...window.history.state, lootStudioId: studioId }, '')
+    }
+    setStudioDirectoryTargetId(studioId)
+    setStudioDirectoryOpen(true)
+  }, [])
+
+  const closeStudioDirectory = useCallback(() => {
+    if (isStudioDirectoryHistoryState(window.history.state)) window.history.back()
+    else setStudioDirectoryOpen(false)
+  }, [])
+
+  const openShowFromStudio = useCallback((show: Show) => {
+    setStudioDirectoryOpen(false)
+    onOpenShow(show)
+  }, [onOpenShow])
 
   return (
     <div className="relative flex min-h-full flex-col pb-28" onTouchStart={onDiscoverTouchStart} onTouchEnd={onDiscoverTouchEnd}>
@@ -1329,27 +1340,6 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           </div>
         </div>
 
-        <nav className="mt-1 grid grid-cols-3 rounded-full bg-white/[0.028] p-1 ring-1 ring-white/[0.045]" aria-label="Discover sections">
-          {DISCOVER_CHAPTERS.map((chapter) => {
-            const selected = activeChapter === chapter.id
-            return (
-              <button
-                key={chapter.id}
-                onClick={() => scrollToChapter(chapter.id)}
-                className={cn(
-                  'h-8 rounded-full text-[12px] font-medium transition-colors',
-                  selected
-                    ? 'bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.045)]'
-                    : 'text-white/40 hover:text-white/70',
-                )}
-                aria-current={selected ? 'page' : undefined}
-              >
-                {chapter.label}
-              </button>
-            )
-          })}
-        </nav>
-
         {WATCH_DROP_ENABLED && !activeCategory && (
           <button
             onClick={() => setWatchDropOpen(true)}
@@ -1365,7 +1355,7 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
           </button>
         )}
       </motion.header>
-      <div className="h-[calc(6.125rem+max(0.75rem,env(safe-area-inset-top)))] shrink-0" aria-hidden />
+      <div className="h-[calc(4.125rem+max(0.75rem,env(safe-area-inset-top)))] shrink-0" aria-hidden />
       </>}
 
       <div className="relative z-10 flex-1 pt-1">
@@ -1430,6 +1420,8 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
             leadingIds={leadingImpressionIds}
             onImpressions={handleImpressions}
             onOpenCategory={openCategory}
+            onBrowseAllStudios={() => openStudioDirectory(null)}
+            onOpenStudio={(studioId) => openStudioDirectory(studioId)}
             onOpenShow={onOpenShow}
             featuredId={heroShows[0]?.id}
           />
@@ -1490,9 +1482,20 @@ export function Discover({ onOpenSettings, onOpenShow }: Props) {
       </AnimatePresence>
 
       <TodayTrailerFeed
+        key={selectedTodayTrailer?.video.key ?? 'trailer-feed-closed'}
         trailer={selectedTodayTrailer}
         trailers={todayTrailers}
         onClose={() => setSelectedTodayTrailer(null)}
+      />
+
+      <StudioDirectoryBrowser
+        key={studioDirectoryOpen ? `studio:${studioDirectoryTargetId ?? 'all'}` : 'studio:closed'}
+        open={studioDirectoryOpen}
+        requestedStudioId={studioDirectoryTargetId}
+        shows={ownedShows}
+        watchlistShows={watchlistShows}
+        onClose={closeStudioDirectory}
+        onOpenShow={openShowFromStudio}
       />
 
       <AnimatePresence>
@@ -2766,6 +2769,8 @@ function FeedRows({
   leadingIds,
   onImpressions,
   onOpenCategory,
+  onBrowseAllStudios,
+  onOpenStudio,
   onOpenShow,
   featuredId,
 }: {
@@ -2793,6 +2798,8 @@ function FeedRows({
   leadingIds: number[]
   onImpressions: (ids: number[]) => void
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
+  onBrowseAllStudios: () => void
+  onOpenStudio: (studioId: number) => void
   onOpenShow: (show: Show, context?: RecommendationContext) => void
   featuredId?: number
 }) {
@@ -2839,6 +2846,12 @@ function FeedRows({
 
     return rows
   }, [discoverSeed, featuredId, feed, impressions, leadingIds, packets, personalized, profileOwnedSet, tasteWeights])
+  const rotatingVibeId = useMemo(() => {
+    const [first, ...rest] = sourceRows.vibeCrate
+    return first?.vibeIds.find((vibeId) => rest.every((show) => show.vibeIds.includes(vibeId)))
+  }, [sourceRows.vibeCrate])
+  const rotatingVibeTitle = getVibeTitle(rotatingVibeId) ?? 'A different side of animation'
+  const rotatingVibeSubtitle = getVibeSubtitle(rotatingVibeId) ?? 'A focused selection that changes with the feed.'
 
   useEffect(() => {
     const visibleRecommendations = packets.length
@@ -2854,7 +2867,7 @@ function FeedRows({
 
   return (
     <>
-      <section id="discover-today" className="scroll-mt-28">
+      <section>
         {leadingContent}
         <AnimatePresence initial={false}>
           {showOnboardingFollowup && onboardingFollowupCandidates.length > 0 && (
@@ -2880,7 +2893,7 @@ function FeedRows({
         />
       </section>
 
-      <section id="discover-for-you" className="scroll-mt-28">
+      <section>
         <ChapterHeader title="For you" />
         {packets.length
           ? packets.slice(0, 2).map((packet) => (
@@ -2889,13 +2902,13 @@ function FeedRows({
           : <CarouselRow title="Picked for your taste" categoryKey="vibeCrate" shows={personalized} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />}
       </section>
 
-      <section id="discover-explore" className="scroll-mt-28">
-        <ChapterHeader title="Explore animation" />
+      <section>
+        <StudioFeedRail shows={profileShows} onBrowseAll={onBrowseAllStudios} onOpenStudio={onOpenStudio} />
         <CarouselRow title="Recently released" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <CarouselRow title="Vibe crate" categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
+        <CarouselRow title={rotatingVibeTitle} subtitle={rotatingVibeSubtitle} categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape browseable={false} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="Animated films" categoryKey="animatedFilms" shows={sourceRows.animatedFilms} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
-        <RankedList title="Top rated, all time" shows={sourceRows.topRated} onOpenCategory={() => onOpenCategory('topRated', 'Top rated, all time')} onOpenShow={onOpenShow} />
+        <RankedLists feed={feed} pulse={todayPulse} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
       </section>
     </>
   )
@@ -3099,9 +3112,8 @@ function TodayInAnimation({
             />
             <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(0,0,0,0.08)_36%,rgba(0,0,0,0.32)_72%)]" />
             <span className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/95" />
-            <span className="absolute inset-x-5 top-5 z-10 flex items-baseline justify-between gap-4">
+            <span className="absolute inset-x-5 top-5 z-10">
               <strong className="text-[22px] font-semibold tracking-[-0.035em] text-white">Trailers &amp; clips</strong>
-              <span className="text-[12px] font-medium tabular-nums text-white/70">{trailers.length} videos</span>
             </span>
             <span className="absolute left-1/2 top-[49%] z-10 grid h-[92px] w-[92px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/80 bg-black/40 text-white shadow-[0_0_0_10px_rgba(255,255,255,0.08),0_14px_44px_rgba(0,0,0,0.5),0_0_36px_rgba(78,234,255,0.2)] backdrop-blur-md transition-transform group-active:scale-90">
               <Play size={30} fill="currentColor" className="translate-x-0.5" />
@@ -3295,10 +3307,14 @@ function TodayTrailerFeed({
 }) {
   const feedRef = useRef<HTMLDivElement | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [feedTrailers, setFeedTrailers] = useState<AnimationTrailerFeature[]>(() => trailers)
+  const [feedCursor, setFeedCursor] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false)
   const orderedTrailers = useMemo(() => {
     if (!trailer) return []
-    return [trailer, ...trailers.filter((candidate) => candidate.video.key !== trailer.video.key)]
-  }, [trailer, trailers])
+    return [trailer, ...feedTrailers.filter((candidate) => candidate.video.key !== trailer.video.key)]
+  }, [feedTrailers, trailer])
 
   useEffect(() => {
     if (!trailer) return
@@ -3307,11 +3323,30 @@ function TodayTrailerFeed({
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose, trailer])
 
-  useEffect(() => {
-    if (!trailer) return
-    setActiveIndex(0)
-    window.requestAnimationFrame(() => feedRef.current?.scrollTo({ top: 0 }))
-  }, [trailer])
+  const loadMoreTrailers = useCallback(async () => {
+    if (!trailer || loadingMore) return
+    setLoadingMore(true)
+    setLoadMoreFailed(false)
+    const excludedKeys = orderedTrailers.map((item) => item.video.key)
+    let nextCursor = feedCursor
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const additions = await getAnimationTrailerFeedBatch(nextCursor, excludedKeys)
+        nextCursor += 1
+        if (!additions.length) continue
+        setFeedTrailers((current) => uniqueTrailerFeatures([...current, ...additions]))
+        setFeedCursor(nextCursor)
+        return
+      }
+      setFeedCursor(nextCursor)
+      setLoadMoreFailed(true)
+    } catch {
+      setFeedCursor(nextCursor + 1)
+      setLoadMoreFailed(true)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [feedCursor, loadingMore, orderedTrailers, trailer])
 
   useEffect(() => {
     if (!trailer || !feedRef.current) return
@@ -3324,13 +3359,17 @@ function TodayTrailerFeed({
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
         if (!visible) return
         const index = Number((visible.target as HTMLElement).dataset.trailerSlide)
-        if (Number.isFinite(index)) setActiveIndex(index)
+        if (!Number.isFinite(index)) return
+        setActiveIndex(index)
+        if (!loadMoreFailed && !loadingMore && index >= orderedTrailers.length - 3) {
+          void loadMoreTrailers()
+        }
       },
       { root, threshold: [0.6, 0.82] },
     )
     slides.forEach((slide) => observer.observe(slide))
     return () => observer.disconnect()
-  }, [orderedTrailers.length, trailer])
+  }, [loadMoreFailed, loadMoreTrailers, loadingMore, orderedTrailers.length, trailer])
 
   return (
     <AnimatePresence>
@@ -3378,11 +3417,26 @@ function TodayTrailerFeed({
                   )}
                 </div>
                 <span className="absolute right-5 top-[max(1.5rem,env(safe-area-inset-top))] text-[12px] font-medium tabular-nums text-white/60">
-                  {index + 1} / {orderedTrailers.length}
+                  {index + 1}
                 </span>
                 <div className="absolute inset-x-5 bottom-[max(1.75rem,env(safe-area-inset-bottom))]">
                   <h3 className="text-[30px] font-bold leading-none tracking-[-0.05em] text-white">{item.show.title}</h3>
                   <p className="mt-2 text-[14px] font-medium text-white/60">{item.video.type}</p>
+                  {index === orderedTrailers.length - 1 && loadingMore && (
+                    <p className="mt-3 text-[12px] font-medium text-white/40">Loading the next clips…</p>
+                  )}
+                  {index === orderedTrailers.length - 1 && loadMoreFailed && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoadMoreFailed(false)
+                        void loadMoreTrailers()
+                      }}
+                      className="mt-4 rounded-full bg-white px-4 py-2 text-[12px] font-bold text-black active:scale-95"
+                    >
+                      Keep watching
+                    </button>
+                  )}
                 </div>
               </section>
             ))}
@@ -3401,30 +3455,74 @@ function ChapterHeader({ title }: { title: string }) {
   )
 }
 
-function RankedList({
-  title,
-  shows,
+type RankedListKey = 'all-time' | 'new-season' | 'films' | 'airing' | 'grown-up'
+
+function rankedByRating(shows: LootShow[]) {
+  return uniqueShows(shows)
+    .filter((show) => show.rating > 0)
+    .sort((a, b) => b.rating - a.rating || b.popularity - a.popularity)
+}
+
+function RankedLists({
+  feed,
+  pulse,
   onOpenCategory,
   onOpenShow,
 }: {
-  title: string
-  shows: LootShow[]
-  onOpenCategory: () => void
+  feed: DiscoverFeed
+  pulse: AnimationTodayPulse | null
+  onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
   onOpenShow: (show: Show) => void
 }) {
-  if (!shows.length) return null
+  const [activeKey, setActiveKey] = useState<RankedListKey>('all-time')
+  const lists = useMemo(() => ([
+    { key: 'all-time' as const, label: 'All time', title: 'Top rated, all time', category: 'topRated' as const, shows: rankedByRating(feed.topRated) },
+    { key: 'new-season' as const, label: 'New season', title: 'Best of the new season', category: 'newAnime' as const, shows: rankedByRating([...feed.newAnime, ...feed.newWestern]) },
+    { key: 'films' as const, label: 'Films', title: 'Top animated films', category: 'animatedFilms' as const, shows: rankedByRating(feed.animatedFilms) },
+    { key: 'airing' as const, label: 'Airing now', title: 'Top shows airing now', shows: rankedByRating(pulse?.trending ?? []) },
+    { key: 'grown-up' as const, label: 'Grown-up', title: 'Top animation for grown-ups', category: 'adultAnimation' as const, shows: rankedByRating(feed.adultAnimation) },
+  ]).filter((list) => list.shows.length), [feed, pulse])
+  const activeList = lists.find((list) => list.key === activeKey) ?? lists[0]
+
+  if (!activeList) return null
   return (
     <section className="mb-11 px-4">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-[20px] font-semibold tracking-[-0.035em] text-white/95">{title}</h3>
-        <button onClick={onOpenCategory} className="grid h-10 w-10 place-items-center rounded-full text-white/35 hover:text-white" aria-label={`Open ${title}`}>
-          <ChevronRight size={19} />
-        </button>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-[20px] font-semibold tracking-[-0.035em] text-white/95">Ranked lists</h3>
+        {'category' in activeList && activeList.category && (
+          <button
+            onClick={() => onOpenCategory(activeList.category, activeList.title)}
+            className="grid h-10 w-10 place-items-center rounded-full text-white/35 hover:text-white"
+            aria-label={`Open ${activeList.title}`}
+          >
+            <ChevronRight size={19} />
+          </button>
+        )}
+      </div>
+      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 no-scrollbar" role="tablist" aria-label="Ranked animation lists">
+        {lists.map((list) => {
+          const active = list.key === activeList.key
+          return (
+            <button
+              key={list.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveKey(list.key)}
+              className={cn(
+                'h-9 shrink-0 rounded-full px-4 text-[12px] font-semibold transition-colors',
+                active ? 'bg-white text-black' : 'bg-white/[0.055] text-white/48 hover:text-white/75',
+              )}
+            >
+              {list.label}
+            </button>
+          )
+        })}
       </div>
       <div className="overflow-hidden rounded-[22px] border border-white/[0.075] bg-gradient-to-br from-white/[0.045] to-white/[0.015]">
-        {shows.slice(0, 5).map((show, index) => (
+        {activeList.shows.slice(0, 5).map((show, index) => (
           <button
-            key={show.id}
+            key={`${activeList.key}:${show.id}`}
             onClick={() => onOpenShow(lootToShow(show))}
             className={cn(
               'flex min-h-[78px] w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-white/[0.045] active:bg-white/[0.07]',
@@ -3469,24 +3567,13 @@ function TastePacketRow({
   onOpenShow: (show: Show, context?: RecommendationContext) => void
 }) {
   const anchorGenres = new Set([...(packet.anchor.genres ?? []), ...(packet.anchor.rawGenres ?? [])])
-  const context = packet.tier ? `Based on your ${packet.tier} rank` : 'From your Top 8'
 
   return (
     <section className="mb-9">
-      <div className="mb-4 flex items-center gap-3 px-4">
-        {packet.tier && (
-          <span
-            aria-hidden
-            className="w-8 shrink-0 text-center text-[42px] italic leading-[0.78] tracking-[-0.09em] text-transparent"
-            style={rankGlyphStyle(packet.tier)}
-          >
-            {packet.tier}
-          </span>
-        )}
-        <div className="min-w-0">
-          <h3 className="truncate text-[20px] font-semibold tracking-[-0.035em] text-white/95">More like {packet.anchor.name}</h3>
-          {!packet.tier && <p className="mt-0.5 text-[12px] font-normal text-white/45">{context}</p>}
-        </div>
+      <div className="mb-4 px-4">
+        <h3 className="min-w-0 line-clamp-2 text-[20px] font-semibold leading-[1.16] tracking-[-0.035em] text-white/95">
+          Because you love {packet.anchor.name}
+        </h3>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 px-4">
         {packet.shows.map((show) => (
@@ -3532,35 +3619,44 @@ function SkeletonRows() {
 
 function CarouselRow({
   title,
+  subtitle,
   categoryKey,
   shows,
   ownedIds,
   watchlistIds,
   landscape = false,
+  browseable = true,
   onOpenCategory,
   onOpenShow,
 }: {
   title: string
+  subtitle?: string
   categoryKey: DiscoverCategoryKey
   shows: LootShow[]
   ownedIds: number[]
   watchlistIds: Set<number>
   landscape?: boolean
+  browseable?: boolean
   onOpenCategory: (key: DiscoverCategoryKey, title: string) => void
   onOpenShow: (show: Show) => void
 }) {
   if (shows.length === 0) return null
   return (
     <section className="mb-11">
-      <div className="mb-4 flex items-center justify-between px-4">
-        <h3 className="text-[20px] font-semibold tracking-[-0.035em] text-white/95">{title}</h3>
-        <button
-          onClick={() => onOpenCategory(categoryKey, title)}
-          className="grid h-10 w-10 place-items-center rounded-full text-white/35 transition-colors hover:text-white"
-          aria-label={`Open ${title}`}
-        >
-          <ChevronRight size={19} />
-        </button>
+      <div className="mb-4 flex items-end justify-between gap-3 px-4">
+        <div className="min-w-0">
+          <h3 className="text-[20px] font-semibold tracking-[-0.035em] text-white/95">{title}</h3>
+          {subtitle && <p className="mt-1 max-w-[19rem] text-[13px] leading-snug text-white/45">{subtitle}</p>}
+        </div>
+        {browseable && (
+          <button
+            onClick={() => onOpenCategory(categoryKey, title)}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/35 transition-colors hover:text-white"
+            aria-label={`Open ${title}`}
+          >
+            <ChevronRight size={19} />
+          </button>
+        )}
       </div>
       <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-px-4 pb-3 px-4">
         {shows.map((show) =>

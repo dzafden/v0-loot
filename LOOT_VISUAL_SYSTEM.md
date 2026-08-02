@@ -173,7 +173,6 @@ Optical variants:
 | Rankings overview | Solid tier color | Medium | Clear dark extrusion |
 | Ranking picker | Solid tier color | Stronger only when active | Container response reinforces selection |
 | Collection card | Solid tier color | Tight, restrained | Thin dark edge |
-| Recommendation heading | Solid tier color | Medium | May overlap heading composition |
 
 Consistency means shared material and behavior—not identical rendering at every size.
 
@@ -226,6 +225,8 @@ Avoid using bold uppercase for every label. Weight, casing, size, and spacing mu
 - Use one coherent hero composition for collection covers: collection or member backdrop, artwork-derived colour field, and title as a type layer. Use a multi-poster split only when no suitable hero image exists.
 - Dismissal means “not for me,” not deletion. Keep it behind detail or long-press, restore it when new watching contradicts the dismissal, and provide a reversible list in Settings.
 - Studio pages are discovery infrastructure available independently of progress. Personal studio records materialize only after at least two watched titles form a meaningful pattern and the studio visibility rule is satisfied.
+- Enter studio discovery from Discover's Explore chapter, where a small feed rail previews real studio worlds with canonical studio-linked artwork and direct studio-page navigation. On browsing cards, use one consistent typeset studio name over the artwork; do not also repeat it as a wordmark. Heterogeneous studio logos are reserved for singular identity moments where their native treatment has room to breathe, never normalized into a forced-white rail. Provide a quieter “Browse all” path to a visual grouped directory led by a famous studio-linked title image; never reduce the directory to text-only rows or black-on-black identity tiles. Each directory item gets one content surface, not a card containing another card. Do not use unrelated feed artwork as a generic studio promotion. Keep Collections focused on the user's personal studio progress and earned records.
+- A discovery studio page uses a compact brand-and-count header followed immediately by its titles. Do not reuse achievement progress copy or introductory prose there. Give each title enough room for canonical artwork, name, year, format, a short overview when available, and the standard Seen and Watchlist actions.
 
 ## Motion and Feedback
 
@@ -258,6 +259,11 @@ If it performs none of these jobs, remove it.
 ## Page-Level Rhythm
 
 - Begin with the most valuable reason to be in the product, not the most data-heavy module.
+- Discover is one continuous feed, not three tabbed chapters. Do not add persistent “Now / For you / Explore” anchor tabs or a tautological “Explore animation” heading; let literal module promises and page rhythm establish orientation.
+- Personal recommendation rails use one natural-language heading: “Because you love [title].” The referenced title must be an earned positive taste anchor—S tier, A tier, or Top 8—but the heading does not expose the underlying rank, split the sentence into separate typographic levels, or add a rank badge. Keep deeper recommendation logic out of the feed unless the user explicitly asks for it.
+- Name rotating editorial rails for the specific theme they contain and explain that theme in plain language. Internal concepts such as “vibe crate” are not user-facing labels.
+- A ranked-list module must offer multiple useful lenses—such as all-time, current season, films, currently airing, or audience/genre cuts—within one stable anatomy. At least one lens should change with current release or schedule data so the module remains worth revisiting.
+- Treat the full-screen trailer experience as an ongoing feed. The entry surface may feature one clip, but must not advertise a small fixed playlist; load new, non-repeating clips as the user approaches the end and preserve a direct retry if the source is temporarily unavailable.
 - Alternate visual density; give the eye recovery space after an immersive feature.
 - Use chapter changes that are recognizable through scale, spacing, and content—not decorative bars.
 - Limit repeated card formats. A layout change must correspond to a content or behavioral change.

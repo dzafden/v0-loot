@@ -358,6 +358,10 @@ export function getVibeTitle(vibeId: string | undefined) {
   return VIBES.find((vibe) => vibe.id === vibeId)?.title
 }
 
+export function getVibeSubtitle(vibeId: string | undefined) {
+  return VIBES.find((vibe) => vibe.id === vibeId)?.subtitle
+}
+
 export function getVibeChipTitle(vibeId: string | undefined) {
   return vibeId ? VIBE_CHIP_TITLES[vibeId] ?? getVibeTitle(vibeId) : undefined
 }

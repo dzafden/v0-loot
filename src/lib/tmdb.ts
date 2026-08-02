@@ -362,6 +362,24 @@ export async function getStudioCatalogue(companyId: number, maxPages = 8): Promi
   }
 }
 
+const studioSpotlightCache = new Map<number, Promise<TmdbSearchResult | null>>()
+
+/** The strongest current artwork candidate from a studio's first filmography page. */
+export function getStudioSpotlight(companyId: number) {
+  const cached = studioSpotlightCache.get(companyId)
+  if (cached) return cached
+  const request = getStudioCatalogue(companyId, 1)
+    .then(({ results }) => [...results]
+      .filter((show) => Boolean(show.backdrop_path ?? show.poster_path))
+      .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))[0] ?? null)
+    .catch((error) => {
+      studioSpotlightCache.delete(companyId)
+      throw error
+    })
+  studioSpotlightCache.set(companyId, request)
+  return request
+}
+
 // ── Discover feed (combined fetch + module-level TTL cache) ────────────────
 
 export interface DiscoverFeed {
@@ -625,6 +643,38 @@ export async function getAnimationTodayTrailers(pulse: AnimationTodayPulse, forc
   } finally {
     if (todayTrailersInflight?.request === request) todayTrailersInflight = null
   }
+}
+
+/**
+ * Load another mixed page of animation trailers for the full-screen clip feed.
+ * The cursor alternates TV and film pages so the feed can continue without
+ * turning the six-item Today preview into a fixed playlist.
+ */
+export async function getAnimationTrailerFeedBatch(
+  cursor: number,
+  excludedVideoKeys: string[] = [],
+): Promise<AnimationTrailerFeature[]> {
+  const mediaType: MediaType = cursor % 2 === 0 ? 'tv' : 'movie'
+  const page = Math.floor(cursor / 2) % 500 + 1
+  const raw = await discoverList(mediaType, {
+    sort_by: 'popularity.desc',
+    'vote_count.gte': '10',
+    page: String(page),
+  }, 16)
+  const excluded = new Set(excludedVideoKeys)
+  const results = await Promise.allSettled(
+    raw.map(async (candidate) => {
+      const show = tmdbToLoot(candidate)
+      const video = rankVideos((await getShowVideos(show.id, show.mediaType)).results)
+        .find((asset) => !excluded.has(asset.key))
+      return video ? { show, video } : null
+    }),
+  )
+
+  return results
+    .flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : [])
+    .filter((feature, index, features) => features.findIndex((candidate) => candidate.video.key === feature.video.key) === index)
+    .slice(0, 8)
 }
 
 function episodeCacheForContext(contextKey: string) {
