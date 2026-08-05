@@ -2903,7 +2903,7 @@ function FeedRows({
       </section>
 
       <section>
-        <StudioFeedRail shows={profileShows} onBrowseAll={onBrowseAllStudios} onOpenStudio={onOpenStudio} />
+        <StudioFeedRail onBrowseAll={onBrowseAllStudios} onOpenStudio={onOpenStudio} />
         <CarouselRow title="Recently released" categoryKey="freshStudios" shows={sourceRows.freshStudios} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title="New this season · Anime" categoryKey="newAnime" shows={sourceRows.newAnime} ownedIds={ownedIds} watchlistIds={watchlistIds} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
         <CarouselRow title={rotatingVibeTitle} subtitle={rotatingVibeSubtitle} categoryKey="vibeCrate" shows={sourceRows.vibeCrate} ownedIds={ownedIds} watchlistIds={watchlistIds} landscape browseable={false} onOpenCategory={onOpenCategory} onOpenShow={onOpenShow} />
@@ -3097,29 +3097,37 @@ function TodayInAnimation({
       )}
 
       {featuredTrailer && (
-        <section className="relative mb-11 overflow-hidden bg-black">
+        <section
+          className="relative mb-11 overflow-hidden bg-black"
+          aria-labelledby="today-trailers-heading"
+          data-testid="today-trailers"
+        >
+          <h3
+            id="today-trailers-heading"
+            className="pointer-events-none absolute inset-x-5 top-5 z-20 text-[16px] font-semibold tracking-[-0.025em] text-white/92 [text-shadow:0_2px_18px_rgba(0,0,0,0.75)]"
+          >
+            Trailers &amp; clips
+          </h3>
           <button
             onClick={() => onPlayTrailer(featuredTrailer)}
-            className="group relative block h-[590px] w-full overflow-hidden bg-black text-left active:opacity-90"
+            className="group relative block h-[min(68svh,520px)] min-h-[430px] w-full overflow-hidden bg-black text-left active:opacity-90"
             aria-label={`Open trailer feed, starting with ${featuredTrailer.show.title}`}
           >
             <img
               src={featuredTrailerArt}
               alt=""
-              className="absolute inset-0 h-full w-full scale-[1.04] object-cover opacity-82 transition ease-out group-hover:scale-[1.09]"
-              style={{ transitionDuration: '7000ms' }}
+              className="absolute inset-0 h-full w-full scale-[1.02] object-cover transition-transform duration-1000 ease-out group-hover:scale-[1.05]"
               loading="lazy"
             />
-            <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(0,0,0,0.08)_36%,rgba(0,0,0,0.32)_72%)]" />
-            <span className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/95" />
-            <span className="absolute inset-x-5 top-5 z-10">
-              <strong className="text-[22px] font-semibold tracking-[-0.035em] text-white">Trailers &amp; clips</strong>
-            </span>
-            <span className="absolute left-1/2 top-[49%] z-10 grid h-[92px] w-[92px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/80 bg-black/40 text-white shadow-[0_0_0_10px_rgba(255,255,255,0.08),0_14px_44px_rgba(0,0,0,0.5),0_0_36px_rgba(78,234,255,0.2)] backdrop-blur-md transition-transform group-active:scale-90">
-              <Play size={30} fill="currentColor" className="translate-x-0.5" />
-            </span>
-            <span className="absolute inset-x-5 bottom-7 z-10">
-              <span className="line-clamp-2 block text-[32px] font-bold leading-none tracking-[-0.05em] text-white">{featuredTrailer.show.title}</span>
+            <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.48)_0%,transparent_27%,transparent_58%,rgba(0,0,0,0.88)_100%)]" />
+            <span className="absolute inset-x-5 bottom-6 z-10 flex items-end justify-between gap-5">
+              <span className="line-clamp-2 block min-w-0 text-[32px] font-bold leading-none tracking-[-0.05em] text-white [text-shadow:0_3px_20px_rgba(0,0,0,0.75)]">{featuredTrailer.show.title}</span>
+              <span
+                className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-black/45 text-white shadow-[0_8px_28px_rgba(0,0,0,0.42)] ring-1 ring-white/35 backdrop-blur-sm transition-transform group-active:scale-90"
+                aria-hidden="true"
+              >
+                <Play size={23} fill="currentColor" className="translate-x-0.5" />
+              </span>
             </span>
           </button>
         </section>
@@ -3264,20 +3272,28 @@ function ScheduleDaySheet({
             </div>
             <div className="max-h-[calc(78svh-88px)] overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 no-scrollbar">
               {loading && <p className="py-3 text-[13px] font-medium text-white/35">Loading episode details…</p>}
-              {(enrichedDay ?? day).entries.map((entry) => (
-                <button key={entry.show.id} onClick={() => onOpenShow(lootToShow(entry.show))} className="flex min-h-[108px] w-full items-start gap-3 border-b border-white/[0.06] py-4 text-left active:opacity-60">
-                  <span className="min-w-0 flex-1">
-                    <span className="line-clamp-1 block text-[17px] font-semibold tracking-[-0.02em] text-white/90">{entry.show.title}</span>
-                    {entry.episode ? (
-                      <>
-                        <span className="mt-1 block text-[14px] font-medium text-white/70">{episodeCode(entry.episode)}{episodeName(entry.episode) ? ` · ${episodeName(entry.episode)}` : ''}</span>
-                        {entry.episode.overview && <span className="mt-2 line-clamp-3 block text-[14px] leading-[1.45] text-white/50">{entry.episode.overview}</span>}
-                      </>
-                    ) : <span className="mt-2 block text-[14px] text-white/40">Episode details have not been published yet.</span>}
-                  </span>
-                  <ChevronRight size={17} className="mt-1 shrink-0 text-white/25" />
-                </button>
-              ))}
+              {(enrichedDay ?? day).entries.map((entry) => {
+                const artwork = entry.episode?.still_path ?? entry.show.backdropPath ?? entry.show.posterPath
+                return (
+                  <button key={entry.show.id} onClick={() => onOpenShow(lootToShow(entry.show))} className="flex min-h-[104px] w-full items-start gap-3 border-b border-white/[0.06] py-3.5 text-left active:opacity-60">
+                    {artwork && (
+                      <span className="mt-0.5 h-[76px] w-[112px] shrink-0 overflow-hidden rounded-[14px] bg-white/[0.04]">
+                        <img src={imgUrl(artwork, 'w342')} alt="" className="h-full w-full object-cover" />
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-1 block text-[17px] font-semibold tracking-[-0.02em] text-white/90">{entry.show.title}</span>
+                      {entry.episode ? (
+                        <>
+                          <span className="mt-1 block text-[14px] font-medium text-white/70">{episodeCode(entry.episode)}{episodeName(entry.episode) ? ` · ${episodeName(entry.episode)}` : ''}</span>
+                          {entry.episode.overview && <span className="mt-1.5 line-clamp-2 block text-[14px] leading-[1.45] text-white/50">{entry.episode.overview}</span>}
+                        </>
+                      ) : <span className="mt-2 block text-[14px] text-white/40">Episode details have not been published yet.</span>}
+                    </span>
+                    <ChevronRight size={17} className="mt-1 shrink-0 text-white/25" />
+                  </button>
+                )
+              })}
             </div>
           </motion.div>
         </motion.div>

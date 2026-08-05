@@ -317,6 +317,8 @@ export const getCompanyShows = (companyId: number) =>
 export interface StudioCatalogue {
   results: TmdbSearchResult[]
   truncated: boolean
+  tvCount: number
+  movieCount: number
 }
 
 async function getStudioCataloguePage(
@@ -325,7 +327,7 @@ async function getStudioCataloguePage(
   page: number,
 ) {
   const filters: Record<string, string> = { ...STUDIO_FILTER[mediaType] }
-  const data = await tmdb<{ results: RawTmdbListItem[]; total_pages?: number }>(
+  const data = await tmdb<{ results: RawTmdbListItem[]; total_pages?: number; total_results?: number }>(
     `/discover/${mediaType}`,
     withAnimationGenre({
       with_companies: String(companyId),
@@ -337,6 +339,7 @@ async function getStudioCataloguePage(
   return {
     results: data.results.map((result) => normalizeListItem(result, mediaType)),
     totalPages: Math.max(1, data.total_pages ?? 1),
+    totalResults: Math.max(0, data.total_results ?? data.results.length),
   }
 }
 
@@ -359,11 +362,12 @@ export async function getStudioCatalogue(companyId: number, maxPages = 8): Promi
   return {
     results: unique,
     truncated: firstPages.some((page) => page.totalPages > maxPages),
+    tvCount: firstPages[0].totalResults,
+    movieCount: firstPages[1].totalResults,
   }
 }
 
 const studioSpotlightCache = new Map<number, Promise<TmdbSearchResult | null>>()
-
 /** The strongest current artwork candidate from a studio's first filmography page. */
 export function getStudioSpotlight(companyId: number) {
   const cached = studioSpotlightCache.get(companyId)

@@ -95,6 +95,7 @@ describe('generated franchise registry', () => {
     )
     expect(sync.definitions).toHaveLength(1)
     expect(sync.definitions[0]).toMatchObject({ id: 10194, source: 'tmdb-collection' })
+    expect(sync.definitions[0].scope).toBe('series')
     expect(sync.definitions[0].memberIds).toHaveLength(7)
     expect(sync.definitions[0].backdropPath).toBe('/collection-backdrop.jpg')
     expect(sync.supersededIds).toEqual([staleRegistryDefinition.id])
@@ -102,6 +103,31 @@ describe('generated franchise registry', () => {
       previousId: staleRegistryDefinition.id,
       definition: { id: tmdb.id, source: 'tmdb-collection' },
     })
+  })
+
+  it('marks a franchise with a distinct spin-off line as a universe', () => {
+    const shrekCollection: FranchiseDefinition = {
+      id: 2150,
+      name: 'Shrek Collection',
+      memberIds: [808, 809, 810, 10192],
+      members: [808, 809, 810, 10192].map((id) => ({
+        id,
+        name: `Shrek ${id}`,
+        releaseDate: '2020-01-01',
+        mediaType: 'movie' as const,
+      })),
+      source: 'tmdb-collection',
+      scope: 'series',
+      updatedAt: 1,
+    }
+    const sync = buildRegistryDefinitionsForShows(
+      [ownedShow(808, 'movie', 'Shrek')],
+      [shrekCollection],
+      new Date('2026-08-02T12:00:00Z').getTime(),
+    )
+
+    expect(sync.definitions[0]).toMatchObject({ id: shrekCollection.id, scope: 'universe' })
+    expect(sync.definitions[0].members.map((member) => member.name)).toContain('Puss in Boots')
   })
 
   it.each([

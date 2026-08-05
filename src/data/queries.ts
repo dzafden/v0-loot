@@ -33,6 +33,7 @@ const DISCOVER_HIDE_MS = 90 * 24 * 60 * 60 * 1000
 const FRANCHISE_DEFINITION_TTL_MS = 7 * 24 * 60 * 60_000
 const franchiseDefinitionInflight = new Map<number, Promise<void>>()
 const studioDefinitionInflight = new Map<number, Promise<FranchiseDefinition | null>>()
+const franchiseArtworkInflight = new Map<number, Promise<void>>()
 
 async function persistFranchiseDefinition(collectionId: number) {
   const inflight = franchiseDefinitionInflight.get(collectionId)
@@ -75,6 +76,57 @@ export async function getOrPersistStudioDefinition(studioId: number) {
     })
     .finally(() => studioDefinitionInflight.delete(studioId))
   studioDefinitionInflight.set(studioId, request)
+  return request
+}
+
+/**
+ * Registry membership is deliberately generated without copying TMDB artwork. Hydrate the
+ * visible collection on demand so every title becomes a real, navigable media record without
+ * turning initial sync into hundreds of API requests.
+ */
+export async function hydrateFranchiseDefinitionMembers(definition: FranchiseDefinition) {
+  if (!hasTmdbKey() || definition.source === 'tmdb-studio') return
+  const inflight = franchiseArtworkInflight.get(definition.id)
+  if (inflight) return inflight
+  const missing = definition.members.filter((member) => !member.posterPath)
+  if (!missing.length) return
+
+  const request = (async () => {
+    const hydrated = new Map<string, FranchiseDefinition['members'][number]>()
+    for (let index = 0; index < missing.length; index += 3) {
+      const batch = await Promise.allSettled(missing.slice(index, index + 3).map(async (member) => {
+        const mediaType = member.mediaType ?? 'movie'
+        const detail = await getShowDetail(member.id, mediaType)
+        return {
+          ...member,
+          name: detail.name || member.name,
+          posterPath: detail.poster_path ?? member.posterPath ?? null,
+          backdropPath: detail.backdrop_path ?? member.backdropPath ?? null,
+          overview: detail.overview ?? member.overview,
+          releaseDate: detail.first_air_date ?? member.releaseDate,
+          mediaType,
+        }
+      }))
+      for (const result of batch) {
+        if (result.status !== 'fulfilled') continue
+        hydrated.set(`${result.value.mediaType}:${result.value.id}`, result.value)
+      }
+    }
+    if (!hydrated.size) return
+
+    const current = await db.franchiseDefinitions.get(definition.id)
+    if (!current) return
+    const members = current.members.map((member) => hydrated.get(`${member.mediaType ?? 'movie'}:${member.id}`) ?? member)
+    await db.franchiseDefinitions.put({
+      ...current,
+      posterPath: current.posterPath ?? members.find((member) => member.posterPath)?.posterPath ?? null,
+      backdropPath: current.backdropPath ?? members.find((member) => member.backdropPath)?.backdropPath ?? null,
+      members,
+      updatedAt: Date.now(),
+    })
+  })().finally(() => franchiseArtworkInflight.delete(definition.id))
+
+  franchiseArtworkInflight.set(definition.id, request)
   return request
 }
 

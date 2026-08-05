@@ -74,6 +74,33 @@ describe('franchise achievements', () => {
     expect(franchiseDisplayName('Moon Cats Collection')).toBe('Moon Cats')
   })
 
+  it('makes the collection boundary explicit', () => {
+    expect(franchiseDisplayName({
+      name: 'Moon Cats Collection',
+      source: 'tmdb-collection',
+      scope: 'series',
+      members: [{ id: 1, name: 'Moon Cats', releaseDate: '2020-01-01' }],
+    })).toBe('Moon Cats series')
+    expect(franchiseDisplayName({
+      name: 'Moon Cats',
+      source: 'wikidata',
+      sourceKey: 'wikidata:franchise:moon-cats',
+      scope: 'universe',
+      members: [{ id: 1, name: 'Moon Cats', releaseDate: '2020-01-01' }],
+    })).toBe('Moon Cats universe')
+  })
+
+  it('recognises a legacy collection with a differently named spin-off as a universe', () => {
+    expect(franchiseDisplayName({
+      name: 'Shrek Collection',
+      source: 'tmdb-collection',
+      members: [
+        { id: 1, name: 'Shrek', releaseDate: '2001-01-01' },
+        { id: 2, name: 'Puss in Boots', releaseDate: '2011-01-01' },
+      ],
+    })).toBe('Shrek universe')
+  })
+
   it('derives treatment from completion frequency rather than a rarity label', () => {
     expect(collectionFrequencyTreatment(4)).toBe('everyday')
     expect(collectionFrequencyTreatment(10)).toBe('sunday')

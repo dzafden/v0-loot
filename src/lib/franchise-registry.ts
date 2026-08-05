@@ -134,6 +134,7 @@ function mergeMembers(preferred: FranchiseMember[], alternate: FranchiseMember[]
       ...member,
       posterPath: member.posterPath ?? other?.posterPath ?? null,
       backdropPath: member.backdropPath ?? other?.backdropPath ?? null,
+      overview: member.overview ?? other?.overview,
       releaseDate: member.releaseDate || other?.releaseDate || '',
       mediaType: member.mediaType ?? other?.mediaType ?? 'movie',
     }
@@ -154,6 +155,7 @@ function mergeDefinitionMembership(
     backdropPath: identity.backdropPath ?? alternate.backdropPath ?? null,
     memberIds: members.map((member) => member.id),
     members,
+    scope: identity.scope === 'universe' || alternate.scope === 'universe' ? 'universe' : identity.scope ?? alternate.scope,
     tradition: identity.tradition ?? alternate.tradition,
     updatedAt: Math.max(identity.updatedAt, alternate.updatedAt),
   }
@@ -194,6 +196,7 @@ function registryDefinition(
     members,
     source: group.source,
     sourceKey: group.id,
+    scope: group.kind === 'collection' ? 'series' : 'universe',
     tradition: traditions.size === 1 ? knownMembers.find((show) => show.tradition)?.tradition : undefined,
     collectible: true,
     updatedAt: at,

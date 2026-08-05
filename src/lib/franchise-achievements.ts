@@ -136,6 +136,7 @@ export function buildFranchiseDefinition(
     memberIds: members.map((member) => member.id),
     members,
     source: 'tmdb-collection',
+    scope: 'series',
     updatedAt: at,
   }
 }
@@ -180,6 +181,7 @@ export function rebindEarnedFranchiseAchievement(
     source: definition.source,
     sourceId: definition.sourceId,
     sourceKey: definition.sourceKey,
+    scope: definition.scope,
   }
   return {
     ...achievement,
@@ -267,6 +269,28 @@ export function franchiseAchievementProgress(
   })
 }
 
-export function franchiseDisplayName(name: string) {
-  return name.replace(/\s+(collection|franchise)$/i, '').trim() || name
+const SCOPE_GENERIC_WORDS = new Set(['and', 'collection', 'film', 'franchise', 'movie', 'series', 'the', 'universe'])
+
+export function franchiseScope(value: Pick<FranchiseDefinition, 'name' | 'scope' | 'source' | 'sourceKey' | 'members'>) {
+  if (value.source === 'tmdb-studio') return null
+  if (value.scope === 'universe' || /:(franchise|universe):/.test(value.sourceKey ?? '')) return 'universe' as const
+  const identityTokens = value.name.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2 && !SCOPE_GENERIC_WORDS.has(token))
+  const hasDistinctLine = identityTokens.length > 0 && value.members.some((member) => {
+    const title = member.name.toLowerCase()
+    return !identityTokens.some((token) => title.includes(token))
+  })
+  if (hasDistinctLine) return 'universe' as const
+  return 'series' as const
+}
+
+export function franchiseDisplayName(value: string | Pick<FranchiseDefinition, 'name' | 'scope' | 'source' | 'sourceKey' | 'members'>) {
+  const name = typeof value === 'string' ? value : value.name
+  const base = franchiseRootName(name)
+  if (typeof value === 'string' || value.source === 'tmdb-studio') return base
+  const scope = franchiseScope(value)
+  return scope ? `${base} ${scope}` : base
+}
+
+export function franchiseRootName(name: string) {
+  return name.replace(/\s+(universe|collection|franchise|series)$/i, '').trim() || name
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Check, ChevronLeft, ChevronRight, EyeOff, Layers3, X } from 'lucide-react'
@@ -8,6 +8,7 @@ import {
   franchiseMemberKey,
   franchiseAchievementProgress,
   franchiseDisplayName,
+  franchiseScope,
   franchiseShowKey,
   ownedFranchiseKeys,
   type FranchiseAchievementProgress,
@@ -16,7 +17,7 @@ import { imgUrl } from '../../lib/tmdb'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { cn } from '../../lib/utils'
 import { FeedSaveActions } from '../../components/show/FeedSaveActions'
-import { addToWatchlistShelf, dismissCollection, ensureDefaultWatchlistShelves, upsertShow } from '../../data/queries'
+import { addToWatchlistShelf, dismissCollection, ensureDefaultWatchlistShelves, hydrateFranchiseDefinitionMembers, upsertShow } from '../../data/queries'
 import { dominantColor } from '../../lib/dominantColor'
 
 interface Props {
@@ -29,12 +30,21 @@ interface Props {
   mode?: 'rails' | 'screen'
   onBack?: () => void
   onOpenAll?: () => void
+  openDefinitionId?: number | null
+  onOpenDefinitionHandled?: () => void
 }
 
 type RecordsFilter = 'all' | 'open' | 'record'
 
 function memberAsShow(member: FranchiseMember, definition: FranchiseDefinition, existing?: Show): Show {
-  if (existing) return existing
+  if (existing) return {
+    ...existing,
+    name: existing.name || member.name,
+    year: existing.year ?? (Number(member.releaseDate.slice(0, 4)) || undefined),
+    posterPath: existing.posterPath ?? member.posterPath,
+    backdropPath: existing.backdropPath ?? member.backdropPath,
+    overview: existing.overview ?? member.overview,
+  }
   const now = Date.now()
   const studioId = definition.source === 'tmdb-studio' ? definition.sourceId : undefined
   return {
@@ -43,6 +53,7 @@ function memberAsShow(member: FranchiseMember, definition: FranchiseDefinition, 
     year: Number(member.releaseDate.slice(0, 4)) || undefined,
     posterPath: member.posterPath,
     backdropPath: member.backdropPath,
+    overview: member.overview,
     genres: ['Animation'],
     rawGenres: ['Animation'],
     mediaType: member.mediaType ?? 'movie',
@@ -106,6 +117,8 @@ export function FranchiseAchievementRail({
   mode = 'rails',
   onBack,
   onOpenAll,
+  openDefinitionId,
+  onOpenDefinitionHandled,
 }: Props) {
   const reducedMotion = useReducedMotion()
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -128,15 +141,23 @@ export function FranchiseAchievementRail({
     if (recordsFilter === 'record') return progress.hasBeenEarned
     return true
   })
-  const selected = progressItems.find((progress) => progress.definition.id === selectedId) ?? null
+  const requestedDefinitionId = openDefinitionId != null && progressItems.some((progress) => progress.definition.id === openDefinitionId)
+    ? openDefinitionId
+    : null
+  const activeSelectedId = selectedId ?? requestedDefinitionId
+  const selected = progressItems.find((progress) => progress.definition.id === activeSelectedId) ?? null
+  const closeSelected = useCallback(() => {
+    setSelectedId(null)
+    if (requestedDefinitionId !== null) onOpenDefinitionHandled?.()
+  }, [onOpenDefinitionHandled, requestedDefinitionId])
   useEffect(() => {
-    if (mode !== 'screen' && selectedId === null && !dismissCandidate) return
+    if (mode !== 'screen' && activeSelectedId === null && !dismissCandidate) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (dismissCandidate) setDismissCandidate(null)
-      else if (selectedId !== null) setSelectedId(null)
+      else if (activeSelectedId !== null) closeSelected()
       else if (mode === 'screen') onBack?.()
     }
     window.addEventListener('keydown', onKeyDown)
@@ -144,7 +165,7 @@ export function FranchiseAchievementRail({
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [dismissCandidate, mode, onBack, selectedId])
+  }, [activeSelectedId, closeSelected, dismissCandidate, mode, onBack])
 
   const addToDefaultWatchlist = async (show: Show) => {
     const shelves = await ensureDefaultWatchlistShelves()
@@ -154,6 +175,7 @@ export function FranchiseAchievementRail({
 
   const openMember = (show: Show) => {
     setSelectedId(null)
+    if (requestedDefinitionId !== null) onOpenDefinitionHandled?.()
     onOpenShow(show)
   }
 
@@ -254,7 +276,7 @@ export function FranchiseAchievementRail({
               showsById={showsById}
               watchlistById={watchlistById}
               reducedMotion={reducedMotion}
-              onClose={() => setSelectedId(null)}
+              onClose={closeSelected}
               onOpenShow={openMember}
               onSeen={upsertShow}
               onWatchlist={addToDefaultWatchlist}
@@ -271,7 +293,7 @@ export function FranchiseAchievementRail({
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[96] bg-black/68 backdrop-blur-md" onClick={() => setDismissCandidate(null)}>
               <motion.div initial={reducedMotion ? false : { y: 36, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 24, opacity: 0 }} onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-[34px] border-t border-white/[0.09] bg-[#0b0c0f] p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
                 <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-white/18" />
-                <p className="text-[26px] font-black leading-[0.95] tracking-[-0.06em]">Not interested in finishing {franchiseDisplayName(dismissCandidate.definition.name)}?</p>
+                <p className="text-[26px] font-black leading-[0.95] tracking-[-0.06em]">Not interested in finishing {franchiseDisplayName(dismissCandidate.definition)}?</p>
                 <p className="mt-3 text-[13px] leading-relaxed text-white/48">It will keep tracking quietly and return if you watch another title. You can also restore it from Settings.</p>
                 <button onClick={() => void dismissProgress(dismissCandidate)} className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-[22px] bg-white text-[11px] font-black uppercase tracking-[0.14em] text-black active:scale-[0.985]"><EyeOff size={16} /> Hide this collection</button>
                 <button onClick={() => setDismissCandidate(null)} className="mt-2 h-12 w-full text-[11px] font-black uppercase tracking-[0.14em] text-white/52">Keep it here</button>
@@ -420,7 +442,7 @@ function CollectionRecordGridCard({
   const heroPath = heroPathFor(definition, showsById)
   const fallbackArt = heroPath ? [] : fallbackArtworkFor(definition, showsById)
   const accent = useArtworkAccent(heroPath ?? fallbackArt[0] ?? null)
-  const title = franchiseDisplayName(definition.name)
+  const title = franchiseDisplayName(definition)
   const earned = progress.hasBeenEarned
   const percentage = Math.round((progress.watchedCount / progress.totalCount) * 100)
   const lowProgress = !earned && progress.watchedCount / progress.totalCount < 0.5
@@ -563,7 +585,7 @@ function CollectionProgressCard({
   const heroPath = heroPathFor(definition, showsById)
   const fallbackArt = heroPath ? [] : fallbackArtworkFor(definition, showsById)
   const accent = useArtworkAccent(heroPath ?? fallbackArt[0] ?? null)
-  const title = franchiseDisplayName(definition.name)
+  const title = franchiseDisplayName(definition)
   const earned = progress.hasBeenEarned
   const percentage = Math.round((progress.watchedCount / progress.totalCount) * 100)
   const lowProgress = !earned && progress.watchedCount / progress.totalCount < 0.5
@@ -654,39 +676,45 @@ export function CollectionProgressDetail({
   onDismiss?: () => void
 }) {
   const definition = progress.definition
-  const title = franchiseDisplayName(definition.name)
+  const title = franchiseDisplayName(definition)
   const heroPath = heroPathFor(definition, showsById) ?? definition.posterPath ?? null
   const accent = useArtworkAccent(heroPath)
   const percentage = progress.totalCount ? Math.round((progress.watchedCount / progress.totalCount) * 100) : 0
   const noun = collectionNoun(definition)
   const stateCopy = progress.hasNewChapter
-    ? `This collection is already in your record. ${progress.remainingCount} new ${noun}${progress.remainingCount === 1 ? '' : 's'} joined it.`
+    ? `In your record · ${progress.remainingCount} new ${noun}${progress.remainingCount === 1 ? '' : 's'}`
     : progress.isComplete
-      ? `Every ${title} ${noun} is in your record.`
-      : progress.watchedCount / progress.totalCount < 0.5
-        ? `You've seen ${progress.watchedCount}. Seen any of the others?`
-        : `${progress.watchedCount} of ${progress.totalCount} ${noun}s are in your record.`
+      ? 'Collection complete'
+      : `${progress.watchedCount} seen · ${progress.remainingCount} to discover`
+  const sectionTitle = definition.source === 'tmdb-studio'
+    ? 'The studio catalogue'
+    : `Titles in this ${franchiseScope(definition) ?? 'series'}`
+
+  useEffect(() => {
+    if (definition.source === 'tmdb-studio' || !definition.members.some((member) => !member.posterPath)) return
+    void hydrateFranchiseDefinitionMembers(definition)
+  }, [definition])
 
   return (
     <>
-      <header className="relative min-h-[330px] overflow-hidden" style={{ backgroundColor: accent }}>
-        {heroPath && <img src={imgUrl(heroPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-78" aria-hidden />}
-        <div className="absolute inset-0" style={{ background: `linear-gradient(128deg, ${accent}bd 0%, transparent 58%)` }} aria-hidden />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/24 via-black/24 to-[#07080a]" />
+      <header className="relative min-h-[330px] overflow-hidden bg-[#07080a]">
+        {heroPath && <img src={imgUrl(heroPath, 'w500')} alt="" className="absolute inset-0 h-full w-full object-cover opacity-72" aria-hidden />}
+        <div className="absolute inset-0" style={{ background: `linear-gradient(120deg, ${accent}78 0%, transparent 54%)` }} aria-hidden />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/38 via-black/24 to-[#07080a]" />
         <button onClick={onClose} className="absolute left-4 top-[max(1rem,env(safe-area-inset-top))] z-10 grid h-11 w-11 place-items-center rounded-full border border-white/[0.1] bg-black/46 text-white/82 backdrop-blur-xl active:scale-95" aria-label={closeLabel}>
           {closeIcon === 'back' ? <ChevronLeft size={20} /> : <X size={19} />}
         </button>
         <div className="absolute inset-x-0 bottom-0 px-5 pb-5">
-          <p className={cn('max-w-[92%] text-[12px] font-semibold leading-snug', progress.hasBeenEarned ? 'text-[#f5c453]' : 'text-white/62')}>{stateCopy}</p>
-          <h2 id="collection-progress-dialog-title" className="mt-2 max-w-[92%] text-[42px] font-black leading-[0.84] tracking-[-0.09em] text-balance">{title}</h2>
+          <p className={cn('max-w-[92%] text-[11px] font-black uppercase tracking-[0.1em]', progress.hasBeenEarned ? 'text-[#f5c453]' : 'text-white/66')}>{stateCopy}</p>
+          <h2 id="collection-progress-dialog-title" className="mt-2 max-w-[94%] text-[40px] font-black leading-[0.88] tracking-[-0.075em] text-balance drop-shadow-[0_3px_16px_rgba(0,0,0,.8)]">{title}</h2>
           <div className="mt-5 flex items-end justify-between gap-3"><p className="text-[17px] font-black tracking-[-0.04em]">{progress.watchedCount} of {progress.totalCount} {noun}s watched</p><p className="text-[12px] font-semibold text-white/48">{percentage}%</p></div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/14" aria-label={`${percentage}% complete`}><motion.div initial={reducedMotion ? false : { width: 0 }} animate={{ width: `${percentage}%` }} transition={{ duration: reducedMotion ? 0 : 0.48, ease: 'easeOut' }} className={cn('h-full rounded-full', progress.hasBeenEarned ? 'bg-[#f5c453]' : 'bg-white')} /></div>
         </div>
       </header>
 
       <main className="px-4 pt-4">
-        <div className="mb-3 flex items-baseline justify-between gap-3 px-1"><h3 className="text-[18px] font-black tracking-[-0.04em]">{definition.source === 'tmdb-studio' ? 'The studio catalogue' : 'The collection'}</h3><p className="text-[11px] font-semibold text-white/36">Tap a title for details</p></div>
-        <div className="space-y-2.5">
+        <div className="mb-1 flex min-h-9 items-center justify-between gap-3 px-1"><h3 className="text-[18px] font-black tracking-[-0.04em]">{sectionTitle}</h3></div>
+        <div>
           {definition.members.map((member, index) => {
             const memberKey = franchiseMemberKey(member)
             const owned = showsById.get(memberKey)
@@ -694,12 +722,13 @@ export function CollectionProgressDetail({
             const show = memberAsShow(member, definition, owned ?? watchlisted)
             const artwork = member.posterPath ?? show.posterPath ?? member.backdropPath ?? show.backdropPath
             return (
-              <motion.article key={`${member.mediaType ?? 'movie'}:${member.id}`} initial={reducedMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reducedMotion ? 0 : Math.min(index * 0.035, 0.2), duration: reducedMotion ? 0 : 0.24 }} className="flex min-h-[116px] items-center gap-3 overflow-hidden rounded-[24px] bg-white/[0.055] p-2.5 ring-1 ring-white/[0.07]">
-                <button onClick={() => onOpenShow(show)} className="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-80" aria-label={`Open ${member.name}`}>
-                  <span className="relative h-[94px] w-[64px] shrink-0 overflow-hidden rounded-[14px] bg-white/[0.06]">{artwork && <img src={imgUrl(artwork, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" />}{owned && <span className="absolute bottom-1.5 left-1.5 grid h-6 w-6 place-items-center rounded-full bg-[#f5c453] text-black shadow-lg"><Check size={13} strokeWidth={3.4} /></span>}</span>
-                  <span className="min-w-0 py-1"><span className="line-clamp-2 text-[16px] font-black leading-[1.05] tracking-[-0.035em] text-white">{member.name}</span><span className="mt-2 block text-[11px] font-semibold text-white/38">{member.releaseDate.slice(0, 4) || 'Year unknown'} · {(member.mediaType ?? 'movie') === 'tv' ? 'Series' : 'Film'}</span><span className={cn('mt-1 block text-[10px] font-black uppercase tracking-[0.12em]', owned ? 'text-[#f5c453]' : 'text-white/38')}>{owned ? 'Watched' : watchlisted ? 'In watchlist' : 'Not watched'}</span></span>
+              <motion.article key={`${member.mediaType ?? 'movie'}:${member.id}`} initial={reducedMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reducedMotion ? 0 : Math.min(index * 0.025, 0.16), duration: reducedMotion ? 0 : 0.22 }} className="flex min-h-[112px] items-center gap-2 border-b border-white/[0.075] py-3 last:border-b-0">
+                <button onClick={() => onOpenShow(show)} className="group flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-70" aria-label={`Open details for ${member.name}`}>
+                  <span className="relative h-[88px] w-[60px] shrink-0 overflow-hidden rounded-[12px] bg-white/[0.055]">{artwork ? <img src={imgUrl(artwork, 'w342')} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="grid h-full w-full place-items-center bg-[linear-gradient(145deg,#24262b,#111216)] text-[18px] font-black text-white/16">{member.name.slice(0, 1)}</span>}{owned && <span className="absolute bottom-1.5 left-1.5 grid h-6 w-6 place-items-center rounded-full bg-[#f5c453] text-black shadow-lg"><Check size={13} strokeWidth={3.4} /></span>}</span>
+                  <span className="min-w-0 flex-1 py-1"><span className="line-clamp-2 text-[16px] font-black leading-[1.06] tracking-[-0.03em] text-white/94">{member.name}</span><span className="mt-2 block text-[11px] font-semibold text-white/42">{member.releaseDate.slice(0, 4) || 'Year unknown'} · {(member.mediaType ?? 'movie') === 'tv' ? 'Series' : 'Film'}</span><span className={cn('mt-1 block text-[9px] font-black uppercase tracking-[0.12em]', owned ? 'text-[#f5c453]' : watchlisted ? 'text-white/62' : 'text-white/30')}>{owned ? 'In your record' : watchlisted ? 'In watchlist' : 'Not seen'}</span></span>
+                  <ChevronRight size={18} className="shrink-0 text-white/26 transition-transform group-active:translate-x-0.5" aria-hidden />
                 </button>
-                <div className="shrink-0"><FeedSaveActions isSeen={Boolean(owned)} isWatchlisted={Boolean(watchlisted)} onSeen={() => onSeen(show)} onWatchlist={() => onWatchlist(show)} size="sm" /></div>
+                <div className="shrink-0 pl-0.5"><FeedSaveActions isSeen={Boolean(owned)} isWatchlisted={Boolean(watchlisted)} onSeen={() => onSeen(show)} onWatchlist={() => onWatchlist(show)} size="sm" /></div>
               </motion.article>
             )
           })}

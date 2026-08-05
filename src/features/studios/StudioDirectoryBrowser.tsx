@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronLeft } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { FranchiseDefinition, FranchiseMember, Show } from '../../types'
 import { addToWatchlistShelf, ensureDefaultWatchlistShelves, getOrPersistStudioDefinition, upsertShow } from '../../data/queries'
 import { hasTmdbKey, imgUrl } from '../../lib/tmdb'
 import { STUDIOS, type StudioDefinition } from '../../lib/studios'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { FeedSaveActions } from '../../components/show/FeedSaveActions'
-import { StudioCover } from './StudioCover'
+import { StudioCover, type StudioCatalogueStats } from './StudioCover'
 
 interface Props {
   open: boolean
@@ -41,6 +41,14 @@ export function StudioDirectoryBrowser({
   const scrollRootRef = useRef<HTMLDivElement | null>(null)
   const showsById = useMemo(() => new Map(shows.map((show) => [show.id, show])), [shows])
   const watchlistById = useMemo(() => new Map(watchlistShows.map((show) => [show.id, show])), [watchlistShows])
+  const leaveStudio = useCallback(() => {
+    if (directMode) {
+      onClose()
+      return
+    }
+    setBrowsedStudio(null)
+    setDirectMode(false)
+  }, [directMode, onClose])
 
   useEffect(() => {
     if (!open || !directMode || requestedStudioId === null) return
@@ -85,8 +93,7 @@ export function StudioDirectoryBrowser({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (browsedStudio) {
-        setBrowsedStudio(null)
-        setDirectMode(false)
+        leaveStudio()
       } else onClose()
     }
     window.addEventListener('keydown', onKeyDown)
@@ -94,7 +101,7 @@ export function StudioDirectoryBrowser({
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [browsedStudio, onClose, open])
+  }, [browsedStudio, leaveStudio, onClose, open])
 
   useEffect(() => {
     if (!browsedStudio) return
@@ -157,10 +164,7 @@ export function StudioDirectoryBrowser({
                 showsById={showsById}
                 watchlistById={watchlistById}
                 reducedMotion={reducedMotion}
-                onBack={() => {
-                  setBrowsedStudio(null)
-                  setDirectMode(false)
-                }}
+                onBack={leaveStudio}
                 onOpenShow={openMember}
                 onSeen={upsertShow}
                 onWatchlist={addToDefaultWatchlist}
@@ -204,6 +208,15 @@ function StudioDirectory({
   onClose: () => void
   onOpen: (studio: StudioDefinition) => void
 }) {
+  const [studioStats, setStudioStats] = useState<Record<number, StudioCatalogueStats>>({})
+  const updateStudioStats = useCallback((studioId: number, stats: StudioCatalogueStats) => {
+    setStudioStats((current) => {
+      const previous = current[studioId]
+      if (previous?.tvCount === stats.tvCount && previous.movieCount === stats.movieCount) return current
+      return { ...current, [studioId]: stats }
+    })
+  }, [])
+
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#07080a]/92 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-2xl">
@@ -218,27 +231,32 @@ function StudioDirectory({
 
       <main className="px-4 pb-4">
         {STUDIO_GROUPS.map((group) => (
-          <section key={group.id} className="pt-7" aria-labelledby={`studio-group-${group.id}`}>
-            <h3 id={`studio-group-${group.id}`} className="mb-4 text-[21px] font-black leading-none tracking-[-0.045em] text-white/88">{group.title}</h3>
-            <div className="grid grid-cols-2 gap-3">
+          <section key={group.id} className="pt-7" aria-label={group.id === 'anime' ? group.title : undefined} aria-labelledby={group.id === 'anime' ? undefined : `studio-group-${group.id}`}>
+            {group.id !== 'anime' && <h3 id={`studio-group-${group.id}`} className="mb-4 text-[21px] font-black leading-none tracking-[-0.045em] text-white/88">{group.title}</h3>}
+            <div className="space-y-6">
               {group.studios.map((studio, index) => (
-                <motion.button
+                <motion.div
                   key={studio.id}
                   initial={reducedMotion ? false : { opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: reducedMotion ? 0 : Math.min(index * 0.018, 0.14), duration: reducedMotion ? 0 : 0.22 }}
-                  onClick={() => onOpen(studio)}
-                  disabled={loadingId !== null}
-                  className="group relative aspect-[4/5] overflow-hidden rounded-[24px] bg-[#111116] text-left shadow-[0_16px_34px_rgba(0,0,0,0.28)] transition-transform active:scale-[0.98] disabled:opacity-55"
                 >
-                  <StudioCover studioId={studio.id} className="absolute inset-0" />
-                  <span className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-black/5" aria-hidden />
-                  <span className="absolute inset-x-0 bottom-0 px-4 pb-4">
-                    <span className="line-clamp-2 block text-[18px] font-black leading-[1.02] tracking-[-0.045em] text-white/94">{studio.name}</span>
-                    <span className="mt-2 block text-[10px] font-medium text-white/48">{studio.approxCount} titles</span>
-                    {loadingId === studio.id && <span className="absolute bottom-4 right-4 h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />}
-                  </span>
-                </motion.button>
+                  <button
+                    onClick={() => onOpen(studio)}
+                    disabled={loadingId !== null}
+                    aria-label={`Open all ${studio.name} titles`}
+                    className="flex min-h-12 w-full items-center gap-3 text-left transition-opacity active:opacity-60 disabled:opacity-55"
+                  >
+                    <h4 className="min-w-0 flex-1 text-[20px] font-black leading-none tracking-[-0.045em] text-white/94">{studio.name}</h4>
+                    {studioStats[studio.id] && <span className="shrink-0 text-[13px] font-medium text-white/58">{studioStats[studio.id].tvCount + studioStats[studio.id].movieCount} titles</span>}
+                    {loadingId === studio.id ? (
+                      <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/20 border-t-white" aria-hidden />
+                    ) : (
+                      <ChevronRight size={19} className="shrink-0 text-white/48" aria-hidden />
+                    )}
+                  </button>
+                  <StudioCover studioId={studio.id} className="h-[116px] w-full" onCatalogue={(stats) => updateStudioStats(studio.id, stats)} />
+                </motion.div>
               ))}
             </div>
           </section>

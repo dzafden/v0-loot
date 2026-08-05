@@ -1,5 +1,5 @@
 import type { EarnedFranchiseAchievement } from '../types'
-import { franchiseDisplayName } from './franchise-achievements'
+import { franchiseDisplayName, franchiseRootName } from './franchise-achievements'
 import { dominantColor } from './dominantColor'
 import { imgUrl } from './tmdb'
 
@@ -39,6 +39,31 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines
 }
 
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const r = Math.min(radius, width / 2, height / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + width - r, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+  ctx.lineTo(x + width, y + height - r)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  ctx.lineTo(x + r, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
+function readableAccent(hex: string) {
+  const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex)
+  if (!match) return '#f5c453'
+  const rgb = match.slice(1).map((value) => Number.parseInt(value, 16))
+  const luminance = rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114
+  const amount = luminance < 118 ? 0.48 : luminance < 150 ? 0.26 : 0.08
+  const adjusted = rgb.map((value) => Math.round(value + (255 - value) * amount))
+  return `#${adjusted.map((value) => value.toString(16).padStart(2, '0')).join('')}`
+}
+
 export async function createCollectionShareFile(
   achievement: EarnedFranchiseAchievement,
   format: CollectionShareFormat,
@@ -57,52 +82,113 @@ export async function createCollectionShareFile(
     ?? definition.posterPath
     ?? definition.members.find((member) => member.posterPath)?.posterPath
   const heroUrl = heroPath ? imgUrl(heroPath, 'original') : undefined
-  const accent = heroUrl ? await dominantColor(heroUrl) : '#f5c453'
-
-  ctx.fillStyle = '#08070a'
-  ctx.fillRect(0, 0, width, height)
+  const accent = readableAccent(heroUrl ? await dominantColor(heroUrl) : '#f5c453')
+  let heroImage: HTMLImageElement | null = null
   if (heroUrl) {
     try {
-      const image = await loadImage(heroUrl)
-      drawCover(ctx, image, width, height)
+      heroImage = await loadImage(heroUrl)
     } catch {
-      // The colour field and type composition remain a complete share artifact.
+      heroImage = null
     }
   }
 
-  const wash = ctx.createLinearGradient(0, 0, width, height)
-  wash.addColorStop(0, `${accent}8c`)
-  wash.addColorStop(0.48, 'rgba(8,7,10,0.08)')
-  wash.addColorStop(1, 'rgba(8,7,10,0.82)')
-  ctx.fillStyle = wash
+  ctx.fillStyle = '#08070a'
   ctx.fillRect(0, 0, width, height)
-  const shade = ctx.createLinearGradient(0, height * 0.22, 0, height)
-  shade.addColorStop(0, 'rgba(0,0,0,0)')
-  shade.addColorStop(1, 'rgba(0,0,0,0.94)')
+  if (heroImage) {
+    ctx.save()
+    ctx.filter = 'blur(34px) saturate(1.35)'
+    ctx.globalAlpha = 0.38
+    drawCover(ctx, heroImage, width, height)
+    ctx.restore()
+  }
+  ctx.fillStyle = 'rgba(6,7,9,0.68)'
+  ctx.fillRect(0, 0, width, height)
+  const aura = ctx.createRadialGradient(width / 2, height * 0.46, 40, width / 2, height * 0.46, width * 0.66)
+  aura.addColorStop(0, `${accent}55`)
+  aura.addColorStop(0.55, `${accent}16`)
+  aura.addColorStop(1, 'rgba(6,7,9,0)')
+  ctx.fillStyle = aura
+  ctx.fillRect(0, 0, width, height)
+
+  const cardWidth = format === 'story' ? 780 : 700
+  const cardHeight = Math.round(cardWidth * 1.373)
+  const cardX = (width - cardWidth) / 2
+  const cardY = (height - cardHeight) / 2
+  const cardRadius = 62
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.72)'
+  ctx.shadowBlur = 80
+  ctx.shadowOffsetY = 36
+  roundedRect(ctx, cardX, cardY, cardWidth, cardHeight, cardRadius)
+  ctx.fillStyle = '#111216'
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  roundedRect(ctx, cardX, cardY, cardWidth, cardHeight, cardRadius)
+  ctx.clip()
+  if (heroImage) {
+    ctx.save()
+    ctx.translate(cardX, cardY)
+    drawCover(ctx, heroImage, cardWidth, cardHeight)
+    ctx.restore()
+  }
+  else {
+    const fallback = ctx.createLinearGradient(cardX, cardY, cardX + cardWidth, cardY + cardHeight)
+    fallback.addColorStop(0, accent)
+    fallback.addColorStop(1, '#111216')
+    ctx.fillStyle = fallback
+    ctx.fillRect(cardX, cardY, cardWidth, cardHeight)
+  }
+  const shade = ctx.createLinearGradient(0, cardY, 0, cardY + cardHeight)
+  shade.addColorStop(0, 'rgba(0,0,0,0.3)')
+  shade.addColorStop(0.48, 'rgba(0,0,0,0.02)')
+  shade.addColorStop(1, 'rgba(0,0,0,0.96)')
   ctx.fillStyle = shade
-  ctx.fillRect(0, 0, width, height)
+  ctx.fillRect(cardX, cardY, cardWidth, cardHeight)
+  const foil = ctx.createLinearGradient(cardX, cardY, cardX + cardWidth, cardY + cardHeight)
+  foil.addColorStop(0.1, 'rgba(255,255,255,0)')
+  foil.addColorStop(0.3, 'rgba(255,106,196,0.22)')
+  foil.addColorStop(0.4, 'rgba(255,244,190,0.38)')
+  foil.addColorStop(0.48, `${accent}62`)
+  foil.addColorStop(0.57, 'rgba(105,229,255,0.3)')
+  foil.addColorStop(0.7, 'rgba(255,255,255,0)')
+  foil.addColorStop(0.86, `${accent}30`)
+  foil.addColorStop(0.9, 'rgba(255,255,255,0)')
+  ctx.globalCompositeOperation = 'screen'
+  ctx.fillStyle = foil
+  ctx.fillRect(cardX, cardY, cardWidth, cardHeight)
+  const glare = ctx.createRadialGradient(cardX + cardWidth * 0.68, cardY + cardHeight * 0.28, 0, cardX + cardWidth * 0.68, cardY + cardHeight * 0.28, cardWidth * 0.64)
+  glare.addColorStop(0, 'rgba(255,255,255,0.48)')
+  glare.addColorStop(0.2, `${accent}38`)
+  glare.addColorStop(0.55, 'rgba(255,255,255,0.04)')
+  glare.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = glare
+  ctx.fillRect(cardX, cardY, cardWidth, cardHeight)
+  ctx.restore()
 
-  const padding = 76
-  const title = franchiseDisplayName(definition.name)
-  const allMovies = definition.members.every((member) => (member.mediaType ?? 'movie') === 'movie')
-  const noun = allMovies ? 'films' : 'titles'
-  ctx.fillStyle = '#ffffff'
-  ctx.font = '900 112px Arial, sans-serif'
+  ctx.save()
+  roundedRect(ctx, cardX + 1, cardY + 1, cardWidth - 2, cardHeight - 2, cardRadius)
+  ctx.strokeStyle = 'rgba(255,255,255,0.42)'
+  ctx.lineWidth = 3
+  ctx.stroke()
+  ctx.restore()
+
+  const padding = 46
+  const title = franchiseRootName(definition.name)
+  const bottom = cardY + cardHeight - padding
   ctx.textBaseline = 'top'
-  const lines = wrapText(ctx, title, width - padding * 2).slice(0, 3)
-  const titleY = height - (format === 'story' ? 590 : 470)
-  lines.forEach((line, index) => ctx.fillText(line, padding, titleY + index * 104))
-
-  ctx.fillStyle = accent === '#ffffff' ? '#f5c453' : accent
-  ctx.font = 'italic 900 190px Arial, sans-serif'
-  ctx.fillText(String(definition.memberIds.length), padding, titleY - 205)
-  ctx.fillStyle = 'rgba(255,255,255,0.82)'
-  ctx.font = '700 34px Arial, sans-serif'
-  ctx.fillText(`You've seen every ${title} ${noun}.`, padding, height - 150)
-  ctx.fillStyle = 'rgba(255,255,255,0.5)'
-  ctx.font = '700 25px Arial, sans-serif'
-  ctx.textAlign = 'right'
-  ctx.fillText('LOOT', width - padding, height - 148)
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#ffffff'
+  ctx.font = '900 66px Arial, sans-serif'
+  const lines = wrapText(ctx, title, cardWidth - padding * 2).slice(0, 3)
+  const lineHeight = 62
+  const titleY = bottom - lines.length * lineHeight - 38
+  lines.forEach((line, index) => ctx.fillText(line, cardX + padding, titleY + index * lineHeight))
+  ctx.fillStyle = 'rgba(255,255,255,0.56)'
+  ctx.font = '600 22px Arial, sans-serif'
+  const count = definition.memberIds.length
+  ctx.fillText(`${count}/${count}`, cardX + padding, bottom - 22)
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Export failed')), 'image/png')
@@ -117,7 +203,7 @@ export async function shareCollectionAchievement(
 ) {
   const file = await createCollectionShareFile(achievement, format)
   if (navigator.share && navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file], title: franchiseDisplayName(achievement.definition.name) })
+    await navigator.share({ files: [file], title: franchiseDisplayName(achievement.definition) })
     return 'shared' as const
   }
   const url = URL.createObjectURL(file)

@@ -86,6 +86,8 @@ export interface FranchiseDefinition {
   sourceId?: number
   /** Stable non-numeric provider key when the local numeric id is derived. */
   sourceKey?: string
+  /** The boundary the user is completing: one direct series or a wider world with spin-offs. */
+  scope?: 'series' | 'universe'
   tradition?: AnimationTradition
   collectible?: boolean
   updatedAt: number

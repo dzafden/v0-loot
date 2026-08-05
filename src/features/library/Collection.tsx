@@ -22,6 +22,8 @@ type LogoAsset = { file_path: string; vote_average?: number; iso_639_1?: string 
 interface Props {
   onAddShow: () => void
   onOpenShow: (show: Show) => void
+  openCollectionId?: number | null
+  onCollectionOpened?: () => void
 }
 
 const TIER_CHIPS: TierFilter[] = ['S', 'A', 'B', 'C', 'D', 'Unsorted']
@@ -33,7 +35,7 @@ function bestLogo(items: LogoAsset[] = []) {
     .sort((a, b) => (b.vote_average ?? 0) - (a.vote_average ?? 0))[0]?.file_path ?? null
 }
 
-export function Collection({ onAddShow, onOpenShow }: Props) {
+export function Collection({ onAddShow, onOpenShow, openCollectionId, onCollectionOpened }: Props) {
   const [view, setView] = useState<'collection' | 'watchlist'>('collection')
   const [searchQuery, setSearchQuery] = useState('')
   const [activeGenre, setActiveGenre] = useState('All')
@@ -316,6 +318,8 @@ export function Collection({ onAddShow, onOpenShow }: Props) {
           mode={collectionRecordsOpen ? 'screen' : 'rails'}
           onOpenAll={() => setCollectionRecordsOpen(true)}
           onBack={() => setCollectionRecordsOpen(false)}
+          openDefinitionId={openCollectionId}
+          onOpenDefinitionHandled={onCollectionOpened}
         />
       )}
 

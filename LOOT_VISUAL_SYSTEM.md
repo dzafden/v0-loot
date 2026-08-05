@@ -193,6 +193,27 @@ Hierarchy should generally follow:
 
 Avoid using bold uppercase for every label. Weight, casing, size, and spacing must create distinct roles.
 
+### Text necessity gate
+
+Before adding any visible text to a component, ask all three questions:
+
+1. Is this text actionable?
+2. Is it absolutely necessary and load-bearing for understanding or completing the task?
+3. Do the existing visual, spatial, or interaction cues already communicate it?
+
+Apply this gate to every existing and proposed visible string whenever a component is created or modified. Run it before implementation and again during final review, in the context of the whole screen and user journey.
+
+If the text is neither actionable nor load-bearing, remove it. If other cues already communicate it, remove it. Internal taxonomy, ceremonial labels, brand stamps, explanatory captions, and restatements of visible state do not earn a place merely because a composition has empty space. Status feedback is permitted only when it reports a change the user could not otherwise perceive.
+
+The positive test is equally strict. New text, metadata, or visual information earns space only when it does at least one of these jobs:
+
+- Enables a clear next action.
+- Reveals a trustworthy, user-specific truth that makes the object meaningfully theirs.
+- Clarifies the scope or contents of an object when the artwork and title cannot.
+- Confirms a state change the user could not otherwise perceive.
+
+Then verify that the information is accurate, cannot be inferred from stronger existing cues, and receives no more visual emphasis than its decision or expressive value warrants. Do not manufacture rarity, provenance, dates, personality, or social proof from data Loot does not genuinely have. Empty space is allowed; it is not an invitation to invent meaning.
+
 ### Materials and chrome
 
 - Navigation and controls may float above content using restrained translucent materials.
@@ -201,31 +222,55 @@ Avoid using bold uppercase for every label. Weight, casing, size, and spacing mu
 - Utility controls should recede until needed and become expressive only when active.
 - Do not create a separate container for information that can be grouped through alignment and spacing.
 
+#### Container necessity gate
+
+Begin new and substantially revised components from a content-first, uncontained composition. Existing shells do not earn automatic preservation. Before adding or retaining a background, border, radius, shadow, inset panel, material surface, padded shell, or other visible boundary, name its indispensable purpose. It must establish a distinct interactive object, group controls with shared behavior or state, protect legibility when lighter techniques cannot, or communicate a real semantic or spatial relationship.
+
+Perform a removal pass before approval:
+
+1. Remove the container's background, border, radius, shadow, and extra padding.
+2. If the component remains understandable and usable, leave the container removed.
+3. Reject nested containers unless the inner object has genuinely separate behavior or state.
+4. Reject blank chrome created mainly to house sparse metadata. Adapt information to the content composition instead of shrinking content to accommodate it.
+5. Inspect the component in the rendered full-page context. If its material, silhouette, or panel system registers before its content or purpose, it fails.
+
+One visible boundary is the default maximum for one semantic object. This is not a requirement for universal full bleed; a boundary that passes the gate remains valid. Artwork and content must still determine the composition rather than appearing as an insert inside interface furniture.
+
 ### Generated achievement collectibles
 
 - Achievement cards are generated from achievement data, not individually art-directed by default.
 - Use literal, immediately understandable names such as “Cartoon Network” and “Shōnen anime.” Do not invent collectible nicknames that obscure what the user earned.
-- Keep the completion number, content noun, and completion state in one achievement cluster. Reserve one consistent top-right classifier position across studio, genre, and series cards so the card anatomy remains recognizable.
+- Treat counts as supporting evidence, not the achievement's identity. Their prominence must reflect the decision value they provide on that surface.
 - A logo is optional supporting data. It must never be required for the composition to work, overlap the completion number, or force a different information hierarchy.
-- Generate cards from a stable anatomy: classifier identity + completion number + literal achievement + source artwork. Variation must come from those inputs rather than additional labels or decorative chrome.
+- Generate cards from a stable anatomy: recognizable identity + source artwork + only the minimum supporting data that passes the text necessity gate. Variation must come from those inputs rather than additional labels or decorative chrome.
 - Support three classifier families: studio, genre, and series. Studio cards behave like catalogue retrospectives, genre cards share a semantic visual energy, and series cards present their installments as one continuous world.
-- Treat a recognizable studio or series logo as the classifier name. Never repeat the same identity as an equally prominent text label beside or beneath its logo. When no logo exists, render the literal classifier name in the same reserved classifier position.
+- Treat a recognizable studio or series logo as its identity. Never repeat the same identity as an equally prominent text label beside or beneath its logo.
+- One title maps to one collectible card. A multi-title collection maps to a binder page or sticker-album grid of slots, never to a single card or a sealed pack. Filled slots show title cards; unfinished slots remain visible as quiet silhouettes so scope and progress are understandable without opening a nested selector.
+- Do not use pack-opening or gacha framing for earned records. Surprise completion may carry unboxing energy because the completion was earned, but the object revealed is the title card and the collection remains the binder page.
+- Build title cards from existing truth: key art, title logo, year, a verified studio mark, artwork-derived dominant colour, and the user's tier where available. Prefer a recognizable property or studio logo when one is available. Animation tradition or vibe may shape the optical material, but an invented glyph must not appear as standalone card information unless Loot has already taught users its meaning.
+- At title-card inspection scale, a studio logo is identity rather than incidental metadata. Give its native mark enough size, contrast protection, and clear space to be recognized immediately across bright, dark, and busy artwork. Do not force it into a generic badge or tint it into invisibility.
+- Treat the holo material as data-driven card material, not a generic rainbow overlay. The swappable foil texture comes from the title's studio mark or animation-tradition/vibe glyph; dominant colour tints the material; collection-frequency treatment selects the finish: everyday is matte, Sunday is regular holo, and heirloom uses the richer cosmos treatment. These treatment names remain internal.
 - Series cards must not use installment posters when their embedded titles would repeat the series classifier. Prefer logo-free stills, character art, or environmental key art composed as one shared world, with the franchise logo appearing exactly once in the classifier position.
-- Keep the achievement—not the classifier—as the primary textual message. A card should read directly as a number plus a content noun and earned state, such as “10 shows completed” or “4 films completed.”
+- Do not add an earned-state slogan when the completed object, its context, and its progress already communicate the state. Let artwork and identity carry the object before adding a textual achievement message.
 - Give completion numerals a solid, colored core with a protected dark edge. Foil, shine, texture, glow, and extrusion may reinforce the earned object but must not make the glyph transparent, clipped, or ambiguous.
 - Use no more than one visible outer card edge. Do not stack decorative outlines, frames, or information containers.
 - Adapt the artwork composition to the number of source shows: dense mosaic for many, directional slices for a medium set, and full-bleed panels for a small set.
 - Preserve a consistent information hierarchy across generated cards even when artwork composition changes.
 - Begin series achievement progress as soon as the user watches one required installment. Keep incomplete achievements visible by default, without dismissal, so unfinished collections remain a useful invitation rather than a transient recommendation.
 - Treat achievement cards as navigable collection summaries. Activating a card must reveal its required titles, current watched/total progress, direct title navigation, and the canonical Seen and Watchlist actions.
+- Name the collection boundary wherever it appears. A direct installment line is a “series”; a wider group containing spin-offs or distinct subseries is a “universe.” Never show a bare root title when the membership extends beyond that root (for example, Puss in Boots inside the Shrek universe).
+- Registry-backed collection details hydrate released members into canonical title records on demand. Every listed title receives real artwork and metadata when available, the full editorial row has an obvious details affordance, and Seen and Watchlist remain separate canonical actions. A generated placeholder must not become a dead end.
 - Reserve celebratory gold material for earned history. Incomplete achievements use neutral progress treatment; if a completed collection later gains a new installment, preserve the earned card and identify the new chapter without revoking the original achievement.
 - Treat completion as recognition, not victory. The full-screen moment may be loud and physical, but its copy states a truth about the user; never use “unlocked,” score, XP, confetti, or congratulatory fanfare.
+- Materialize a full-screen completion as one focused title card displayed on a quiet artwork-derived stage, not as an announcement written across a dimmed hero and not as a proxy card for the whole set. The revealed card is the title that completed the binder page. Do not add scope labels, a Loot stamp, an earned-state slogan, an app-derived date, or explanatory record copy when the object and its context already communicate those facts. Surrounding chrome only offers View collection and Share card. The shared export must preserve the same card anatomy so the thing shown, saved, and shared is recognizably the same earned artifact.
+- Give completion collectibles a physically responsive material at inspection scale: pointer or touch position may drive restrained 3D tilt, directional shadow, local glare, and masked prismatic foil. Keep title artwork and identity above the optical material so they remain legible. The effect must respond to interaction, settle when interaction ends, use a quiet static treatment under reduced motion, and never become perpetual ambient animation. Shared exports preserve a deliberate static foil pose rather than pretending to capture motion.
 - Scale completion treatment by how rarely an event of that scope occurs: small everyday sets stay plain, medium bodies receive a fuller cover moment, and substantial canons receive the strongest placement. Do not expose these as rarity labels.
 - Below half-complete, frame a collection as a capture prompt (“Seen the others?”), not a debt or progress chore. Detailed views may show the factual record, but low-progress rail cards should not lead with a remaining-work bar.
 - Use one coherent hero composition for collection covers: collection or member backdrop, artwork-derived colour field, and title as a type layer. Use a multi-poster split only when no suitable hero image exists.
 - Dismissal means “not for me,” not deletion. Keep it behind detail or long-press, restore it when new watching contradicts the dismissal, and provide a reversible list in Settings.
 - Studio pages are discovery infrastructure available independently of progress. Personal studio records materialize only after at least two watched titles form a meaningful pattern and the studio visibility rule is satisfied.
-- Enter studio discovery from Discover's Explore chapter, where a small feed rail previews real studio worlds with canonical studio-linked artwork and direct studio-page navigation. On browsing cards, use one consistent typeset studio name over the artwork; do not also repeat it as a wordmark. Heterogeneous studio logos are reserved for singular identity moments where their native treatment has room to breathe, never normalized into a forced-white rail. Provide a quieter “Browse all” path to a visual grouped directory led by a famous studio-linked title image; never reduce the directory to text-only rows or black-on-black identity tiles. Each directory item gets one content surface, not a card containing another card. Do not use unrelated feed artwork as a generic studio promotion. Keep Collections focused on the user's personal studio progress and earned records.
+- Enter studio discovery from Discover's Explore chapter as a compact glimpse of the directory: a Studios heading, a direct All action, and a small number of studio headers with representative title rows. Do not add a slogan, featured-studio card rail, or hero treatment there. Studio name, factual catalogue total, and chevron belong on the tappable header; the artwork row simply demonstrates the catalogue beneath it. Heterogeneous studio logos are reserved for singular identity moments where their native treatment has room to breathe, never normalized into a forced-white rail. Do not use unrelated feed artwork as a generic studio promotion. Keep Collections focused on the user's personal studio progress and earned records.
+- A studio directory uses one clearly navigable header per studio: name, factual catalogue total, and chevron. Activating that header opens the complete studio catalogue. A quiet, static row of representative title artwork beneath it demonstrates breadth; it is not another card, does not animate for decoration, and does not repeat the studio's identity.
 - A discovery studio page uses a compact brand-and-count header followed immediately by its titles. Do not reuse achievement progress copy or introductory prose there. Give each title enough room for canonical artwork, name, year, format, a short overview when available, and the standard Seen and Watchlist actions.
 
 ## Motion and Feedback
@@ -324,6 +369,9 @@ Before approving a new or changed interface, answer:
 ### Restraint
 
 - What could be removed without losing meaning?
+- Has every visible string passed the text necessity gate: actionable, load-bearing, and not already communicated by another cue?
+- Has every visible boundary passed the container necessity gate and the removal test?
+- Does the content define the composition, or has it been reduced to an insert inside chrome?
 - Is this viewport offering one clear spectacle or several competing ones?
 - Does the chrome become quiet when the content deserves attention?
 
@@ -346,6 +394,8 @@ These sources inform the principles above. They are inputs, not substitutes for 
 - [Keeping Users in the Flow: Mapping System Responsiveness with User Experience](https://doi.org/10.1016/j.promfg.2015.07.436)
 - [Narrative Transportation: How Stories Shape How We See Ourselves and the World](https://www.sciencedirect.com/science/chapter/bookseries/abs/pii/S0065260124000145)
 - [Web Page Visual Hierarchy: Examining Faraday's Guidelines for Entry Points](https://doi.org/10.1016/j.chb.2018.03.014)
+- [Simey: Pokémon Cards Holographic Effect](https://codepen.io/simeydotme/pen/abYWJdX)
+- [Simey: Pokémon Cards CSS source and implementation notes](https://github.com/simeydotme/pokemon-cards-css)
 
 ## Maintaining This Document
 

@@ -53,6 +53,7 @@ export default function App() {
   const [castingFor, setCastingFor] = useState<CastingTarget | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [achievementQueue, setAchievementQueue] = useState<EarnedFranchiseAchievement[]>([])
+  const [collectionToOpen, setCollectionToOpen] = useState<number | null>(null)
   const collectionSync = useRef<Promise<void>>(Promise.resolve())
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(() => {
     try { return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'complete' ? false : null } catch { return null }
@@ -142,6 +143,15 @@ export default function App() {
     setAchievementQueue((current) => current.slice(1))
   }, [])
 
+  const openAchievementCollection = useCallback((achievement: EarnedFranchiseAchievement) => {
+    const nextTab: Tab = 'collection'
+    window.history.pushState({ lootApp: true, tab: nextTab, detail: null }, '')
+    setDetail(null)
+    setTab(nextTab)
+    setCollectionToOpen(achievement.definitionId)
+    setAchievementQueue((current) => current.slice(1))
+  }, [])
+
   // Inject keyframes for shine animation (used by LootCard).
   useEffect(() => {
     const style = document.createElement('style')
@@ -157,11 +167,14 @@ export default function App() {
     }
   }, [])
 
+  const activeAchievement = showOnboarding === false ? achievementQueue[0] ?? null : null
+
   return (
     <div className="min-h-svh text-white selection:bg-[#f5c453] selection:text-black flex justify-center bg-[#050507]">
       <div className="fixed inset-0 pointer-events-none loot-noise opacity-[0.26]" aria-hidden />
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_-12%,rgba(255,190,106,0.18),transparent_34rem),radial-gradient(circle_at_88%_28%,rgba(74,222,128,0.08),transparent_22rem)]" aria-hidden />
       <div className="w-full max-w-md relative bg-[#08070a]/92 min-h-svh overflow-x-hidden shadow-[0_0_80px_rgba(0,0,0,0.75)]">
+        <div className="min-h-svh" aria-hidden={activeAchievement ? true : undefined} inert={activeAchievement ? true : undefined}>
         {tab === 'discover' && (
           <Discover
             onOpenSettings={() => setSettingsOpen(true)}
@@ -169,7 +182,12 @@ export default function App() {
           />
         )}
         {tab === 'collection' && (
-          <Collection onAddShow={() => setAdding(true)} onOpenShow={(show) => openDetail(show)} />
+          <Collection
+            onAddShow={() => setAdding(true)}
+            onOpenShow={(show) => openDetail(show)}
+            openCollectionId={collectionToOpen}
+            onCollectionOpened={() => setCollectionToOpen(null)}
+          />
         )}
         {tab === 'rankings' && (
           <Rankings onGoDiscover={() => navigateTab('discover')} onOpenShow={(show) => openDetail(show)} />
@@ -214,9 +232,11 @@ export default function App() {
         <AnimatePresence>
           {showOnboarding && <FirstSessionOnboarding onComplete={() => { navigateTab(hasTmdbKey() ? 'discover' : 'collection'); setShowOnboarding(false) }} />}
         </AnimatePresence>
+        </div>
         <CollectionCompletionReveal
-          achievement={showOnboarding === false ? achievementQueue[0] ?? null : null}
+          achievement={activeAchievement}
           onDismiss={dismissAchievementReveal}
+          onViewCollection={openAchievementCollection}
         />
       </div>
     </div>
